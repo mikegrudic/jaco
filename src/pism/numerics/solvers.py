@@ -8,7 +8,7 @@ def newton_rootsolve(
     jacfunc=None,
     tolfunc=None,
     rtol=1e-6,
-    max_iter=1000,
+    max_iter=100,
     careful_steps=1,
 ):
     """
