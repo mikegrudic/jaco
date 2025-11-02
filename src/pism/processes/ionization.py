@@ -14,12 +14,13 @@ class Ionization(Process):
     Implements method for setting the chemistry network terms
     """
 
-    def __init__(self, species: str):
+    def __init__(self, species: str, rate_per_volume=0):
         self.species = species
         self.ionized_species = ionize(species)
         self.__ionization_energy = None
         super().__init__()
-        self.__rate_per_volume = 0
+        self.__rate_per_volume = rate_per_volume
+        self.update_network()
 
     @property
     def rate(self):

@@ -194,9 +194,6 @@ class Process:
 
         self.do_solver_value_checks(known_quantities, guess)
 
-        #        for k in known_quantities:
-        #            if k in
-
         # need to implement broadcasting between knowns and guesses...
         # can supply just the species names, will convert to the number density symbol if necessary
         unknowns = [sp.Symbol(f"n_{i}") for i in self.reduced_network]
