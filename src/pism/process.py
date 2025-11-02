@@ -201,9 +201,7 @@ class Process:
             unknowns.append("T")
         known_variables = [sp.Symbol(k) if isinstance(k, str) else k for k in known_quantities]
 
-        func = sp.lambdify(
-            unknowns + known_variables, list(network_tosolve.values()), modules="jax"
-        )  # , dummify=True)
+        func = sp.lambdify(unknowns + known_variables, list(network_tosolve.values()), modules="jax")  # , dummify=True)
 
         @jax.jit
         def f_numerical(X, *params):
@@ -230,7 +228,7 @@ class Process:
         guesses = jnp.array(guesses).T
         params = jnp.array(list(known_quantities.values())).T
         sol = newton_rootsolve(
-            f_numerical, guesses, params, tolfunc=tolerance_func, rtol=tol, careful_steps=careful_steps
+            f_numerical, guesses, params, tolfunc=tolerance_func, rtol=tol, careful_steps=careful_steps, positive=True
         )
 
         # get solution into dict form

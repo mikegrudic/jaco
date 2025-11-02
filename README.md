@@ -20,7 +20,7 @@ Once you've constructed your system, `pism` can give you the symbolic equations 
 `pism` is in an early prototyping phase right now. Here are some things I would eventually like to add:
 * Flexible implementation of a reduced network suitable for RHD simulations in GIZMO and potentially other codes.
 * Dust and radiation physics: add the dust energy equation and evolution of photon number densities to the network.
-* Thermochemical equilibrium and time-dependent solvers: only chemical equilibrium at fixed `T` is implemented right now.
+* Time-dependent solvers: only chemical equilibrium at fixed `T` and thermochemical equilibrium where heating balances cooling are implemented right now.
 * Interfaces to convert from other existing chemistry network formats to the `Process` representation.
 * Solver robustness upgrades: thermochemical networks can be quite challenging numerically, due to how steeply terms switch on with increasing `T`. In can be hard to get a solution without good initial guesses.
 * If possible, glue interface allowing an existing compiled code to call the JAX solvers on-the-fly.
