@@ -23,7 +23,7 @@ def test_newton_rootsolve(N=10**5):
 
     func = jax.jit(func)
 
-    sol = newton_rootsolve(func, guess, params)
+    sol = newton_rootsolve(func, guess, params, positive=True, rtol=1e-6)
     converged = jnp.all(jnp.isfinite(sol), axis=1)
     assert converged.sum() > 0.9 * N
     assert jnp.all(jnp.isclose(sol[converged], exact[converged], rtol=1e-5, atol=0))
