@@ -1,5 +1,4 @@
 from pism.processes import CollisionalIonization, GasPhaseRecombination
-from matplotlib import pyplot as plt
 import numpy as np
 
 
@@ -35,4 +34,4 @@ def generate_CIE_testdata():
     he = ch.ioneq(2)
     he.load()
     he.calculate(Tgrid)
-    np.save("chianti_He_abundances.npy", np.c_[Tgrid, *he.Ioneq])
+    np.save("chianti_He_abundances.npy", np.c_[Tgrid, he.Ioneq])
