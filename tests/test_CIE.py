@@ -17,7 +17,7 @@ def test_CIE():
     ngrid = np.ones_like(Tgrid)
     Ygrid = 0.24 * np.ones_like(Tgrid)
 
-    knowns = {"T": Tgrid, "n_Htot": ngrid, "Y": Ygrid}
+    knowns = {"T": Tgrid, "n_Htot": ngrid}
 
     guesses = {"H": 0.5 * np.ones_like(Tgrid), "He": 1e-5 * np.ones_like(Tgrid), "He+": 1e-5 * np.ones_like(Tgrid)}
     sol = system.steadystate(knowns, guesses, tol=1e-3)

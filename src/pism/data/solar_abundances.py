@@ -1,7 +1,7 @@
 from .atomic_weights import atomic_weights
 
 
-class SolarAbundaces:
+class SolarAbundancesClass:
     """Container for solar abundances with methods to convert between mass fraction and abundance per H"""
 
     bibliography = ["2009ARA&A..47..481A"]
@@ -31,13 +31,16 @@ class SolarAbundaces:
     def get_mass_fraction(self, species: str) -> float:
         """Returns the mass fraction of a given species"""
         if species in self.mass_fraction:
-            return self.mass_fraction["species"]
+            return self.mass_fraction[species]
         else:
             raise NotImplementedError(f"Solar abundance of {species} not available.")
 
     def get_abundance(self, species: str) -> float:
         """Returns the abundance per H nuclear of an input species"""
         if species in self.mass_fraction:
-            return self.abundance_per_H["species"]
+            return self.abundance_per_H[species]
         else:
             raise NotImplementedError(f"Solar abundance of {species} not available.")
+
+
+SolarAbundances = SolarAbundancesClass()

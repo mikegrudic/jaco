@@ -1,1 +1,1 @@
-from .metal_abundances import solar_abundances
+from .solar_abundances import SolarAbundances

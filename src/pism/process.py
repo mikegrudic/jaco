@@ -6,9 +6,11 @@ from collections import defaultdict
 import sympy as sp
 import jax
 import jax.numpy as jnp
+import numpy as np
 from .numerics import newton_rootsolve
 from .symbols import n_
 from .misc import is_an_ion
+from .data import SolarAbundances
 
 
 class Process:
@@ -194,6 +196,13 @@ class Process:
 
         self.do_solver_value_checks(known_quantities, guess)
 
+        num_params = len(known_quantities["n_Htot"])
+
+        # plug in sensible defaults for things
+        if "Y" not in known_quantities:
+            known_quantities["Y"] = np.repeat(SolarAbundances.get_mass_fraction("He"), num_params)
+        num_params = len(known_quantities)
+
         # need to implement broadcasting between knowns and guesses...
         # can supply just the species names, will convert to the number density symbol if necessary
         unknowns = [sp.Symbol(f"n_{i}") for i in self.reduced_network]
@@ -201,7 +210,7 @@ class Process:
             unknowns.append("T")
         known_variables = [sp.Symbol(k) if isinstance(k, str) else k for k in known_quantities]
 
-        func = sp.lambdify(unknowns + known_variables, list(network_tosolve.values()), modules="jax")  # , dummify=True)
+        func = sp.lambdify(unknowns + known_variables, list(network_tosolve.values()), modules="jax")
 
         @jax.jit
         def f_numerical(X, *params):
