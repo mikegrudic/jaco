@@ -68,9 +68,13 @@ def newton_rootsolve(
             X, _, num_iter = arg
             fac = jnp.min(jnp.array([(num_iter + 1.0) / careful_steps, 1.0]))
             J = jac(X, *params)
-            cond = jnp.linalg.cond(J)
-            dx = jnp.where(cond < 1e30, -jnp.linalg.solve(J, func(X, *params)) * fac, jnp.zeros_like(X))
-            Xnew = jnp.where(positive, (X + dx).clip(SMALL), X + dx)
+            #  condition number is nice but possibly very slow due to batching, e.g. https://github.com/jax-ml/jax/issues/11321
+            # there is no reason for this from a pure FLOPS standpoint!
+            #            cond = jsp.linalg.cond(J)  # , p=2)
+            #            dx = jnp.where(cond < 1e30, -jnp.linalg.solve(J, func(X, *params)) * fac, jnp.zeros_like(X))
+            dx = -jnp.linalg.solve(J, func(X, *params)) * fac
+            dx_finite = jnp.all(jnp.isfinite(dx))
+            Xnew = jnp.where(dx_finite, jnp.where(positive, (X + dx).clip(SMALL), X + dx), X)
             return Xnew, dx, num_iter + 1
 
         init_val = guess, 100 * guess, 0
@@ -80,8 +84,3 @@ def newton_rootsolve(
 
     X = jax.vmap(solve)(guesses, params)
     return X
-
-
-newton_rootsolve = jax.jit(
-    newton_rootsolve, static_argnames=["func", "tolfunc", "jacfunc", "max_iter", "careful_steps"]
-)

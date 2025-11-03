@@ -9,7 +9,7 @@ import jax.numpy as jnp
 import numpy as np
 from .numerics import newton_rootsolve
 from .symbols import n_
-from .misc import is_an_ion, base_species
+from .misc import is_an_ion
 from .data import SolarAbundances
 
 
@@ -104,7 +104,6 @@ class Process:
             n_("H+"): nHtot - n_("H"),
             n_("He++"): Y / (4 - 4 * Y) * nHtot - sp.Symbol("n_He") - sp.Symbol("n_He+"),
         }
-
         return substitutions
 
     def apply_network_reductions(self, expr):
@@ -197,21 +196,12 @@ class Process:
 
         self.do_solver_value_checks(known_quantities, guess)
 
-        # If abundances are specified as known quantities then we want to remove them from the network.
-
-        num_params = len(known_quantities["n_Htot"])  # will not change
+        num_params = len(known_quantities["n_Htot"])
 
         # plug in sensible defaults for things
         if "Y" not in known_quantities:
             known_quantities["Y"] = np.repeat(SolarAbundances.get_mass_fraction("He"), num_params)
-
-        # if "Z" in known_quantities:
-        #     # usually we just specify Z and get the abundances of all metals from that
-        #     for species, f in SolarAbundances.mass_fraction:
-        #         atom = base_species(species)
-        #         if base_species(species) in network_tosolve:
-        #             known_quantities["Z_{atom}"] = np.repeat(SolarAbundances.get_mass_fraction(atom), num_params)
-        #             guesses[atom] =
+        num_params = len(known_quantities)
 
         # need to implement broadcasting between knowns and guesses...
         # can supply just the species names, will convert to the number density symbol if necessary
@@ -222,7 +212,6 @@ class Process:
 
         func = sp.lambdify(unknowns + known_variables, list(network_tosolve.values()), modules="jax")
 
-        @jax.jit
         def f_numerical(X, *params):
             """JAX function to rootfind"""
             return jnp.array(func(*X, *params))
@@ -234,7 +223,6 @@ class Process:
             tolerance_vars += [sp.Symbol("T")]
         tolfunc = sp.lambdify(unknowns + known_variables, tolerance_vars, modules="jax")
 
-        @jax.jit
         def tolerance_func(X, *params):
             """Solution will terminate if the relative change in this quantity is < tol"""
             return jnp.array(tolfunc(*X, *params))
