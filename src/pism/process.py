@@ -8,7 +8,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from .numerics import newton_rootsolve
-from .symbols import n_, simplify_posified
+from .symbols import n_
 from .misc import is_an_ion
 from .data import SolarAbundances
 
