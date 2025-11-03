@@ -8,7 +8,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from .numerics import newton_rootsolve
-from .symbols import n_
+from .symbols import n_, simplify_posified
 from .misc import is_an_ion
 from .data import SolarAbundances
 
@@ -210,7 +210,7 @@ class Process:
             unknowns.append("T")
         known_variables = [sp.Symbol(k) if isinstance(k, str) else k for k in known_quantities]
 
-        func = sp.lambdify(unknowns + known_variables, list(network_tosolve.values()), modules="jax")
+        func = sp.lambdify(unknowns + known_variables, list(network_tosolve.values()), modules="jax", cse=True)
 
         def f_numerical(X, *params):
             """JAX function to rootfind"""
@@ -221,7 +221,7 @@ class Process:
         tolerance_vars = [self.apply_network_reductions(n_("e-")), n_("H")]
         if thermo:
             tolerance_vars += [sp.Symbol("T")]
-        tolfunc = sp.lambdify(unknowns + known_variables, tolerance_vars, modules="jax")
+        tolfunc = sp.lambdify(unknowns + known_variables, tolerance_vars, modules="jax", cse=True)
 
         def tolerance_func(X, *params):
             """Solution will terminate if the relative change in this quantity is < tol"""
@@ -229,7 +229,7 @@ class Process:
 
         guesses = []
         for i in network_tosolve:
-            guesses.append(guess[i])
+            guesses.append(np.copy(guess[i]))
             if input_abundances and i in self.network:
                 guesses[-1] *= known_quantities["n_Htot"]  # convert to density
         guesses = jnp.array(guesses).T
