@@ -9,7 +9,7 @@ import jax.numpy as jnp
 import numpy as np
 from .numerics import newton_rootsolve
 from .symbols import n_
-from .misc import is_an_ion
+from .misc import is_an_ion, base_species
 from .data import SolarAbundances
 
 
@@ -104,6 +104,7 @@ class Process:
             n_("H+"): nHtot - n_("H"),
             n_("He++"): Y / (4 - 4 * Y) * nHtot - sp.Symbol("n_He") - sp.Symbol("n_He+"),
         }
+
         return substitutions
 
     def apply_network_reductions(self, expr):
@@ -196,12 +197,21 @@ class Process:
 
         self.do_solver_value_checks(known_quantities, guess)
 
-        num_params = len(known_quantities["n_Htot"])
+        # If abundances are specified as known quantities then we want to remove them from the network.
+
+        num_params = len(known_quantities["n_Htot"])  # will not change
 
         # plug in sensible defaults for things
         if "Y" not in known_quantities:
             known_quantities["Y"] = np.repeat(SolarAbundances.get_mass_fraction("He"), num_params)
-        num_params = len(known_quantities)
+
+        # if "Z" in known_quantities:
+        #     # usually we just specify Z and get the abundances of all metals from that
+        #     for species, f in SolarAbundances.mass_fraction:
+        #         atom = base_species(species)
+        #         if base_species(species) in network_tosolve:
+        #             known_quantities["Z_{atom}"] = np.repeat(SolarAbundances.get_mass_fraction(atom), num_params)
+        #             guesses[atom] =
 
         # need to implement broadcasting between knowns and guesses...
         # can supply just the species names, will convert to the number density symbol if necessary

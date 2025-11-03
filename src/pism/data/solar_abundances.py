@@ -28,6 +28,9 @@ class SolarAbundancesClass:
         """Returns dictionary of abundances per H nucleon"""
         return {species: f / (1 - f) / atomic_weights[species] for species, f in self.mass_fraction.items()}
 
+    def x(self, species):
+        return self.get_abundance(species)
+
     def get_mass_fraction(self, species: str) -> float:
         """Returns the mass fraction of a given species"""
         if species in self.mass_fraction:
