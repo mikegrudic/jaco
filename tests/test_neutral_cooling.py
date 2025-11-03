@@ -1,4 +1,10 @@
-from pism.processes import FreeFreeEmission, LineCoolingSimple, CollisionalIonization, GasPhaseRecombination, Ionization
+from pism.processes import (
+    FreeFreeEmission,
+    LineCoolingSimple,
+    CollisionalIonization,
+    GasPhaseRecombination,
+    Ionization,
+)
 import numpy as np
 import matplotlib
 
