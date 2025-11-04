@@ -252,11 +252,13 @@ class Process:
                 guesses[-1] *= known_quantities["n_Htot"]  # convert to density
         guesses = jnp.array(guesses).T
         params = jnp.array(list(known_quantities.values())).T
-        sol = newton_rootsolve(
-            f_numerical, guesses, params, tolfunc=tolerance_func, rtol=tol, careful_steps=careful_steps, positive=True
+        
+        sol, num_iter = newton_rootsolve(
+            f_numerical, guesses, params, tolfunc=tolerance_func, rtol=tol, careful_steps=careful_steps, positive=True, return_num_iter=True
         )
+
         # get solution into dict form
-        sol = {species: sol[:, i] for i, species in enumerate(network_tosolve)}
+        sol = {species: np.array(sol[:, i]) for i, species in enumerate(network_tosolve)}
 
         # now get the missing species that we eliminated - this needs to be generalized...
         nHtot = known_quantities["n_Htot"]
