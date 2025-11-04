@@ -1,5 +1,3 @@
-# please autodoc me
-
 """Implementation of base Process class with methods for managing and solving systems of equations"""
 
 from collections import defaultdict
@@ -11,6 +9,9 @@ from .numerics import newton_rootsolve
 from .symbols import n_
 from .misc import is_an_ion
 from .data import SolarAbundances
+from . import eos
+from astropy import units
+from time import time
 
 
 class Process:
@@ -153,6 +154,7 @@ class Process:
         reduce_network=True,
         tol=1e-3,
         careful_steps=10,
+        dt=None,
     ):
         """
         Solves for equilibrium after substituting a set of known quantities, e.g. temperature, metallicity,
@@ -184,7 +186,7 @@ class Process:
             Dict of species and their equilibrium abundances relative to H or raw number densities (depending on
             value of normalize_to_H)
         """
-        if "T" in known_quantities:
+        if "T" in known_quantities and dt is None:
             thermo = False  # do a chemistry solve with T fixed
             if reduce_network:
                 network_tosolve = self.reduced_network
@@ -203,12 +205,26 @@ class Process:
             known_quantities["Y"] = np.repeat(SolarAbundances.get_mass_fraction("He"), num_params)
         num_params = len(known_quantities)
 
+        if "u0" in known_quantities and dt is not None:
+            # transform thermal equilibrium eqn. into thermal evolution backward Euler system
+            net_heat = network_tosolve["T"]
+            network_tosolve["T"] = (
+                self.apply_network_reductions((eos.u - sp.Symbol("u0")) * eos.rho) - net_heat * dt.to(units.s).value
+            )
+            # optionally do this for all chemical species you want to evolve out of steady-state
+
         # need to implement broadcasting between knowns and guesses...
         # can supply just the species names, will convert to the number density symbol if necessary
         unknowns = [sp.Symbol(f"n_{i}") for i in self.reduced_network]
         if thermo:
             unknowns.append("T")
+        if "u" in guess:
+            unknowns.append("u")
+            network_tosolve["u"] = self.apply_network_reductions(eos.u) - sp.Symbol("u")
+
         known_variables = [sp.Symbol(k) if isinstance(k, str) else k for k in known_quantities]
+
+        ################### all unknowns and knowns are worked out now, numerics time ##################################
 
         func = sp.lambdify(unknowns + known_variables, list(network_tosolve.values()), modules="jax", cse=True)
 
@@ -221,6 +237,8 @@ class Process:
         tolerance_vars = [self.apply_network_reductions(n_("e-")), n_("H")]
         if thermo:
             tolerance_vars += [sp.Symbol("T")]
+        if dt is not None:
+            tolerance_vars += [sp.Symbol("u"), net_heat]  # converge on the cooling rate
         tolfunc = sp.lambdify(unknowns + known_variables, tolerance_vars, modules="jax", cse=True)
 
         def tolerance_func(X, *params):
@@ -237,9 +255,9 @@ class Process:
         sol = newton_rootsolve(
             f_numerical, guesses, params, tolfunc=tolerance_func, rtol=tol, careful_steps=careful_steps, positive=True
         )
-
         # get solution into dict form
         sol = {species: sol[:, i] for i, species in enumerate(network_tosolve)}
+
         # now get the missing species that we eliminated - this needs to be generalized...
         nHtot = known_quantities["n_Htot"]
         sol["H+"] = nHtot - sol["H"]
