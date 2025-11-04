@@ -2,6 +2,7 @@
 
 [![Python package](https://github.com/mikegrudic/pism/actions/workflows/test.yml/badge.svg)](https://github.com/mikegrudic/pism/actions/workflows/test.yml)
 [![Readthedocs Status][docs-badge]][docs-link]
+[![codecov](https://codecov.io/github/mikegrudic/pism/graph/badge.svg?token=OWJQMWGABZ)](https://codecov.io/github/mikegrudic/pism)
 
 [docs-link]:           https://pism-code.readthedocs.io
 [docs-badge]:          https://readthedocs.org/projects/pism-code/badge
@@ -20,10 +21,9 @@ Once you've constructed your system, `pism` can give you the symbolic equations 
 `pism` is in an early prototyping phase right now. Here are some things I would eventually like to add:
 * Flexible implementation of a reduced network suitable for RHD simulations in GIZMO and potentially other codes.
 * Dust and radiation physics: add the dust energy equation and evolution of photon number densities to the network.
-* Time-dependent solvers: only chemical equilibrium at fixed `T` and thermochemical equilibrium where heating balances cooling are implemented right now.
 * Interfaces to convert from other existing chemistry network formats to the `Process` representation.
 * Solver robustness upgrades: thermochemical networks can be quite challenging numerically, due to how steeply terms switch on with increasing `T`. In can be hard to get a solution without good initial guesses.
-* If possible, glue interface allowing an existing compiled code to call the JAX solvers on-the-fly.
+* If possible, glue interface allowing an existing compiled hydro code to call the JAX solvers on-the-fly.
 
 pls halp.
 
@@ -116,12 +116,12 @@ Summing processes also sums all chemical and gas/dust cooling/heating rates.
 system.print_network_equations()
 ```
 
-    dn_H+/dt = 5.85e-11*sqrt(T)*n_H*n_e-*exp(-157809.1/T)/(sqrt(10)*sqrt(T)/1000 + 1) - 1.41621465870114e-10*n_H+*n_e-/(sqrt(T)*(0.00119216696847702*sqrt(T) + 1.0)**1.748*(0.563615123664978*sqrt(T) + 1.0)**0.252)
-    dn_He+/dt = 2.38e-11*sqrt(T)*n_He*n_e-*exp(-285335.4/T)/(sqrt(10)*sqrt(T)/1000 + 1) - 5.68e-12*sqrt(T)*n_He+*n_e-*exp(-631515/T)/(sqrt(10)*sqrt(T)/1000 + 1) - n_He+*n_e-*(0.0019*(1 + 0.3*exp(-94000.0/T))*exp(-470000.0/T)/T**1.5 + 1.93241606228058e-10/(sqrt(T)*(0.000164934781188511*sqrt(T) + 1.0)**1.7892*(4.84160744811772*sqrt(T) + 1.0)**0.2108)) + 5.66485863480458e-10*n_He++*n_e-/(sqrt(T)*(0.00059608348423851*sqrt(T) + 1.0)**1.748*(0.281807561832489*sqrt(T) + 1.0)**0.252)
-    dn_He++/dt = 5.68e-12*sqrt(T)*n_He+*n_e-*exp(-631515/T)/(sqrt(10)*sqrt(T)/1000 + 1) - 5.66485863480458e-10*n_He++*n_e-/(sqrt(T)*(0.00059608348423851*sqrt(T) + 1.0)**1.748*(0.281807561832489*sqrt(T) + 1.0)**0.252)
-    dn_H/dt = -5.85e-11*sqrt(T)*n_H*n_e-*exp(-157809.1/T)/(sqrt(10)*sqrt(T)/1000 + 1) + 1.41621465870114e-10*n_H+*n_e-/(sqrt(T)*(0.00119216696847702*sqrt(T) + 1.0)**1.748*(0.563615123664978*sqrt(T) + 1.0)**0.252)
     dn_He/dt = -2.38e-11*sqrt(T)*n_He*n_e-*exp(-285335.4/T)/(sqrt(10)*sqrt(T)/1000 + 1) + n_He+*n_e-*(0.0019*(1 + 0.3*exp(-94000.0/T))*exp(-470000.0/T)/T**1.5 + 1.93241606228058e-10/(sqrt(T)*(0.000164934781188511*sqrt(T) + 1.0)**1.7892*(4.84160744811772*sqrt(T) + 1.0)**0.2108))
+    dn_He++/dt = 5.68e-12*sqrt(T)*n_He+*n_e-*exp(-631515/T)/(sqrt(10)*sqrt(T)/1000 + 1) - 5.66485863480458e-10*n_He++*n_e-/(sqrt(T)*(0.00059608348423851*sqrt(T) + 1.0)**1.748*(0.281807561832489*sqrt(T) + 1.0)**0.252)
+    dn_He+/dt = 2.38e-11*sqrt(T)*n_He*n_e-*exp(-285335.4/T)/(sqrt(10)*sqrt(T)/1000 + 1) - 5.68e-12*sqrt(T)*n_He+*n_e-*exp(-631515/T)/(sqrt(10)*sqrt(T)/1000 + 1) - n_He+*n_e-*(0.0019*(1 + 0.3*exp(-94000.0/T))*exp(-470000.0/T)/T**1.5 + 1.93241606228058e-10/(sqrt(T)*(0.000164934781188511*sqrt(T) + 1.0)**1.7892*(4.84160744811772*sqrt(T) + 1.0)**0.2108)) + 5.66485863480458e-10*n_He++*n_e-/(sqrt(T)*(0.00059608348423851*sqrt(T) + 1.0)**1.748*(0.281807561832489*sqrt(T) + 1.0)**0.252)
+    dn_H/dt = -5.85e-11*sqrt(T)*n_H*n_e-*exp(-157809.1/T)/(sqrt(10)*sqrt(T)/1000 + 1) + 1.41621465870114e-10*n_H+*n_e-/(sqrt(T)*(0.00119216696847702*sqrt(T) + 1.0)**1.748*(0.563615123664978*sqrt(T) + 1.0)**0.252)
     dn_e-/dt = 5.85e-11*sqrt(T)*n_H*n_e-*exp(-157809.1/T)/(sqrt(10)*sqrt(T)/1000 + 1) + 2.38e-11*sqrt(T)*n_He*n_e-*exp(-285335.4/T)/(sqrt(10)*sqrt(T)/1000 + 1) + 5.68e-12*sqrt(T)*n_He+*n_e-*exp(-631515/T)/(sqrt(10)*sqrt(T)/1000 + 1) - n_He+*n_e-*(0.0019*(1 + 0.3*exp(-94000.0/T))*exp(-470000.0/T)/T**1.5 + 1.93241606228058e-10/(sqrt(T)*(0.000164934781188511*sqrt(T) + 1.0)**1.7892*(4.84160744811772*sqrt(T) + 1.0)**0.2108)) - 1.41621465870114e-10*n_H+*n_e-/(sqrt(T)*(0.00119216696847702*sqrt(T) + 1.0)**1.748*(0.563615123664978*sqrt(T) + 1.0)**0.252) - 5.66485863480458e-10*n_He++*n_e-/(sqrt(T)*(0.00059608348423851*sqrt(T) + 1.0)**1.748*(0.281807561832489*sqrt(T) + 1.0)**0.252)
+    dn_H+/dt = 5.85e-11*sqrt(T)*n_H*n_e-*exp(-157809.1/T)/(sqrt(10)*sqrt(T)/1000 + 1) - 1.41621465870114e-10*n_H+*n_e-/(sqrt(T)*(0.00119216696847702*sqrt(T) + 1.0)**1.748*(0.563615123664978*sqrt(T) + 1.0)**0.252)
 
 
 ## Solving ionization equilibrium
@@ -132,9 +132,8 @@ We would like to solve for ionization equilibrium given a temperature $T$, overa
 ```python
 Tgrid = np.logspace(3,6,10**6)
 ngrid = np.ones_like(Tgrid) * 100
-Ygrid = 0.24*np.ones_like(Tgrid)
 
-knowns = {"T": Tgrid, "n_Htot": ngrid, "Y": Ygrid}
+knowns = {"T": Tgrid, "n_Htot": ngrid}
 
 ```
 
@@ -151,13 +150,13 @@ sol = system.steadystate(knowns, guesses,tol=1e-3)
 print(sol)
 ```
 
-    {'He+': Array([6.6661010e-13, 6.6769382e-13, 6.6752680e-13, ..., 6.5619070e-06,
-           6.5618315e-06, 6.5617519e-06], dtype=float32), 'H': Array([9.9999994e-01, 9.9999994e-01, 9.9999994e-01, ..., 6.0612069e-07,
-           6.0611501e-07, 6.0610915e-07], dtype=float32), 'He': Array([7.8947365e-02, 7.8947365e-02, 7.8947365e-02, ..., 2.3453643e-09,
-           2.3453146e-09, 2.3452629e-09], dtype=float32), 'H+': Array([7.6293944e-08, 7.6293944e-08, 7.6293944e-08, ..., 9.9999940e-01,
-           9.9999940e-01, 9.9999940e-01], dtype=float32), 'e-': Array([8.5830024e-08, 8.5830024e-08, 8.5830024e-08, ..., 1.1578876e+00,
-           1.1578876e+00, 1.1578876e+00], dtype=float32), 'He++': Array([4.767705e-09, 4.767704e-09, 4.767704e-09, ..., 7.894081e-02,
-           7.894081e-02, 7.894081e-02], dtype=float32)}
+    {'He': Array([9.2606544e-02, 9.2606544e-02, 9.2606544e-02, ..., 2.7511506e-09,
+           2.7510927e-09, 2.7510323e-09], dtype=float32), 'He+': Array([8.9897827e-13, 8.9897631e-13, 8.9908132e-13, ..., 7.6972237e-06,
+           7.6971355e-06, 7.6970427e-06], dtype=float32), 'H': Array([9.9999994e-01, 9.9999994e-01, 9.9999994e-01, ..., 6.0612069e-07,
+           6.0611495e-07, 6.0610915e-07], dtype=float32), 'H+': Array([7.6293944e-08, 7.6293944e-08, 7.6293944e-08, ..., 9.9999940e-01,
+           9.9999940e-01, 9.9999940e-01], dtype=float32), 'e-': Array([9.5366531e-08, 9.5366531e-08, 9.5366531e-08, ..., 1.1852047e+00,
+           1.1852047e+00, 1.1852047e+00], dtype=float32), 'He++': Array([9.5358441e-09, 9.5358441e-09, 9.5358441e-09, ..., 9.2598855e-02,
+           9.2598855e-02, 9.2598855e-02], dtype=float32)}
 
 
 
