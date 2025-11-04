@@ -15,7 +15,6 @@ def test_CIE():
 
     Tgrid = np.logspace(np.log10(Tmin), np.log10(Tmax), N)
     ngrid = np.ones_like(Tgrid)
-    Ygrid = 0.24 * np.ones_like(Tgrid)
 
     knowns = {"T": Tgrid, "n_Htot": ngrid}
 
