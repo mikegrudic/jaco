@@ -265,12 +265,12 @@ class Process:
 
         # now get the missing species that we eliminated - this needs to be generalized...
         nHtot = known_quantities["n_Htot"]
-        sol["H+"] = nHtot - sol["H"]
+        sol["H+"] = (nHtot - sol["H"]).clip(0)
         sol["e-"] = np.copy(sol["H+"])
         if "Y" in known_quantities:
             Y = known_quantities["Y"]
             y = Y / (4 - 4 * Y)
-            sol["He++"] = y * nHtot - sol["He"] - sol["He+"]
+            sol["He++"] = (y * nHtot - sol["He"] - sol["He+"]).clip(0)
             sol["e-"] += 2 * sol["He++"] + sol["He+"]
 
         if output_abundances:
