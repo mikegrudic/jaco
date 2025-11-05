@@ -225,8 +225,12 @@ class Process:
         known_variables = [sp.Symbol(k) if isinstance(k, str) else k for k in known_quantities]
 
         ################### all unknowns and knowns are worked out now, numerics time ##################################
+        from sympy.codegen.rewriting import optimize, optims_c99
+
         # with open("network.h", "w") as F:
-        # F.write(sp.ccode(sp.cse(list(network_tosolve.values()))))
+        # cse, cseval = sp.cse(list(network_tosolve.values()), order="none")
+        # F.write(sp.ccode(cse, standard="c99"))
+        # F.write(sp.ccode(cseval, standard="c99"))
         func = sp.lambdify(unknowns + known_variables, list(network_tosolve.values()), modules="jax", cse=True)
 
         def f_numerical(X, *params):
