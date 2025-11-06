@@ -1,17 +1,15 @@
 """Implementation of base Process class with methods for managing and solving systems of equations"""
 
 import sympy as sp
-import jax
 import jax.numpy as jnp
 import numpy as np
 from .numerics import newton_rootsolve
-from .symbols import n_
+from .symbols import n_, d_dt
 from .misc import is_an_ion
 from .data import SolarAbundances
 from . import eos
 from astropy import units
-from time import time
-from .equation_system import EquationSystem
+from .equations import EquationSystem, Equation
 
 
 class Process:
@@ -32,7 +30,6 @@ class Process:
         """
         self.name = name
         self.initialize_network()
-        self.dust_heat = 0
         self.rate = 0
         self.heat = 0
         self.bibliography = bibliography
@@ -46,8 +43,9 @@ class Process:
         """Sum 2 processes together: define a new process whose rates are the sum of the input process"""
         if other == 0:  # necessary for native sum() routine to work
             return self
+        #        print(self, other)
 
-        attrs_to_sum = "heat", "dust_heat", "subprocesses"  # all energy exchange terms
+        attrs_to_sum = "heat", "subprocesses", "network"  # all rates
 
         sum_process = Process()
         sum_process.rate = None  # "rate" ceases to be meaningful for composite processes
@@ -58,8 +56,10 @@ class Process:
             else:
                 setattr(sum_process, summed_attr, attr1 + attr2)
 
+        # sum_process.bibliography = self.bibliography | other.bibliography
+
         # now combine the networks
-        sum_process.network = self.combine_networks(self.network, other.network)
+        #        sum_process.network = self.network, other.network
         sum_process.name = f"{self.name} + {other.name}"
         return sum_process
 
@@ -69,81 +69,16 @@ class Process:
     def initialize_network(self):
         self.network = EquationSystem()  # this is a dict for which unknown keys are initialized to 0 by default
 
-    def combine_networks(self, n1, n2):
-        combined_network = EquationSystem()
-        combined_keys = set(tuple(n1.keys())).union(set(tuple(n2.keys())))  # gross?
-        for k in combined_keys:
-            combined_network[k] = n1[k] + n2[k]
-        return combined_network
-
-    def print_network_equations(self):
-        """Prints the system of equations in the chemistry network"""
-        for k, rhs in self.network.items():
-            if k == "heat":
-                lhs = sp.Symbol("d(⍴u)/dt")
-            else:
-                lhs = sp.Symbol(f"dn_{k}/dt")
-            print(lhs, "=", rhs)
-
-    def network_species(self):
-        return list(self.network.keys())
-
     @property
-    def network_ions(self):
-        """Returns the list of ions involved in a process"""
-        return [s for s in self.network if is_an_ion(s)]
+    def heat(self):
+        """Energy lost from gas per unit volume and time"""
+        return self.__heat
 
-    @property
-    def network_reduction_replacements(self):
-        """Replacements for reducing the chemistry network with conservation laws"""
-        Y = sp.Symbol("Y")  # general: mass fractions of different atoms other than H. n_i,tot = n_i + sum(n_ions of i)
-        nHtot = sp.Symbol("n_Htot")  # basically always want this
-
-        substitutions = {
-            n_("e-"): n_("H+") + n_("He+") + 2 * n_("He++"),
-            # n_("He+"): n_("e-") - n_("H+") - 2 * n_("He++"),
-            n_("H+"): nHtot - n_("H"),
-            n_("He++"): Y / (4 - 4 * Y) * nHtot - sp.Symbol("n_He") - sp.Symbol("n_He+"),
-        }
-        return substitutions
-
-    def apply_network_reductions(self, expr):
-        """Applies the replacements given by network_reduction_replacements to a symbolic expression"""
-        out = expr
-        for _ in range(2):  # 2 passes to avoid ordering issues
-            for n, r in self.network_reduction_replacements.items():
-                out = out.subs(n, r)
-        return out
-
-    @property
-    def reduced_network(self):
-        """
-        Returns the chemistry network after substituting known conservation laws:
-
-        n_atom = sum(n_{species containing atom} * number of atoms in species)
-        n_e- = sum(ion charge * n_ion) - want to keep n_e- in the explicit updates, so eliminate the highest ions?
-
-        This reduces the network of N rate equations to N - (num_atoms + 1).
-        """
-
-        replacements = self.network_reduction_replacements
-
-        reduced_network = {}
-        for s, rhs in self.network.items():
-            if n_(s) in replacements:
-                continue
-            else:
-                rhs = self.apply_network_reductions(rhs)
-            reduced_network[s] = rhs
-        return reduced_network
-
-    def get_thermochem_network(self, reduced=True):
-        """Returns the network including all chemical processes plus the gas heating-cooling equation"""
-        if reduced:
-            network = self.reduced_network
-        else:
-            network = self.network
-        return network | {"T": self.apply_network_reductions(self.heat)}  # combine the dicts
+    @heat.setter
+    def heat(self, value):
+        """Ensures that the network is always updated when we update the heat coefficient"""
+        self.__heat = value
+        self.network["heat"] = Equation(d_dt(n_("heat")), value)
 
     def steadystate(
         self,
