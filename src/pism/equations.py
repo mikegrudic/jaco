@@ -97,7 +97,7 @@ class EquationSystem(dict):
         return subsystem
 
     def eulerify(self, time_dependent_vars):
-        """Insert backward-difference formula for the"""
+        """Insert backward-difference formulae or set to steady state"""
         # put in backward differences
         for q in self:
             if q in time_dependent_vars:  # insert backward-difference formula

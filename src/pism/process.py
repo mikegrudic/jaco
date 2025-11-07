@@ -191,7 +191,13 @@ class Process:
         params = jnp.array(list(known_quantities.values())).T
 
         sol = newton_rootsolve(
-            f_numerical, guesses, params, tolfunc=tolerance_func, rtol=tol, careful_steps=careful_steps, positive=True
+            f_numerical,
+            guesses,
+            params,
+            tolfunc=tolerance_func,
+            rtol=tol,
+            careful_steps=careful_steps,
+            nonnegative=True,
         )
 
         # get solution into dict form
