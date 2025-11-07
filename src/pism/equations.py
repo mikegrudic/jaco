@@ -92,11 +92,11 @@ class EquationSystem(dict):
 
     def reduced_system(self, knowns, time_dependent=[]):
         subsystem = self.copy()
-        subsystem.eulerify(time_dependent)
+        subsystem.set_time_dependence(time_dependent)
         subsystem.do_conservation_reductions(knowns, time_dependent)
         return subsystem
 
-    def eulerify(self, time_dependent_vars):
+    def set_time_dependence(self, time_dependent_vars):
         """Insert backward-difference formulae or set to steady state"""
         # put in backward differences
         for q in self:
