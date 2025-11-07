@@ -113,7 +113,7 @@ class EquationSystem(dict):
             del self["e-"]
 
         if "n_Htot" in knowns:
-            n_Htot = sp.Symbol("n_Htot")
+            n_Htot = sp.Symbol("n_Htot", positive=True)
             #  general: sum(n_(species containing H) / (number of H in species))  - n_("H_2") / 2 #
             if "H+" not in time_dependent_vars:
                 self.subs(n_("H+"), n_Htot - n_("H"))
@@ -123,7 +123,7 @@ class EquationSystem(dict):
             if "He++" not in time_dependent_vars:
                 Y = sp.Symbol("Y")
                 y = Y / (1 - Y) / 4
-                self.subs(n_("He++"), n_Htot * y - sp.Symbol("n_He") - sp.Symbol("n_He+"))
+                self.subs(n_("He++"), n_Htot * y - n_("He") - n_("He+"))
                 if "He++" in self:
                     del self["He++"]
 
