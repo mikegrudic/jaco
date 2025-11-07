@@ -1,7 +1,8 @@
 """Implementation of Equation and EquationSystem for representing, manipulationg, and constructing conservation laws"""
 
 import sympy as sp
-from .symbols import d_dt, n_, dt, t
+from .symbols import d_dt, n_, dt, t, BDF
+from .data import SolarAbundances
 
 
 class Equation(sp.core.relational.Equality):
@@ -45,6 +46,12 @@ class Equation(sp.core.relational.Equality):
 class EquationSystem(dict):
     """Dict of symbolic expressions with certain superpowers for manipulating sets of conservation equations."""
 
+    def copy(self):
+        new = EquationSystem()
+        for k in self:
+            new[k] = self[k]
+        return new
+
     def __getitem__(self, __key: str):
         """Dict getitem method where we initialize a differential equation for the conservation of a species if the key
         does not exist"""
@@ -78,70 +85,114 @@ class EquationSystem(dict):
         """
         return {k: {s: sp.diff(e.rhs, s) for s in self.symbols} for k, e in self.items()}
 
-    @property
-    def steadystate(self, species=None):
-        """Returns the system with all time derivatives set to 0"""
-        return {k: Equation(0, e.rhs) for k, e in self.items()}  # steadystate_equations
+    def subs(self, expr, replacement):
+        """Substitute symbolic expressions throughout the whole network."""
+        for k, e in self.items():
+            self[k] = e.subs(expr, replacement)
 
-    def network_species(self):
-        return list(self.network.keys())
+    def reduced_system(self, knowns, time_dependent=[]):
+        subsystem = self.copy()
 
-    @property
-    def network_ions(self):
-        """Returns the list of ions involved in a process"""
-        return [s for s in self.network if is_an_ion(s)]
+        subsystem.eulerify(time_dependent)
 
-    @property
-    def network_reduction_replacements(self):
-        """Replacements for reducing the chemistry network with conservation laws"""
-        Y = sp.Symbol("Y")  # general: mass fractions of different atoms other than H. n_i,tot = n_i + sum(n_ions of i)
-        nHtot = sp.Symbol("n_Htot")  # basically always want this
+        subsystem.do_conservation_reductions(knowns, time_dependent)
 
-        substitutions = {
-            n_("e-"): n_("H+") + n_("He+") + 2 * n_("He++"),
-            # n_("He+"): n_("e-") - n_("H+") - 2 * n_("He++"),
-            n_("H+"): nHtot - n_("H"),
-            n_("He++"): Y / (4 - 4 * Y) * nHtot - sp.Symbol("n_He") - sp.Symbol("n_He+"),
-        }
-        return substitutions
+        return subsystem
 
-    def apply_network_reductions(self, expr):
-        """Applies the replacements given by network_reduction_replacements to a symbolic expression"""
-        out = expr
-        for _ in range(2):  # 2 passes to avoid ordering issues
-            for n, r in self.network_reduction_replacements.items():
-                out = out.subs(n, r)
-        return out
-
-    @property
-    def reduced_network(self):
-        """
-        Returns the chemistry network after substituting known conservation laws:
-
-        n_atom = sum(n_{species containing atom} * number of atoms in species)
-        n_e- = sum(ion charge * n_ion) - want to keep n_e- in the explicit updates, so eliminate the highest ions?
-
-        This reduces the network of N rate equations to N - (num_atoms + 1).
-        """
-
-        replacements = self.network_reduction_replacements
-
-        reduced_network = {}
-        for s, rhs in self.network.items():
-            if n_(s) in replacements:
-                continue
+    def eulerify(self, time_dependent_vars):
+        """Insert backward-difference formula for the"""
+        # put in backward differences
+        for q in self:
+            if q in time_dependent_vars:  # insert backward-difference formula
+                self[q] = Equation(BDF(q), self[q].rhs)
             else:
-                rhs = self.apply_network_reductions(rhs)
-            reduced_network[s] = rhs
-        return reduced_network
+                self[q] = Equation(0, self[q].rhs)
 
-    def get_thermochem_network(self, reduced=True):
-        """Returns the network including all chemical processes plus the gas heating-cooling equation"""
-        if reduced:
-            network = self.reduced_network
-        else:
-            network = self.network
-        return network | {"T": self.apply_network_reductions(self.heat)}  # combine the dicts
+    def do_conservation_reductions(self, knowns, time_dependent_vars):
+        """Eliminate equations from the system using known conservation laws."""
+        substitutions = {}
+        # charge neutrality
+        if not "e-" in time_dependent_vars:
+            substitutions[n_("e-")] = n_("H+") + n_("He+") + 2 * n_("He++")  # general: sum(n_species * ion charge)
+            del self["e-"]
+
+        if "n_Htot" in knowns:
+            n_Htot = sp.Symbol("n_Htot")
+            #  general: sum(n_(species containing H) / (number of H in species))  - n_("H_2") / 2 #
+            if not "H+" in time_dependent_vars:
+                substitutions[n_("H+")] = n_Htot - n_("H")
+                if "H+" in self:
+                    del self["H+"]
+
+            if not "He++" in time_dependent_vars:
+                Y = sp.Symbol("Y")
+                y = Y / (1 - Y) / 4
+                substitutions[n_("He++")] = n_Htot * y - sp.Symbol("n_He") - sp.Symbol("n_He+")
+                if "He++" in self:
+                    del self["He++"]
+
+            # general: substitute highest ionization state with n_Htot * x_element - sum of lower ionization states
+            # x_Atot = SolarAbundances.x(A)
+            # substitutions[highest ionization state of A] = n_Htot * x_Atot - sum(n_A(i))
+            # do we have to write a chemical species class?
+        for _ in range(2):  # repeat to deal with ordering issue
+            for symbol, replacement in substitutions.items():
+                self.subs(symbol, replacement)
+
+    def rhs(self):
+        """Return as dict of rhs-lhs instead of equations"""
+        return {k: e.rhs - e.lhs for k, e in self.items()}
+
+    def solve(self, knowns, unknowns, time_dependent=[]):
+        subsystem = self.get_solve_subsystem(knowns, knowns, time_dependent)
+
+    # @property
+    # def steadystate(self, species=None):
+    #     """Returns the system with all time derivatives set to 0"""
+    #     return {k: Equation(0, e.rhs) for k, e in self.items()}  # steadystate_equations
+
+    # @property
+    # def network_ions(self):
+    #     """Returns the list of ions involved in a process"""
+    #     return [s for s in self.network if is_an_ion(s)]
+
+    # def apply_network_reductions(self, expr):
+    #     """Applies the replacements given by network_reduction_replacements to a symbolic expression"""
+    #     out = expr
+    #     for _ in range(2):  # 2 passes to avoid ordering issues
+    #         for n, r in self.network_reduction_replacements.items():
+    #             out = out.subs(n, r)
+    #     return out
+
+    # @property
+    # def reduced_network(self):
+    #     """
+    #     Returns the chemistry network after substituting known conservation laws:
+
+    #     n_atom = sum(n_{species containing atom} * number of atoms in species)
+    #     n_e- = sum(ion charge * n_ion) - want to keep n_e- in the explicit updates, so eliminate the highest ions?
+
+    #     This reduces the network of N rate equations to N - (num_atoms + 1).
+    #     """
+
+    #     replacements = self.network_reduction_replacements
+
+    #     reduced_network = {}
+    #     for s, rhs in self.network.items():
+    #         if n_(s) in replacements:
+    #             continue
+    #         else:
+    #             rhs = self.apply_network_reductions(rhs)
+    #         reduced_network[s] = rhs
+    #     return reduced_network
+
+    # def get_thermochem_network(self, reduced=True):
+    #     """Returns the network including all chemical processes plus the gas heating-cooling equation"""
+    #     if reduced:
+    #         network = self.reduced_network
+    #     else:
+    #         network = self.network
+    #     return network | {"T": self.apply_network_reductions(self.heat)}  # combine the dicts
 
 
 # def eulerify(symbol):

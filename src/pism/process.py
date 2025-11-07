@@ -43,7 +43,6 @@ class Process:
         """Sum 2 processes together: define a new process whose rates are the sum of the input process"""
         if other == 0:  # necessary for native sum() routine to work
             return self
-        #        print(self, other)
 
         attrs_to_sum = "heat", "subprocesses", "network"  # all rates
 
@@ -56,10 +55,6 @@ class Process:
             else:
                 setattr(sum_process, summed_attr, attr1 + attr2)
 
-        # sum_process.bibliography = self.bibliography | other.bibliography
-
-        # now combine the networks
-        #        sum_process.network = self.network, other.network
         sum_process.name = f"{self.name} + {other.name}"
         return sum_process
 
@@ -76,7 +71,7 @@ class Process:
 
     @heat.setter
     def heat(self, value):
-        """Ensures that the network is always updated when we update the heat coefficient"""
+        """Ensures that the network is always updated when we update the heat"""
         self.__heat = value
         self.network["heat"] = Equation(d_dt(n_("heat")), value)
 
@@ -121,6 +116,10 @@ class Process:
             Dict of species and their equilibrium abundances relative to H or raw number densities (depending on
             value of normalize_to_H)
         """
+
+        return self.network.solve(
+            self, known_quantities, guess, input_abundances, output_abundances, reduce_network, tol, careful_steps, dt
+        )
         if "T" in known_quantities and dt is None:
             thermo = False  # do a chemistry solve with T fixed
             if reduce_network:

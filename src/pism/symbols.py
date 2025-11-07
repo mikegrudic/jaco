@@ -32,7 +32,5 @@ def n_(species: str):
             return sp.Symbol(f"n_{species}", positive=True)
 
 
-def eulerify(expression, variable):
-    """Do pass through the equations and replace all time derivatives with a backward-difference formula"""
-    print(d_dt(variable))
-    return expression.subs(d_dt(variable), (sp.Symbol(variable) - sp.Symbol(f"{str(variable)},0")) / dt)
+def BDF(species):
+    return (n_(species) - sp.Symbol(str(n_(species)) + ",0")) / dt
