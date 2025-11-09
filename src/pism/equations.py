@@ -6,6 +6,7 @@ from .data import SolarAbundances
 from jax import numpy as jnp
 import numpy as np
 from .numerics import newton_rootsolve
+from astropy import units
 # import jax
 # jax.config.update("jax_enable_x64", True)
 
@@ -114,7 +115,7 @@ class EquationSystem(dict):
         if "T" in time_dependent_vars:  # special behaviour
             self["heat"] = Equation(BDF("T"), self["heat"].rhs)
             if "u" not in self:
-                self["u"] = Equation(0, sp.Symbol("u") - u)
+                self["u"] = Equation(0, sp.Symbol("u") - internal_energy)
 
     def do_conservation_reductions(self, knowns, time_dependent_vars):
         """Eliminate equations from the system using known conservation laws."""
@@ -213,6 +214,9 @@ class EquationSystem(dict):
             raise ValueError("Input parameters and initial guesses must all have the same shape.")
         num_params = num_params[0]
 
+        if dt is not None:
+            knowns["Δt"] = np.repeat(dt.to(units.s), num_params)
+
         if "u" in guesses:
             self["u"] = Equation(0, internal_energy - sp.Symbol("u"))
         subsystem = self.reduced(knowns, time_dependent)
@@ -244,7 +248,7 @@ class EquationSystem(dict):
             )
         else:
             printv(
-                f"It's morbin time. Solving for {set(guesses)} based on input {set(knowns)} and assumptions about {set(assumed_values)}"
+                f"It's solvin time. Solving for {set(guesses)} based on input {set(knowns)} and assumptions about {set(assumed_values)}"
             )
 
         guessvals = {}
@@ -293,6 +297,11 @@ class EquationSystem(dict):
             return_num_iter=True,
         )
 
+        soldict = self.package_solution(sol, guessvals, guesses, paramvals, subsystem, symbolic_keys)
+
+        return soldict
+
+    def package_solution(self, sol, guessvals, guesses, paramvals, subsystem, symbolic_keys):
         # now repack the solution
         soldict = {}
         for i, g in enumerate(guessvals):
@@ -310,5 +319,15 @@ class EquationSystem(dict):
             values_to_subs |= soldict
         if not symbolic_keys:
             soldict = {str(k): v for k, v in soldict.items()}
+            # if we have a bunch of x_'s, should also link up keys in the original input format, e.g. H->x_H
+            if np.any(["x_" in k for k in guesses]):  # if we specified abundances with x_ notation, return same
+                return soldict
+            soldict2 = {}  # otherwise return with input format where keys are simple species strings
+            for k in soldict:
+                if "x_" in str(k):
+                    soldict2[str(k).replace("x_", "")] = soldict[k]
+                else:
+                    soldict2[k] = soldict[k]
+            soldict = soldict2
 
         return soldict

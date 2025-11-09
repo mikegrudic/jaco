@@ -52,6 +52,6 @@ def x_(species: str):
 
 def BDF(species):
     if species in ("T", "u"):  # this is the heat equation
-        return rho * (u - sp.Symbol("u_0")) / dt
+        return rho * (internal_energy - sp.Symbol("u_0")) / dt
     else:
         return (n_(species) - sp.Symbol(str(n_(species)) + "_0")) / dt
