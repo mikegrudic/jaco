@@ -1,10 +1,13 @@
 """Implementation of Equation and EquationSystem for representing, manipulationg, and constructing conservation laws"""
 
 import sympy as sp
-from . import symbols
-from .symbols import d_dt, n_, x_, dt, t, BDF, n_Htot, T
+from .symbols import d_dt, n_, x_, dt, t, BDF, n_Htot, T, internal_energy
 from .data import SolarAbundances
 from jax import numpy as jnp
+from jax import config
+
+config.update("jax_debug_nans", True)
+# jax.config.update("jax_enable_x64", True)
 import numpy as np
 from .numerics import newton_rootsolve
 
@@ -112,7 +115,8 @@ class EquationSystem(dict):
                 self[q] = Equation(0, self[q].rhs)
         if "T" in time_dependent_vars:  # special behaviour
             self["heat"] = Equation(BDF("T"), self["heat"].rhs)
-            self["u"] = Equation(sp.Symbol("u", nonnegative=True), symbols.u)
+            if "u" not in self:
+                self["u"] = Equation(0, sp.Symbol("u") - u)
 
     def do_conservation_reductions(self, knowns, time_dependent_vars):
         """Eliminate equations from the system using known conservation laws."""
@@ -159,7 +163,7 @@ class EquationSystem(dict):
     @property
     def rhs_scaled(self):
         """Returns a scaled version of the the RHS pulling out the usual factors affecting collision rates"""
-        return [r / (T**0.5 * n_Htot * n_Htot * 1e-12) for r in self.rhs.values()]
+        return [r for r in self.rhs.values()]  # / (T**0.5 * n_Htot * n_Htot * 1e-12)
 
     def solve(
         self,
@@ -171,6 +175,7 @@ class EquationSystem(dict):
         verbose=False,
         tol=1e-3,
         careful_steps=10,
+        symbolic_keys=False,
     ):
         """
         Solves for equilibrium after substituting a set of known quantities, e.g. temperature, metallicity,
@@ -182,14 +187,10 @@ class EquationSystem(dict):
             Dict of symbolic quantities and their values that will be plugged into the network solve as known quantities.
             Can be arrays if you want to substitute multiple values. If T is included here, we solve for chemical
             equilibrium. If T is not included, solve for thermochemical equilibrium.
-        guess: dict, optional
+        guesses: dict
             Dict of symbolic quantities and their values that will be plugged into the network solve as guesses for the
             unknown quantities. Can be arrays if you want to substitute multiple values. Will default to trying sensible
-            guesses for recognized quantities.
-        normalize_to_H: bool, optional
-            Whether to return abundances normalized by the number density of H nucleons (default: True)
-        reduce_network: bool, optional
-            Whether to solve the reduced version of the network substituting conservation laws (default: True)
+            guesses for recognized quantities (NOT IMPLEMENTED YET)
         tol: float, optional
             Desired relative error in chemical abundances (default: 1e-3)
         careful_steps: int, optional
@@ -198,7 +199,7 @@ class EquationSystem(dict):
 
         Returns
         -------
-        equilibrium_abundances: dict
+        soldict: dict
             Dict of species and their equilibrium abundances relative to H or raw number densities (depending on
             value of normalize_to_H)
         """
@@ -214,6 +215,8 @@ class EquationSystem(dict):
             raise ValueError("Input parameters and initial guesses must all have the same shape.")
         num_params = num_params[0]
 
+        if "u" in guesses:
+            self["u"] = Equation(0, internal_energy - sp.Symbol("u"))
         subsystem = self.reduced(knowns, time_dependent)
         symbols = subsystem.symbols
         num_equations = len(subsystem)
@@ -222,9 +225,10 @@ class EquationSystem(dict):
         prescriptions = {"y": SolarAbundances.x("He"), "Y": SolarAbundances.mass_fraction["He"], "Z": 1.0}
         assumed_values = {}
         if len(symbols) > num_equations + len(knowns):
-            undetermined_symbols = symbols.difference(set(guesses))
+            undetermined_symbols = symbols.difference(set(sp.Symbol(g) for g in guesses))
             printv(f"Undetermined symbols: {undetermined_symbols}")
             for s in undetermined_symbols:
+                print(s)
                 # if we have a prescription for this quantity, plug it in here. This should eventually be specified at the model level.
                 if str(s) in prescriptions:
                     # case 1: we have given a value, which we should add to the list of knowns
@@ -239,7 +243,7 @@ class EquationSystem(dict):
         )
         if len(symbols) != len(knowns | assumed_values) + len(subsystem):
             raise ValueError(
-                f"Number of free symbols is {len(symbols)} != number of knowns {len(knowns)} + number of equations {len(subsystem)}\n"
+                f"Number of free symbols is {len(symbols)} != number of knowns {len(knowns)} + number of assumptions {len(assumed_values)} + number of equations {len(subsystem)}\n"
             )
         else:
             printv(
@@ -259,11 +263,12 @@ class EquationSystem(dict):
         lambda_args = [list(guessvals.keys()), list(paramvals.keys())]
         func = sp.lambdify(lambda_args, subsystem.rhs_scaled, modules="jax", cse=True)
 
-        tolerance_vars = [x_("H"), x_("He+") + x_("He")]
+        tolerance_vars = [x_("H"), x_("He+") + x_("He"), 1 - x_("H")]
         if "T" in guesses:
             tolerance_vars += [sp.Symbol("T")]
-        if dt is not None:
-            tolerance_vars += [sp.Symbol("u"), subsystem["heat"]]  # converge on the internal energy and  cooling rate
+        if "u" in guesses:
+            tolerance_vars += [sp.Symbol("u")]
+            # , subsystem["heat"]]  # converge on the internal energy and  cooling rate
         tolfunc = sp.lambdify(lambda_args, tolerance_vars, modules="jax", cse=True)
 
         def f_numerical(X, *params):
@@ -276,7 +281,11 @@ class EquationSystem(dict):
 
         # option to bail here and just provide the RHS
 
-        sol = newton_rootsolve(
+        # jacfunc = sp.lambdify(
+        #     lambda_args, [[sp.diff(a, g) for g in guessvals] for a in subsystem.rhs_scaled]
+        # )  # , modules="jax", cse=True
+
+        sol, num_iter = newton_rootsolve(
             f_numerical,
             jnp.array([g for g in guessvals.values()]).T,
             jnp.array([p for p in paramvals.values()]).T,
@@ -284,16 +293,15 @@ class EquationSystem(dict):
             rtol=tol,
             careful_steps=careful_steps,
             nonnegative=True,
+            return_num_iter=True,
         )
 
         # now repack the solution
         soldict = {}
         for i, g in enumerate(guessvals):
             soldict[g] = sol[:, i]
-
         # do a reverse-pass on the substitutions we made to get all quantities
         values_to_subs = soldict | paramvals
-        print(values_to_subs)
         for expr, sub in reversed(subsystem.substitutions):
             if expr in soldict:
                 continue
@@ -301,7 +309,9 @@ class EquationSystem(dict):
                 continue
             soldict[expr] = sp.lambdify(list(sub.free_symbols), sub)(
                 *[values_to_subs[s] for s in list(sub.free_symbols)]
-            )
+            )  # should probably make a function of this
             values_to_subs |= soldict
+        if not symbolic_keys:
+            soldict = {str(k): v for k, v in soldict.items()}
 
         return soldict
