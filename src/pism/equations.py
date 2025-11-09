@@ -7,8 +7,6 @@ from jax import numpy as jnp
 import numpy as np
 from .numerics import newton_rootsolve
 from astropy import units
-# import jax
-# jax.config.update("jax_enable_x64", True)
 
 
 class Equation(sp.core.relational.Equality):
@@ -240,7 +238,7 @@ class EquationSystem(dict):
 
         # ok now we should have number of symbols unknowns + knowns
         printv(
-            f"Free symbols: {symbols}\n Known values: {list(knowns)}\n Assumed values: {list(assumed_values)} Equations solved: {list(subsystem.rhs)}"
+            f"Free symbols: {symbols}\nKnown values: {list(knowns)}\nAssumed values: {list(assumed_values)}\nEquations solved: {list(subsystem.rhs)}"
         )
         if len(symbols) != len(knowns | assumed_values) + len(subsystem):
             raise ValueError(
@@ -268,7 +266,7 @@ class EquationSystem(dict):
         if "T" in guesses:
             tolerance_vars += [sp.Symbol("T")]
         if "u" in guesses:
-            tolerance_vars += [sp.Symbol("u")]
+            tolerance_vars += [sp.Symbol("u"), subsystem["heat"].rhs]
             # , subsystem["heat"]]  # converge on the internal energy and  cooling rate
         tolfunc = sp.lambdify(lambda_args, tolerance_vars, modules="jax", cse=True)
 
