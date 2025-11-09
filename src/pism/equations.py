@@ -6,8 +6,8 @@ from .data import SolarAbundances
 from jax import numpy as jnp
 from jax import config
 
-config.update("jax_debug_nans", True)
-# jax.config.update("jax_enable_x64", True)
+# config.update("jax_debug_nans", True)
+jax.config.update("jax_enable_x64", True)
 import numpy as np
 from .numerics import newton_rootsolve
 
