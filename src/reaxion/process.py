@@ -1,15 +1,8 @@
 """Implementation of base Process class with methods for managing and solving systems of equations"""
 
-import sympy as sp
-import jax.numpy as jnp
-import numpy as np
-from .numerics import newton_rootsolve
 from .symbols import n_, d_dt
-from .misc import is_an_ion
-from .data import SolarAbundances
-from . import eos
-from astropy import units
-from .equations import EquationSystem, Equation
+from .equation import Equation
+from .equation_system import EquationSystem
 
 
 class Process:
