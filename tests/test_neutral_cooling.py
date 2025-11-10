@@ -75,7 +75,7 @@ def test_neutral_cooling(T0):
     ax.set_ylim(1e-4, 3e4)
     ax.set_yticks(10.0 ** np.arange(-4, 5))
     plt.savefig("tests/neutral_cooling.png", bbox_inches="tight")
-    np.save("neutral_cooling_testdata.npy", np.c_[ngrid, sol["T"]])
+    #    np.save("neutral_cooling_testdata.npy", np.c_[ngrid, sol["T"]])
     assert np.all(np.abs((T_test - sol["T"]) / sol["T"]) < 0.1)
 
 

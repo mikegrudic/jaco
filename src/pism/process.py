@@ -81,10 +81,10 @@ class Process:
         guess,
         time_dependent=[],
         dt=None,
-        model="default",
         verbose=False,
         tol=1e-3,
         careful_steps=10,
+        symbolic_keys=False,
     ):
         """
         Solves the equations for a set of desired quantities given a set of known quantities
@@ -99,15 +99,22 @@ class Process:
             Dict of symbolic quantities and their values that will be plugged into the network solve as guesses for the
             unknown quantities. Can be arrays if you want to substitute multiple values. Will default to trying sensible
             guesses for recognized quantities.
-        normalize_to_H: bool, optional
-            Whether to return abundances normalized by the number density of H nucleons (default: True)
-        reduce_network: bool, optional
-            Whether to solve the reduced version of the network substituting conservation laws (default: True)
+        time_dependent: list, optional
+            List of quantities you are solving for that should be considered time-dependent. Backward-difference formulae
+            will be inserted and the quantities will be stepped forward in time by the specified dt in the solution.
+        dt: astropy quantity, optional
+            Timestep used if doing a time-dependent solve. Pass in an astropy quantity, will be automatically converted
+            to cgs.
+        verbose:
+            Say a bunch of stuff about what the solver is doing.
         tol: float, optional
-            Desired relative error in chemical abundances (default: 1e-3)
+            Desired relative error in solution (default: 1e-3)
         careful_steps: int, optional
             Number of careful initial steps in the Newton solve before full step size is used - try increasing this if
             your solve has trouble converging.
+        symbolic_keys:
+            Whether you want the keys of the solution dict to be the sympy symbols used internally in the solver, vs.
+            simple string identifiers
 
         Returns
         -------
@@ -123,4 +130,5 @@ class Process:
             careful_steps=careful_steps,
             dt=dt,
             verbose=verbose,
+            symbolic_keys=symbolic_keys,
         )

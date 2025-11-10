@@ -1,7 +1,7 @@
 """Implementation of Equation and EquationSystem for representing, manipulationg, and constructing conservation laws"""
 
 import sympy as sp
-from .symbols import d_dt, n_, x_, dt, t, BDF, n_Htot, T, internal_energy
+from .symbols import d_dt, n_, x_, t, BDF, n_Htot, internal_energy
 from .data import SolarAbundances
 from jax import numpy as jnp
 import numpy as np
@@ -168,15 +168,13 @@ class EquationSystem(dict):
         guesses,
         time_dependent=[],
         dt=None,
-        model="default",
         verbose=False,
         tol=1e-3,
         careful_steps=10,
         symbolic_keys=False,
     ):
         """
-        Solves for equilibrium after substituting a set of known quantities, e.g. temperature, metallicity,
-        etc.
+        Solves the equations for a set of desired quantities given a set of known quantities
 
         Parameters
         ----------
@@ -184,21 +182,31 @@ class EquationSystem(dict):
             Dict of symbolic quantities and their values that will be plugged into the network solve as known quantities.
             Can be arrays if you want to substitute multiple values. If T is included here, we solve for chemical
             equilibrium. If T is not included, solve for thermochemical equilibrium.
-        guesses: dict
+        guess: dict, optional
             Dict of symbolic quantities and their values that will be plugged into the network solve as guesses for the
             unknown quantities. Can be arrays if you want to substitute multiple values. Will default to trying sensible
-            guesses for recognized quantities (NOT IMPLEMENTED YET)
+            guesses for recognized quantities.
+        time_dependent: list, optional
+            List of quantities you are solving for that should be considered time-dependent. Backward-difference formulae
+            will be inserted and the quantities will be stepped forward in time by the specified dt in the solution.
+        dt: astropy quantity, optional
+            Timestep used if doing a time-dependent solve. Pass in an astropy quantity, will be automatically converted
+            to cgs.
+        verbose:
+            Say a bunch of stuff about what the solver is doing.
         tol: float, optional
-            Desired relative error in chemical abundances (default: 1e-3)
+            Desired relative error in solution (default: 1e-3)
         careful_steps: int, optional
             Number of careful initial steps in the Newton solve before full step size is used - try increasing this if
             your solve has trouble converging.
+        symbolic_keys:
+            Whether you want the keys of the solution dict to be the sympy symbols used internally in the solver, vs.
+            simple string identifiers
 
         Returns
         -------
         soldict: dict
-            Dict of species and their equilibrium abundances relative to H or raw number densities (depending on
-            value of normalize_to_H)
+            Dict of solved quantities
         """
 
         def printv(*a, **k):
@@ -207,9 +215,7 @@ class EquationSystem(dict):
                 print(*a, **k)
 
         # first: check knowns and guesses are all same size
-        num_params = np.array(
-            [len(np.array(guesses[g])) for g in guesses] + [len(np.array(knowns[g])) for g in knowns]
-        )
+        num_params = np.array([len(np.array(guesses[g])) for g in guesses] + [len(np.array(knowns[g])) for g in knowns])
         if not np.all(num_params == num_params[0]):
             raise ValueError("Input parameters and initial guesses must all have the same shape.")
         num_params = num_params[0]
