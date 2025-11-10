@@ -4,8 +4,8 @@
 [![Readthedocs Status][docs-badge]][docs-link]
 [![codecov](https://codecov.io/github/mikegrudic/reaxion/graph/badge.svg?token=OWJQMWGABZ)](https://codecov.io/github/mikegrudic/reaxion)
 
-[docs-link]:           https://reaxion-code.readthedocs.io
-[docs-badge]:          https://readthedocs.org/projects/reaxion-code/badge
+[docs-link]:           https://reaxion.readthedocs.io
+[docs-badge]:          https://readthedocs.org/projects/reaxion/badge
 
 `reaxion` is a flexible, object-oriented implementation for systems of ISM microphysics and chemistry equations, with numerical solvers implemented in JAX, and interfaces for embedding the equations and their Jacobians into other codes.
 
