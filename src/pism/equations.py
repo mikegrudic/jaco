@@ -215,7 +215,9 @@ class EquationSystem(dict):
                 print(*a, **k)
 
         # first: check knowns and guesses are all same size
-        num_params = np.array([len(np.array(guesses[g])) for g in guesses] + [len(np.array(knowns[g])) for g in knowns])
+        num_params = np.array(
+            [len(np.array(guesses[g])) for g in guesses] + [len(np.array(knowns[g])) for g in knowns]
+        )
         if not np.all(num_params == num_params[0]):
             raise ValueError("Input parameters and initial guesses must all have the same shape.")
         num_params = num_params[0]
