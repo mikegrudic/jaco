@@ -25,8 +25,6 @@ Once you've constructed your system, `reaxion` can give you the symbolic equatio
 * Solver robustness upgrades: thermochemical networks can be quite challenging numerically, due to how steeply terms switch on with increasing `T`. In can be hard to get a solution without good initial guesses.
 * If possible, glue interface allowing an existing compiled hydro code to call the JAX solvers on-the-fly.
 
-pls halp.
-
 ## Installation
 
 Clone the repo and run `pip install .` from the directory.
