@@ -2,7 +2,7 @@ API Documentation
 =================
 
 .. automodule:: reaxion
-    :members: Process
+    :members: Process, Equation, EquationSystem
        
 .. automodule:: reaxion.processes
     :members: Recombination, GasPhaseRecombination, LineCoolingSimple, FreeFreeEmission, Ionization, CollisionaIonization, NBodyProcess, ThermalProcess
