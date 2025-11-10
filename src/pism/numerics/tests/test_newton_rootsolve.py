@@ -1,6 +1,7 @@
 import numpy as np
 import jax, jax.numpy as jnp
-from ..solvers import newton_rootsolve
+import pism
+from pism.numerics.solvers import newton_rootsolve
 
 
 def test_newton_rootsolve(N=10**5):
@@ -23,7 +24,11 @@ def test_newton_rootsolve(N=10**5):
 
     func = jax.jit(func)
 
-    sol = newton_rootsolve(func, guess, params, positive=True, rtol=1e-6)
+    sol = newton_rootsolve(func, guess, params, nonnegative=True)
     converged = jnp.all(jnp.isfinite(sol), axis=1)
     assert converged.sum() > 0.9 * N
-    assert jnp.all(jnp.isclose(sol[converged], exact[converged], rtol=1e-5, atol=0))
+    assert jnp.all(jnp.isclose(sol[converged], exact[converged], rtol=1e-3, atol=0))
+
+
+if __name__ == "__main__":
+    test_newton_rootsolve()

@@ -10,7 +10,7 @@ class ThermalProcess(Process):
 
     def __init__(self, heating_rate, name=""):
         super().__init__(name=name)
-        self.heat_per_volume = heating_rate
+        self.heat = heating_rate
 
 
 PdV_heating = ThermalProcess(

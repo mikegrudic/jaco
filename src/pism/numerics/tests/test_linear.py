@@ -4,7 +4,9 @@ from ..solvers import newton_rootsolve
 
 
 def test_newton_rootsolve_linear(N=10**5, dim=10):
-    """Test: solve a linear system of dim variables and check the solution."""
+    """Test: solve a linear system of dim variables with the Newton solver and check the solution.
+    Solver should get the right answer to machine precision.
+    """
 
     A = np.random.rand(N, dim, dim)
     cond = np.linalg.cond(A)

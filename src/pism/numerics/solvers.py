@@ -2,7 +2,16 @@ import jax, jax.numpy as jnp
 
 
 def newton_rootsolve(
-    func, guesses, params=[], jacfunc=None, tolfunc=None, rtol=1e-6, max_iter=100, careful_steps=1, positive=False, return_num_iter=False
+    func,
+    guesses,
+    params=[],
+    jacfunc=None,
+    tolfunc=None,
+    rtol=1e-6,
+    max_iter=100,
+    careful_steps=1,
+    nonnegative=False,
+    return_num_iter=False,
 ):
     """
     Solve the system f(X,p) = 0 for X, where both f and X can be vectors of arbitrary length and p is a set of fixed
@@ -37,7 +46,7 @@ def newton_rootsolve(
     BIG, SMALL = 1e37, 1e-37
 
     guesses = jnp.array(guesses)
-    guesses = jnp.where(positive, guesses.clip(SMALL), guesses)
+    guesses = jnp.where(nonnegative, guesses.clip(SMALL), guesses)
     params = jnp.array(params)
     if len(guesses.shape) < 2:
         guesses = jnp.atleast_2d(guesses).T
@@ -74,7 +83,7 @@ def newton_rootsolve(
             #            dx = jnp.where(cond < 1e30, -jnp.linalg.solve(J, func(X, *params)) * fac, jnp.zeros_like(X))
             dx = -jnp.linalg.solve(J, func(X, *params)) * fac
             dx_finite = jnp.all(jnp.isfinite(dx))
-            Xnew = jnp.where(dx_finite, jnp.where(positive, (X + dx).clip(SMALL), X + dx), X)
+            Xnew = jnp.where(dx_finite, jnp.where(nonnegative, (X + dx).clip(SMALL), X + dx), X)
             return Xnew, dx, num_iter + 1
 
         init_val = guess, 100 * guess, 0

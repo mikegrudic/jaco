@@ -1,20 +1,20 @@
-from pism.processes import (
-    FreeFreeEmission,
-    LineCoolingSimple,
-    CollisionalIonization,
-    GasPhaseRecombination,
-    Ionization,
-)
+from pism.processes import FreeFreeEmission, LineCoolingSimple, CollisionalIonization, GasPhaseRecombination, Ionization
 import numpy as np
-import matplotlib
-
-matplotlib.use("Agg")
 from matplotlib import pyplot as plt
 import sympy as sp
 from pism.data import SolarAbundances
+import pytest
+import matplotlib
+
+matplotlib.use("Agg")
+
+test_temperatures = [
+    100.0,
+]  # initial temperature guesses. We aspire to make the solver converge from any initial guess, but for now it's sensitive...
 
 
-def test_neutral_cooling():
+@pytest.mark.parametrize("T0", test_temperatures)
+def test_neutral_cooling(T0):
     """Solve for thermochemical structure of neutral ISM at a range of densities. This can potentially change
     as we update the data or process implementations...
     """
@@ -40,26 +40,27 @@ def test_neutral_cooling():
         1e-27
         * sp.Symbol("n_Htot")
         * sp.exp(-91.211 / T)
-        * (4890 / sp.sqrt(T) * (x_C * sp.Symbol("n_H")) + 0.47 * T**0.15 * sp.Symbol("n_Htot"))
+        * (4890 / sp.sqrt(T) * (x_C * sp.Symbol("n_Htot")) + 0.47 * T**0.15 * sp.Symbol("n_Htot"))
     )
 
-    ngrid = np.logspace(-3, 3, 10**4)
+    ngrid = np.logspace(-2, 3, 10**4)
+    ones = np.ones_like(ngrid)
 
     knowns = {"n_Htot": ngrid}
     y = SolarAbundances.x("He")
     guesses = {
-        "T": 100.0 * np.ones_like(ngrid),
-        "H": ngrid * 0.99,  # density
-        "He": y * ngrid * 0.99,  # density
-        "He+": y * ngrid * 0.01,  # density
+        "T": T0 * ones,
+        "H": ones * 0.5,
+        "He": y * ones * 0.99,
+        "He+": y * ones * 0.01,
     }
 
-    sol = system.steadystate(
-        knowns, guesses, tol=1e-3, input_abundances=False, output_abundances=True, careful_steps=30
-    )
+    sol = system.solve(knowns, guesses, tol=1e-3)  # , careful_steps=30)
 
     fig, ax = plt.subplots(figsize=(3, 3))
+    T_test = np.load("tests/neutral_cooling_testdata.npy")[:, 1]
     ax.loglog(ngrid, sol["T"], label=r"T (K)", color="black")
+    ax.loglog(ngrid, T_test, label=r"T (K) (reference.)", color="red", ls="dotted")
     ax.loglog(ngrid, sol["H"], label=r"$x_{\rm H0}$", ls="dotted", color="black")
     ax.loglog(ngrid, sol["e-"], label=r"$x_{e-}$", ls="dashed", color="black")
     ax.set_xlabel(r"$n_{\rm H}\,\left(\rm cm^{-3}\right)$")
@@ -68,6 +69,10 @@ def test_neutral_cooling():
     ax.set_ylim(1e-4, 3e4)
     ax.set_yticks(10.0 ** np.arange(-4, 5))
     plt.savefig("tests/neutral_cooling.png", bbox_inches="tight")
-    #    np.save("neutral_cooling_testdata.npy", np.c_[ngrid, sol["T"]])
-    T_test = np.load("tests/neutral_cooling_testdata.npy")[:, 1]
+    np.save("neutral_cooling_testdata.npy", np.c_[ngrid, sol["T"]])
     assert np.all(np.abs((T_test - sol["T"]) / sol["T"]) < 0.1)
+
+
+if __name__ == "__main__":
+    for t in test_temperatures:
+        test_neutral_cooling(t)

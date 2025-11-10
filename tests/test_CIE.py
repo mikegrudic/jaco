@@ -1,5 +1,6 @@
 from pism.processes import CollisionalIonization, GasPhaseRecombination
 import numpy as np
+from matplotlib import pyplot as plt
 
 
 def test_CIE():
@@ -19,7 +20,7 @@ def test_CIE():
     knowns = {"T": Tgrid, "n_Htot": ngrid}
 
     guesses = {"H": 0.5 * np.ones_like(Tgrid), "He": 1e-5 * np.ones_like(Tgrid), "He+": 1e-5 * np.ones_like(Tgrid)}
-    sol = system.steadystate(knowns, guesses, tol=1e-3)
+    sol = system.solve(knowns, guesses, tol=1e-3)
     Hep_frac = sol["He+"] / (sol["He"] + sol["He+"] + sol["He++"])
     assert (
         np.abs(Hep_frac - chianti_data[:, 2]).max() < 0.2
