@@ -2,7 +2,8 @@ LICENSE
 README.md
 pyproject.toml
 src/reaxion/__init__.py
-src/reaxion/equations.py
+src/reaxion/equation.py
+src/reaxion/equation_system.py
 src/reaxion/localstate.py
 src/reaxion/misc.py
 src/reaxion/process.py

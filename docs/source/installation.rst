@@ -8,6 +8,13 @@ Requirements
 
 You will need a working Python 3.10+ installation.
 
+Install the latest release from pypi
+------------------------------------
+
+.. code-block:: bash
+
+	pip install reaxion
+
 Install from source
 -------------------
 

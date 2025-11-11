@@ -1,50 +1,14 @@
-"""Implementation of Equation and EquationSystem for representing, manipulationg, and constructing conservation laws"""
+"""Implementation of EquationSystem for representing, manipulating, and constructing systems of conservation laws"""
 
 import sympy as sp
-from .symbols import d_dt, n_, x_, dt, t, BDF, n_Htot, T, internal_energy
+from .symbols import d_dt, n_, x_, t, BDF, n_Htot, internal_energy
 from .data import SolarAbundances
 from jax import numpy as jnp
 import numpy as np
 from .numerics import newton_rootsolve
 from astropy import units
-
-
-class Equation(sp.core.relational.Equality):
-    """Sympy equation where we overload addition/subtraction to apply those operations to the RHS, for summing rate
-    equations"""
-
-    def get_summand(self, other):
-        """Value-check the operand and return the quantity to be summed in the operation: the expression itself if an expression, or the RHS"""
-        if isinstance(other, sp.core.relational.Equality):
-            if self.lhs != other.lhs:
-                raise ValueError(
-                    "Tried to sum incompatible equations. Equation summation only defined for differential equations with the same LHS."
-                )
-            else:
-                return other.rhs
-        elif isinstance(other, sp.logic.boolalg.BooleanAtom):
-            return 0
-        else:
-            return other
-
-    def __add__(self, other):
-        summand = self.get_summand(other)
-        return Equation(self.lhs, self.rhs + summand)
-
-    def __sub__(self, other):
-        summand = self.get_summand(other)
-        return Equation(self.lhs, self.rhs - summand)
-
-    def __radd__(self, other):
-        return self.__add__(other)
-
-    def __iadd__(self, other):
-        self = self + other
-        return self
-
-    def __isub__(self, other):
-        self = self - other
-        return self
+from .equation import Equation
+from sympy.codegen.ast import Assignment
 
 
 class EquationSystem(dict):
@@ -97,8 +61,8 @@ class EquationSystem(dict):
     def reduced(self, knowns, time_dependent=[]):
         subsystem = self.copy()
         subsystem.set_time_dependence(time_dependent)
-        subsystem.do_conservation_reductions(knowns, time_dependent)
-        if "T" in knowns and "T" not in time_dependent:
+        subsystem.do_conservation_reductions(time_dependent)
+        if "T" in (str(k) for k in knowns) and "T" not in time_dependent:
             del subsystem["heat"]
         return subsystem
 
@@ -115,7 +79,7 @@ class EquationSystem(dict):
             if "u" not in self:
                 self["u"] = Equation(0, sp.Symbol("u") - internal_energy)
 
-    def do_conservation_reductions(self, knowns, time_dependent_vars):
+    def do_conservation_reductions(self, time_dependent_vars):
         """Eliminate equations from the system using known conservation laws."""
         self.substitutions = []
 
@@ -153,11 +117,6 @@ class EquationSystem(dict):
         return {k: e.rhs - e.lhs for k, e in self.items()}
 
     @property
-    def ccode(self):
-        cse, cseval = sp.cse(self.rhs.values(), order="none")
-        return sp.ccode(cse, standard="c99"), sp.ccode(cseval, standard="c99")
-
-    @property
     def rhs_scaled(self):
         """Returns a scaled version of the the RHS pulling out the usual factors affecting collision rates"""
         return [r for r in self.rhs.values()]  # / (T**0.5 * n_Htot * n_Htot * 1e-12)
@@ -168,7 +127,6 @@ class EquationSystem(dict):
         guesses,
         time_dependent=[],
         dt=None,
-        model="default",
         verbose=False,
         tol=1e-3,
         careful_steps=10,
@@ -215,7 +173,7 @@ class EquationSystem(dict):
         if dt is not None:
             knowns["Δt"] = np.repeat(dt.to(units.s), num_params)
 
-        if "u" in guesses:
+        if "u" in guesses or "T" in time_dependent:
             self["u"] = Equation(0, internal_energy - sp.Symbol("u"))
         subsystem = self.reduced(knowns, time_dependent)
         symbols = subsystem.symbols
@@ -329,3 +287,94 @@ class EquationSystem(dict):
             soldict = soldict2
 
         return soldict
+
+    def solver_functions(self, solve_vars, time_dependent=[], return_jac=False, return_dict=False):
+        """Returns the RHS of the system to solve and its Jacobian, applying simplifications"""
+
+        solve_vars = list(solve_vars)
+        if "u" in solve_vars or "T" in time_dependent:
+            self["u"] = Equation(0, internal_energy - sp.Symbol("u"))
+            solve_vars.append("u")
+
+        knowns = self.symbols.difference(solve_vars)
+        subsystem = self.reduced(knowns, time_dependent)
+
+        rhs = {}
+        for s in subsystem.symbols:
+            for g in solve_vars:
+                if str(s) == "T" and "T" in solve_vars:
+                    rhs[s] = subsystem.rhs["heat"]
+                elif str(g) == str(s) or f"x_{g}" == str(s):
+                    rhs[s] = subsystem.rhs[g]
+
+        if return_jac:
+            jac = {}
+            for s, expr in rhs.items():
+                jac[s] = {s2: sp.diff(expr, s2) for s2 in rhs}
+
+            if return_dict:
+                return rhs, jac
+            else:
+                return (
+                    list(rhs.values()),
+                    [[jac[s1][s2] for s2 in rhs] for s1 in jac],
+                    {s: i for i, s in enumerate(rhs)},
+                )
+
+        if return_dict:
+            return rhs
+        else:
+            return list(rhs.values()), {s: i for i, s in enumerate(rhs)}
+
+    def generate_code(self, solve_vars, time_dependent=[], language="Fortran", jac=True, cse=True, sanitize=True):
+        """Generates numerical code that implements the system RHS and/or Jacobian in the specified language."""
+        func, jac, indices = self.solver_functions(solve_vars, time_dependent, return_jac=jac)
+
+        def printer(x, language="c"):
+            match language.lower():
+                case "fortran":
+                    return sp.fcode(x, standard=2008)
+                case "c":
+                    return sp.ccode(x, standard="c99")
+                case "python":
+                    return sp.pycode(x)
+                case "c++":
+                    return sp.cxxcode(x, standard="c++11")
+
+        codeblocks = []
+
+        header = "# Computes the RHS function "
+        if jac:
+            header += "and Jacobian "
+        header += f"to solve for {list(indices.keys())}\n\n"
+
+        header += "# INDEX CONVENTION: " + " ".join(f"({i}: {s})" for s, i in indices.items())
+
+        codeblocks.append(header)
+
+        if cse:
+            cse, (func, jac) = sp.cse((sp.Matrix(func), sp.Matrix(jac)))
+            block = []
+            for expr in cse:
+                block.append(printer(Assignment(*expr), language))
+            codeblocks.append(" \n".join(block))
+
+        rhs_result = sp.MatrixSymbol("rhs_result", len(func), 1)
+        codeblocks.append(printer(Assignment(rhs_result, func), language))
+
+        if jac:
+            jac_result = sp.MatrixSymbol("jac_result", len(func), len(func))
+            codeblocks.append(printer(Assignment(jac_result, jac), language))
+
+        code = "\n\n".join(codeblocks)
+        if sanitize:
+            sanitized_code = ""
+            replacements = {"+": "plus"}
+            for i, char in enumerate(code):
+                if char in replacements:
+                    if code[i - 1].split():  # if preceding character is not whitespace
+                        sanitized_code += replacements[char]
+                        continue
+                sanitized_code += char
+            code = sanitized_code
+        return code
