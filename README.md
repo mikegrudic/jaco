@@ -27,7 +27,7 @@ Once you've constructed your system, `reaxion` can give you the symbolic equatio
 
 ## Installation
 
-Clone the repo and run `pip install .` from the directory.
+Clone the repo and run `pip install .` from the directory, or install the latest release from pypi via `pip install reaxion`.
 
 # Quickstart: Collisional Ionization Equilibrium
 
