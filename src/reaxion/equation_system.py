@@ -345,7 +345,7 @@ class EquationSystem(dict):
 
         header = "# Computes the RHS function "
         if jac:
-            header += "and Jacobian"
+            header += "and Jacobian "
         header += f"to solve for {list(indices.keys())}\n\n"
 
         header += "# INDEX CONVENTION: " + " ".join(f"({i}: {s})" for s, i in indices.items())
