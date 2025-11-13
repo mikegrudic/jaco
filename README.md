@@ -19,6 +19,7 @@ Once you've constructed your system, `reaxion` can give you the symbolic equatio
 ## Roadmap
 
 `reaxion` is in an early prototyping phase right now. Here are some things I would eventually like to add:
+* Models: packages of physical processes and their implementations conveniently grouped together, including commonly-used or historically-important networks such as KWH 1996, Nelson & Langer 1997, Glover 2010, Grackle, Gong+2017, etc.
 * Flexible implementation of a reduced network suitable for RHD simulations in GIZMO and potentially other codes.
 * Dust and radiation physics: add the dust energy equation and evolution of photon number densities to the network.
 * Interfaces to convert from other existing chemistry network formats to the `Process` representation.
