@@ -1,4 +1,4 @@
-from reaxion.processes import (
+from jaco.processes import (
     FreeFreeEmission,
     LineCoolingSimple,
     CollisionalIonization,
@@ -8,7 +8,7 @@ from reaxion.processes import (
 import numpy as np
 from matplotlib import pyplot as plt
 import sympy as sp
-from reaxion.data import SolarAbundances
+from jaco.data import SolarAbundances
 import pytest
 import matplotlib
 

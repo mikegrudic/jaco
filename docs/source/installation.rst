@@ -13,7 +13,7 @@ Install the latest release from pypi
 
 .. code-block:: bash
 
-	pip install reaxion
+	pip install jaco
 
 Install from source
 -------------------
@@ -23,10 +23,10 @@ of the source-code by cloning/forking the GitHub repository
 
 .. code-block:: bash
 
-    git clone https://github.com/mikegrudic/reaxion.git
+    git clone https://github.com/mikegrudic/jaco.git
 
 
-Once you have the source, you can build reaxion (and add it to your environment)
+Once you have the source, you can build jaco (and add it to your environment)
 by executing
 
 .. code-block:: bash
@@ -36,8 +36,8 @@ by executing
 in the top level directory. The required Python packages will automatically be 
 installed as well.
 
-You can test your installation by importing the reaxion Python frontend in Python:
+You can test your installation by importing the jaco Python frontend in Python:
 
 .. code-block:: python
 
-    import reaxion
+    import jaco

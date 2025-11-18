@@ -1,11 +1,11 @@
 API Documentation
 =================
 
-.. automodule:: reaxion
+.. automodule:: jaco
     :members: Process, Equation, EquationSystem
        
-.. automodule:: reaxion.processes
+.. automodule:: jaco.processes
     :members: Recombination, GasPhaseRecombination, LineCoolingSimple, FreeFreeEmission, Ionization, CollisionaIonization, NBodyProcess, ThermalProcess
 
-.. automodule:: reaxion.numerics
+.. automodule:: jaco.numerics
     :members: newton_rootsolve

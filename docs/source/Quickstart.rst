@@ -1,7 +1,7 @@
 Quickstart: Collisional Ionization Equilibrium
 ==============================================
 
-Example of using ``reaxion`` to solve for collisional ionization
+Example of using ``jaco`` to solve for collisional ionization
 equilibrium (CIE) for a hydrogen-helium mixture and plot the ionization
 states as a function of temperature.
 
@@ -23,7 +23,7 @@ recombination of H+: ``H+ + e- -> H + hν``
 
 .. code:: ipython3
 
-    from reaxion.processes import CollisionalIonization, GasPhaseRecombination
+    from jaco.processes import CollisionalIonization, GasPhaseRecombination
     
     process = GasPhaseRecombination("H+")
     print(f"Name: {process.name}")
@@ -235,7 +235,7 @@ can do that too with ``generate_code``.
     jac_result[8] = -x25 - 5.68e-12*x27*x8 - x32 - x36;
 
 
-Let’s break down what happened there. First, reaxion is generating the
+Let’s break down what happened there. First, jaco is generating the
 symbolic functions needed to solve the system, as it needs to do before
 it solves the system with its own solver:
 

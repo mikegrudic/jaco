@@ -18,7 +18,7 @@ autoclass_content = "both"
 
 # -- Project information -----------------------------------------------------
 
-project = "reaxion"
+project = "jaco"
 copyright = "2025, Mike Grudic"
 author = "Mike Grudic"
 

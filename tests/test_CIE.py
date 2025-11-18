@@ -1,4 +1,4 @@
-from reaxion.processes import CollisionalIonization, GasPhaseRecombination
+from jaco.processes import CollisionalIonization, GasPhaseRecombination
 import numpy as np
 from matplotlib import pyplot as plt
 
