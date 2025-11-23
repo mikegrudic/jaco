@@ -13,7 +13,7 @@ class Process:
     + conservation equations.
     """
 
-    def __init__(self, name="", bibliography={}):
+    def __init__(self, name="", bibliography=[]):
         """Construct an empty Process instance
 
         Parameters

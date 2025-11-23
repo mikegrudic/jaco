@@ -19,9 +19,10 @@ class Model:
 
     @property
     def network(self) -> EquationSystem:
-        """Returns the system of equations for the processes"""
+        """Returns the system of equations for the processes."""
         return self.process.network
 
     @property
     def bibliography(self) -> dict:
+        """Returns a dict of processes and respective bibcodes."""
         return {p.name: p.bibliography for p in self.processes}

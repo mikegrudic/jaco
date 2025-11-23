@@ -1,4 +1,4 @@
-from .atomic_weights import atomic_weights
+from .atoms import atomic_weights
 
 
 class SolarAbundancesClass:
@@ -28,6 +28,10 @@ class SolarAbundancesClass:
         """Returns dictionary of abundances per H nucleon"""
         return {species: f / (1 - f) / atomic_weights[species] for species, f in self.mass_fraction.items()}
 
+    def get_abundance_per_H(self, species):
+        f = self.mass_fraction[species]
+        return f / (1 - f) / atomic_weights[species]
+
     def x(self, species):
         return self.get_abundance(species)
 
@@ -41,7 +45,7 @@ class SolarAbundancesClass:
     def get_abundance(self, species: str) -> float:
         """Returns the abundance per H nuclear of an input species"""
         if species in self.mass_fraction:
-            return self.abundance_per_H[species]
+            return self.get_abundance_per_H(species)
         else:
             raise NotImplementedError(f"Solar abundance of {species} not available.")
 
