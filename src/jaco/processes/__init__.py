@@ -5,3 +5,4 @@ from .freefree_emission import *
 from .line_cooling import *
 from .ionization import *
 from .recombination import *
+from .chemical_reaction import *

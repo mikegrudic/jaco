@@ -180,7 +180,7 @@ class EquationSystem(dict):
         num_equations = len(subsystem)
 
         # are there any symbols for which we can make a reasonable assumption or directly solve the steady-state approximation?
-        prescriptions = {"y": SolarAbundances.x("He"), "Y": SolarAbundances.mass_fraction["He"], "Z": 1.0}
+        prescriptions = {"y": SolarAbundances.x("He"), "Y": SolarAbundances.mass_fraction["He"], "Z": 1.0, "C_2": 1.0}
         assumed_values = {}
         if len(symbols) > num_equations + len(knowns):
             undetermined_symbols = symbols.difference(set(sp.Symbol(g) for g in guesses))

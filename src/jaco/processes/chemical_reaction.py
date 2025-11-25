@@ -1,10 +1,11 @@
 from .nbody_process import NBodyProcess
+import sympy as sp
 
 
 class ChemicalReaction(NBodyProcess):
     """Process that implements a chemical reaction described by an equation and a rate coefficient"""
 
-    def __init__(self, equation, rate_coefficient, heat_per_reaction=0, bibliography=[]):
+    def __init__(self, equation, rate_coefficient=0.0, heat_per_reaction=0.0, name="", bibliography=[]):
         """
         Chemical reaction process
 
@@ -12,15 +13,22 @@ class ChemicalReaction(NBodyProcess):
         ----------
         equation: string
             Chemical equation for the reaction. Syntax: <c1>reactant1 + <c2>reactant2... -> <c3>product1 + <c4>production2...
-            examples: '3H -> H_2 + H', 'H+ + e- -> H'
+            examples: '3H -> H_2 + H', 'H+ + e- -> H', etc.
         """
-        self.name = equation
+        self.equation = equation
+        if name == "":
+            self.name = self.equation
+        else:
+            self.name = name
         self.bibliography = bibliography
         self.lhs_coeffs, self.rhs_coeffs = self.species_and_coeffs(equation)
         self.colliding_species = sum(
             [c * [s] for s, c in self.lhs_coeffs.items()], start=[]
         )  # repeating in the list based on multiplcity so we get the correct powers in the rate expression
+        self.order = len(self.colliding_species)
+        self.clumping_factor = sp.Symbol(f"C_{self.order}")
         self.rate_coefficient = rate_coefficient
+        self.subprocesses = [self]
         self.initialize_network()
         self.update_network()
         self.heat_rate_coefficient = rate_coefficient * heat_per_reaction
@@ -32,6 +40,13 @@ class ChemicalReaction(NBodyProcess):
             self.network[s] -= rate * coeff
         for s, coeff in self.rhs_coeffs.items():
             self.network[s] += rate * coeff
+
+    @staticmethod
+    def equation_to_heat(equation):
+        """Given an equation, return the enthalpy of the reaction in erg based upon chemical
+        data"""
+        raise NotImplementedError("Automatic reaction enthalpy not implemented yet.")
+        return
 
     @staticmethod
     def species_and_coeffs(equation) -> list[dict]:

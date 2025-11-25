@@ -16,7 +16,7 @@ class NBodyProcess(Process):
     Parameters
     ----------
     colliding_species:
-        iterable of strings representing the colliding species.
+        iterable of strings representing the colliding species. Species should be repeated if more than 1 is involved.
     rate_coefficient: sympy.core.symbol.Symbol, optional
         Symbol symbol expression for k
     heat_rate_coefficient: sympy.core.symbol.Symbol, optional
@@ -30,6 +30,8 @@ class NBodyProcess(Process):
         self.name = name
         self.initialize_network()
         self.colliding_species = colliding_species
+        self.order = len(colliding_species)
+        self.clumping_factor = sp.Symbol(f"C_{self.order}")
         self.rate_coefficient = rate_coefficient
         self.heat_rate_coefficient = heat_rate_coefficient
         self.subprocesses = [self]
@@ -48,14 +50,14 @@ class NBodyProcess(Process):
     def heat_rate_coefficient(self, value):
         """Ensures that the network is always updated when we update the rate coefficient"""
         self.__heat_rate_coefficient = value
-        self.heat = value * self.nprod
+        self.heat = value * self.nprod * self.clumping_factor
 
     @property
     def rate(self):
         """Returns the number of events per unit time and volume"""
         if self.rate_coefficient is None:
             return None
-        return self.rate_coefficient * self.nprod
+        return self.rate_coefficient * self.nprod * self.clumping_factor
 
     @property
     def num_colliding_species(self):
