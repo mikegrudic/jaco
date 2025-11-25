@@ -1,6 +1,0 @@
-jax
-sympy
-numpy
-sphinx_rtd_theme
-astropy
-matplotlib
