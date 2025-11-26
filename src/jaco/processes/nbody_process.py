@@ -16,7 +16,7 @@ class NBodyProcess(Process):
     Parameters
     ----------
     colliding_species:
-        iterable of strings representing the colliding species.
+        iterable of strings representing the colliding species. Species should be repeated if more than 1 is involved.
     rate_coefficient: sympy.core.symbol.Symbol, optional
         Symbol symbol expression for k
     heat_rate_coefficient: sympy.core.symbol.Symbol, optional
@@ -25,10 +25,14 @@ class NBodyProcess(Process):
         Name of the process
     """
 
-    def __init__(self, colliding_species, rate_coefficient=0, heat_rate_coefficient=0, name: str = ""):
+    def __init__(self, colliding_species, rate_coefficient=0, heat_rate_coefficient=0, name: str = "", bibliography=[]):
+        self.bibliography = bibliography
         self.name = name
+        self.equations = []
         self.initialize_network()
         self.colliding_species = colliding_species
+        self.order = len(colliding_species)
+        self.clumping_factor = sp.Symbol(f"C_{self.order}")
         self.rate_coefficient = rate_coefficient
         self.heat_rate_coefficient = heat_rate_coefficient
         self.subprocesses = [self]
@@ -38,32 +42,23 @@ class NBodyProcess(Process):
         """Returns the heat rate coefficient of the N-body process"""
         return self.__heat_rate_coefficient
 
+    @property
+    def nprod(self):
+        """Returns the product of species number densities"""
+        return sp.prod([n_(c) for c in self.colliding_species])
+
     @heat_rate_coefficient.setter
     def heat_rate_coefficient(self, value):
         """Ensures that the network is always updated when we update the rate coefficient"""
         self.__heat_rate_coefficient = value
-        self.heat = value * sp.prod([n_(c) for c in self.colliding_species])
+        self.heat = value * self.nprod * self.clumping_factor
 
     @property
     def rate(self):
         """Returns the number of events per unit time and volume"""
         if self.rate_coefficient is None:
             return None
-        return self.rate_coefficient * sp.prod([n_(c) for c in self.colliding_species])
-
-    # @property
-    # def heat(self):
-    #     """Returns the energy radiated per unit time and volume"""
-    #     return super().heat
-
-    # #        self.__heat = self.heat_rate_coefficient * sp.prod([sp.Symbol("n_" + c) for c in self.colliding_species])
-    # #        return self.__heat
-
-    # @heat.setter
-    # def heat(self, value):
-    #     raise NotImplementedError(
-    #         "Cannot directly set the heat value of an N-body process - set the rate coefficient instead."
-    #     )
+        return self.rate_coefficient * self.nprod * self.clumping_factor
 
     @property
     def num_colliding_species(self):

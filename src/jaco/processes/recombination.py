@@ -8,6 +8,42 @@ from .ionization import ionization_energy
 import sympy as sp
 
 
+def hydrogenic_recombination_rate(Z):
+    """Verner & Ferland 1996"""
+    return (
+        Z
+        * 7.982e-11
+        / (
+            sp.sqrt(T / 3.148 / Z**2)
+            * sp.Pow((1.0 + sp.sqrt(T / 3.148 / Z**2)), 0.252)
+            * sp.Pow((1.0 + sp.sqrt(T / 7.036e5 / Z**2)), 1.748)
+        )
+    )
+
+
+# All fits below are from Verner & Ferland 1996
+gasphase_recombination_rates = {
+    "H+": hydrogenic_recombination_rate(1),
+    "He+": 9.356e-10
+    / (
+        sp.sqrt(T / 4.266e-2)
+        * sp.Pow((1.0 + sp.sqrt(T / 4.266e-2)), 0.2108)
+        * sp.Pow((1.0 + sp.sqrt(T / 3.676e7)), 1.7892)
+    )
+    + 1.9e-3 * T**-1.5 * sp.exp(-4.7e5 / T) * (1 + 0.3 * sp.exp(-9.4e4 / T)),
+    "He++": hydrogenic_recombination_rate(2),
+}
+# an electron—ion pair removes the mean kinetic energy during recombination
+# To a good approximation, the mean energy lost by the gas during dielectronic recombination of He+ is the w = 2 excitation energy of He+.
+mean_kinetic_energy = 1.036e-16 * T
+gasphase_recombination_cooling = {
+    "H+": mean_kinetic_energy * gasphase_recombination_rates["H+"],
+    "He+": 1.55e-26 * T**-0.3647,
+    "He++": mean_kinetic_energy * gasphase_recombination_rates["He++"],
+}
+gasphase_recombination_cooling["He++"] = 4 * gasphase_recombination_cooling["H+"]  # H-like
+
+
 class Recombination(NBodyProcess):
     """
     Class describing a recombination process: ion + e- -> recombined species + hν
@@ -74,39 +110,3 @@ def GasPhaseRecombination(ion=None) -> Recombination:
     process.rate_coefficient = gasphase_recombination_rates[ion]
     process.heat_rate_coefficient = -gasphase_recombination_cooling[ion]
     return process
-
-
-def hydrogenic_recombination_rate(Z):
-    """Verner & Ferland 1996"""
-    return (
-        Z
-        * 7.982e-11
-        / (
-            sp.sqrt(T / 3.148 / Z**2)
-            * sp.Pow((1.0 + sp.sqrt(T / 3.148 / Z**2)), 0.252)
-            * sp.Pow((1.0 + sp.sqrt(T / 7.036e5 / Z**2)), 1.748)
-        )
-    )
-
-
-# All fits below are from Verner & Ferland 1996
-gasphase_recombination_rates = {
-    "H+": hydrogenic_recombination_rate(1),
-    "He+": 9.356e-10
-    / (
-        sp.sqrt(T / 4.266e-2)
-        * sp.Pow((1.0 + sp.sqrt(T / 4.266e-2)), 0.2108)
-        * sp.Pow((1.0 + sp.sqrt(T / 3.676e7)), 1.7892)
-    )
-    + 1.9e-3 * T**-1.5 * sp.exp(-4.7e5 / T) * (1 + 0.3 * sp.exp(-9.4e4 / T)),
-    "He++": hydrogenic_recombination_rate(2),
-}
-# an electron—ion pair removes the mean kinetic energy during recombination
-# To a good approximation, the mean energy lost by the gas during dielectronic recombination of He+ is the w = 2 excitation energy of He+.
-mean_kinetic_energy = 1.036e-16 * T
-gasphase_recombination_cooling = {
-    "H+": mean_kinetic_energy * gasphase_recombination_rates["H+"],
-    "He+": 1.55e-26 * T**-0.3647,
-    "He++": mean_kinetic_energy * gasphase_recombination_rates["He++"],
-}
-gasphase_recombination_cooling["He++"] = 4 * gasphase_recombination_cooling["H+"]  # H-like
