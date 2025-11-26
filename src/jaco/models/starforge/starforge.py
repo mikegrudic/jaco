@@ -24,3 +24,5 @@ def make_model():
 
 #     processes += [photon_absorption(band) for band in "EUV", "FUV", "NUV", "OPT", "FIR"]
 #     processes += [dust_emission(band) for band in "EUV", "FUV", "NUV", "OPT", "FIR"]
+
+# assumptions: x_D = 2.527e-5 x_H, x_D+ = 2.527e-5 x_H+, zero out associated collisional dissociation rates

@@ -5,8 +5,10 @@ from jaco.processes import ChemicalReaction
 import sympy as sp
 
 
-def H2_collisional_dissociation(n, collider):
-    """Symbolic implementation of the rate coefficient for collisional dissociation of H_2
+def H2_collisional_dissociation(collider, isotopologue="H_2"):
+    """Symbolic implementation of the rate coefficient for collisional dissociation of H_2, HD, or D_2
+
+    This implements reactions 9, 10, 11, 108, 109, 110, 112, 113, and 114 from Glover & Abel 2008
 
     Parameters
     ----------
@@ -14,6 +16,8 @@ def H2_collisional_dissociation(n, collider):
         total H number density
     collider: str
         Colliding species (implemented: H+, e-, H, H_2)
+    isotopologue: str, optional
+        Dissociated isotopologue of H_2 (implemented: H_2, HD, D_2)
 
     Returns
     -------
@@ -30,7 +34,9 @@ def H2_collisional_dissociation(n, collider):
     ncr_H2 = sp.Pow(10.0, 4.845 - 1.3 * logT4 + 1.62 * logT4 * logT4)
     ncr_He = sp.Pow(10.0, 5.0792 * (1.0 - 1.23e-5 * (T - 2000.0)))
     ncrit = 1.0 / (x_("H") / ncr_H + x_("H_2") / ncr_H2 + x_("He") / ncr_He)
-    n_ncrit = n / ncrit
+    if isotopologue == "HD":
+        ncrit *= 100  # GA08 2.1.7 - HD gets a 100x higher ncrit
+    n_ncrit = n_Htot / ncrit
     f_0 = 1.0 / (1.0 + n_ncrit)
 
     match collider:
@@ -47,14 +53,23 @@ def H2_collisional_dissociation(n, collider):
             ) * sp.exp(-21237.15 / T)
             bib.append("2004ApJ...606L.167S")
         case "e-":
-            k_0 = 4.49e-9 * sp.Pow(T, 0.11) * sp.exp(-101858.0 / T)
-            k_LTE = 1.91e-9 * sp.Pow(T, 0.136) * sp.exp(-53407.1 / T)
+            if isotopologue == "H_2":
+                k_0 = 4.49e-9 * sp.Pow(T, 0.11) * sp.exp(-101858.0 / T)
+                k_LTE = 1.91e-9 * sp.Pow(T, 0.136) * sp.exp(-53407.1 / T)
+            elif isotopologue == "D_2":
+                k_0 = 8.24e-9 * sp.Pow(T, 0.216) * sp.exp(-105388 / T)
+                k_LTE = 1.91e-9 * sp.Pow(T, 0.163) * sp.exp(-53339.7 / T)
+            elif isotopologue == "HD":
+                k_0 = 5.09e-9 * sp.Pow(T, 0.128) * sp.exp(-103258 / T)
+                k_LTE = 1.04e-9 * sp.Pow(T, 0.218) * sp.exp(-53070.7 / T)
+                bib.append("2002PPCF...44.2217T")
             bib.append("2002PPCF...44.1263T")
         case "H":
             k_0 = 6.67e-12 * sp.sqrt(T) * sp.exp(-(1.0 + 63593.0 / T))
             k_LTE = 3.52e-9 * sp.exp(-43900.0 / T)
             bib.append("1983ApJ...270..578L")
             bib.append("1986ApJ...302..585M")
+            # can update to Martin 1996 following Glover 2015
         case "H_2":
             k_0 = 5.996e-30 * pow(T, 4.1881) * sp.exp(-(54657.4 / T)) / sp.Pow(1.0 + 6.761e-6 * T, 5.6881)
             k_LTE = 1.3e-9 * sp.exp(-53300.0 / T)
@@ -64,6 +79,8 @@ def H2_collisional_dissociation(n, collider):
             k_0 = 10 ** (-27.029 + 3.801 * log_T - 29487.0 / T)
             k_LTE = 10 ** (-2.729 - 1.75 * log_T - 23474.0 / T)
             bib.append("1987ApJ...318..379D")
+        case _:
+            raise NotImplementedError(f"Collisional dissociation of {isotopologue} by {collider} not implemented.")
 
     k_0 = sp.Max(k_0, 0)
     k_LTE = sp.Max(k_LTE, 0)
@@ -73,10 +90,10 @@ def H2_collisional_dissociation(n, collider):
         f"H_2 + {collider} -> 2H + {collider}",
         rate_coefficient=k,
         heat_per_reaction=-H2_formation_heat_cgs,
-        name=f"Collisional dissociation of H_2 by {collider}",
+        name=f"Collisional dissociation of {isotopologue} by {collider}",
         bibliography=bib,
     )
 
 
 colliders = "H+", "e-", "H_2", "H", "He"
-process = sum([H2_collisional_dissociation(n_Htot, c) for c in colliders])
+model_process = sum([H2_collisional_dissociation(c) for c in colliders])

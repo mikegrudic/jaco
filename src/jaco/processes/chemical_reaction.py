@@ -1,5 +1,6 @@
 from .nbody_process import NBodyProcess
 import sympy as sp
+from warnings import warn
 
 
 class ChemicalReaction(NBodyProcess):
@@ -16,19 +17,26 @@ class ChemicalReaction(NBodyProcess):
             examples: '3H -> H_2 + H', 'H+ + e- -> H', etc.
         """
         self.equation = equation
+        self.equations = []
         if name == "":
             self.name = self.equation
         else:
             self.name = name
+        if not bibliography:
+            warn(f"Chemical reaction {equation} does not have a bibliographic reference. Be a lot cooler if it did.")
         self.bibliography = bibliography
         self.lhs_coeffs, self.rhs_coeffs = self.species_and_coeffs(equation)
         self.colliding_species = sum(
             [c * [s] for s, c in self.lhs_coeffs.items()], start=[]
         )  # repeating in the list based on multiplcity so we get the correct powers in the rate expression
         self.order = len(self.colliding_species)
-        self.clumping_factor = sp.Symbol(f"C_{self.order}")
+        if self.order > 1:
+            self.clumping_factor = sp.Symbol(f"C_{self.order}")
+        else:
+            self.clumping_factor = 1
         self.rate_coefficient = rate_coefficient
         self.subprocesses = [self]
+        self.reactions = [equation]
         self.initialize_network()
         self.update_network()
         self.heat_rate_coefficient = rate_coefficient * heat_per_reaction

@@ -12,10 +12,12 @@ H2_dust_formation_rate = (
     * Z_dust
 )
 
-process = ChemicalReaction(
+grain_formation = ChemicalReaction(
     "H + H -> H_2",
-    rate_coefficient=H2_dust_formation_rate,
+    H2_dust_formation_rate,
     heat_per_reaction=H2_formation_heat_cgs,
     name="Formation of H_2 on dust grains",
     bibliography=["1979ApJS...41..555H"],
 )
+
+model_process = grain_formation

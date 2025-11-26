@@ -28,6 +28,7 @@ class NBodyProcess(Process):
     def __init__(self, colliding_species, rate_coefficient=0, heat_rate_coefficient=0, name: str = "", bibliography=[]):
         self.bibliography = bibliography
         self.name = name
+        self.equations = []
         self.initialize_network()
         self.colliding_species = colliding_species
         self.order = len(colliding_species)

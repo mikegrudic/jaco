@@ -27,6 +27,7 @@ class Process:
         self.heat = 0
         self.bibliography = bibliography
         self.subprocesses = [self]
+        self.equations = []
 
     def __repr__(self):
         """Print the name in print()"""
@@ -37,7 +38,7 @@ class Process:
         if other == 0:  # necessary for native sum() routine to work
             return self
 
-        attrs_to_sum = "heat", "subprocesses", "network", "bibliography"  # all rates
+        attrs_to_sum = "heat", "subprocesses", "network", "bibliography", "equations"  # all rates
 
         sum_process = Process()
         sum_process.rate = None  # "rate" ceases to be meaningful for composite processes
