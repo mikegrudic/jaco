@@ -74,6 +74,7 @@ class EquationSystem(dict):
                 self[q] = Equation(BDF(q), self[q].rhs)
             else:
                 self[q] = Equation(0, self[q].rhs)
+
         if "T" in time_dependent_vars:  # special behaviour
             self["heat"] = Equation(BDF("T"), self["heat"].rhs)
             if "u" not in self:
@@ -85,9 +86,8 @@ class EquationSystem(dict):
 
         # since we have n_Htot let's convert all other n's to x's
         for s in self.symbols:
-            if "n_" in str(s) and "Htot" not in str(s):
-                species = str(s).split("_")[1]
-                self.substitutions.append((s, n_Htot * x_(species)))
+            if str(s)[:2] == "n_" and "Htot" not in str(s):
+                self.substitutions.append((s, n_Htot * sp.Symbol("x_" + str(s)[2:])))
 
         # charge neutrality
         if "e-" not in time_dependent_vars:
@@ -326,9 +326,9 @@ class EquationSystem(dict):
         else:
             return list(rhs.values()), {s: i for i, s in enumerate(rhs)}
 
-    def generate_code(self, solve_vars, time_dependent=[], language="Fortran", jac=True, cse=True, sanitize=True):
+    def generate_code(self, solve_vars, time_dependent=[], language="Fortran", jac=True, cse=True):
         """Generates numerical code that implements the system RHS and/or Jacobian in the specified language."""
-        func, jac, indices = self.solver_functions(solve_vars, time_dependent, return_jac=jac)
+        func, jac, indices = self.santized.solver_functions(solve_vars, time_dependent, return_jac=jac)
 
         def printer(x, language="c"):
             match language.lower():
@@ -367,14 +367,17 @@ class EquationSystem(dict):
             codeblocks.append(printer(Assignment(jac_result, jac), language))
 
         code = "\n\n".join(codeblocks)
-        if sanitize:
-            sanitized_code = ""
-            replacements = {"+": "plus"}
-            for i, char in enumerate(code):
-                if char in replacements:
-                    if code[i - 1].split():  # if preceding character is not whitespace
-                        sanitized_code += replacements[char]
-                        continue
-                sanitized_code += char
-            code = sanitized_code
         return code
+
+    @property
+    def santized(self):
+        """Returns a version of the system with variables sanitized of characters that will cause syntax issues"""
+        replacements = {"+": "plus", "-": "minus"}
+        sanitized = self.copy()
+        symbols = sanitized.symbols
+        for s in symbols:
+            for r in replacements:
+                if r in str(s):
+                    sanitized.subs(s, sp.Symbol(str(s).replace(r, replacements[r])))
+
+        return sanitized
