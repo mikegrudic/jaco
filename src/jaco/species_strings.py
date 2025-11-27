@@ -56,6 +56,7 @@ def species_charge(species: str) -> int:
 def is_an_ion(species: str) -> bool:
     return species_charge(species) != 0 and species != "e-"
 
+def species_mass
 
 def base_species(species: str) -> str:
     """Removes the charge suffix from a species"""
@@ -127,20 +128,22 @@ def species_components(species: str) -> dict:
     return components
 
 
-# def species_mass(species: str) -> float:
-#     """
-#     Returns the mass of a species in g
+def species_mass(species: str) -> float:
+    """
+    Returns the mass of a species in g
 
-#     Parameters
-#     ----------
-#     species: string
-#         Identifier for the species
+    Parameters
+    ----------
+    species: string
+        Identifier for the species
 
-#     Returns
-#     -------
-#     mass: float
-#         mass of species in g
-#     """
+    Returns
+    -------
+    mass: float
+        mass of species in g
+    """
+    # TODO: IMPLEMENT ME
+    return 0
 
 #     # proper way to do this: write function that decomposes a general species into nuclei + electron
 #     if species in atomic_weights:  # atom
