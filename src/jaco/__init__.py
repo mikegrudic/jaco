@@ -1,4 +1,4 @@
-from .misc import *
+from .species_strings import *
 from .numerics import *
 from .process import Process
 from .equation_system import EquationSystem

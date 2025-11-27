@@ -1,7 +1,7 @@
 """Implementation of free-free emission as a 2-body process"""
 
 from .nbody_process import NBodyProcess
-from ..misc import species_charge
+from ..species_strings import species_charge
 from ..symbols import T
 import sympy as sp
 

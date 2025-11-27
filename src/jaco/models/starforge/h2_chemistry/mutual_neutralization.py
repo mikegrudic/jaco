@@ -2,7 +2,7 @@
 
 from ..symbols import T, sqrt_T
 from jaco.processes import ChemicalReaction
-from jaco.misc import base_species as neutralize
+from jaco.species_strings import base_species as neutralize
 import sympy as sp
 
 

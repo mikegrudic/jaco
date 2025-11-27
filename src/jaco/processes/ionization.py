@@ -1,7 +1,7 @@
 """Implementation of ionization process"""
 
 from ..process import Process
-from ..misc import ionize
+from ..species_strings import ionize
 from ..symbols import T, T5, T3, T6, n_e, n_
 import sympy as sp
 from astropy import units as u

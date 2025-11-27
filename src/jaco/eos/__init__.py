@@ -1,1 +1,1 @@
-# from .eos import u, rho
+from .eos import EOS

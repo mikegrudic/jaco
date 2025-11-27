@@ -2,7 +2,7 @@
 
 from ..process import Process
 from .nbody_process import NBodyProcess
-from ..misc import recombine
+from ..species_strings import recombine
 from ..symbols import T, T3, T6
 from .ionization import ionization_energy
 import sympy as sp
