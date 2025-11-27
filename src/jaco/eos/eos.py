@@ -16,7 +16,7 @@ class EOS:
 
     @property
     def density(self):
-        return sum([species_mass(species) * sp.Symbol(f"n_{species}")])
+        return sum([species_mass(self.species) * sp.Symbol(f"n_{self.species}")])
 
     @property
     def internal_energy(self):
