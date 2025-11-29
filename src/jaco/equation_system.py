@@ -2,7 +2,16 @@
 
 import sympy as sp
 from .species_strings import species_mass
-from .symbols import d_dt, n_, x_, t, BDF, n_Htot, internal_energy  # NOTE: must make internal_energy network-specific
+from .symbols import (
+    d_dt,
+    dt,
+    n_,
+    x_,
+    t,
+    BDF,
+    n_Htot,
+    internal_energy,
+)  # NOTE: must make internal_energy network-specific
 from .eos import EOS
 from .data import SolarAbundances
 from jax import numpy as jnp
@@ -80,9 +89,11 @@ class EquationSystem(dict):
                 self[q] = Equation(0, self[q].rhs)
 
         if "T" in time_dependent_vars:  # special behaviour
-            self["heat"] = Equation(BDF("T"), self["heat"].rhs)
+            self["heat"] = Equation(
+                self.eos.density * (self.eos.internal_energy - sp.Symbol("u_0")) / dt, self["heat"].rhs
+            )
             if "u" not in self:
-                self["u"] = Equation(0, sp.Symbol("u") - internal_energy)
+                self["u"] = Equation(0, sp.Symbol("u") - self.eos.internal_energy)
 
     def do_conservation_reductions(self, time_dependent_vars):
         """Eliminate equations from the system using known conservation laws."""
@@ -196,7 +207,7 @@ class EquationSystem(dict):
             knowns["Δt"] = np.repeat(dt.to(units.s), num_params)
 
         if "u" in guesses or "T" in time_dependent:
-            self["u"] = Equation(0, internal_energy - sp.Symbol("u"))
+            self["u"] = Equation(0, self.eos.internal_energy - sp.Symbol("u"))
         subsystem = self.reduced(knowns, time_dependent)
         symbols = subsystem.symbols
         num_equations = len(subsystem)
@@ -312,7 +323,7 @@ class EquationSystem(dict):
 
         solve_vars = list(solve_vars)
         if "u" in solve_vars or "T" in time_dependent:
-            self["u"] = Equation(0, self.internal_energy - sp.Symbol("u"))
+            self["u"] = Equation(0, self.eos.internal_energy - sp.Symbol("u"))
             solve_vars.append("u")
 
         knowns = self.symbols.difference(solve_vars)

@@ -4,7 +4,7 @@ in the network.
 
 from ..data.atoms import atomic_weights, atoms
 from astropy.constants import k_B, m_p, m_e
-from ..symbols import T
+from ..symbols import T, n_
 from astropy import units as u
 from ..species_strings import species_charge, base_species, species_mass
 import sympy as sp
@@ -34,25 +34,25 @@ def species_heat_capacity(species):
 
 class EOS:
     def __init__(self, species):
-        self.species = species  # make sure it's all chemical species here?
+        self.species = species
 
     @property
     def density(self):
-        return sum([species_mass(s) * sp.Symbol(f"n_{s}") for s in self.species])
+        return sp.factor(sum([species_mass(s) * n_(s) for s in self.species]))
 
     @property
     def energy_density(self):
-        return sum([species_mass(s) * sp.Symbol(f"n_{s}") for s in self.species])
+        return sp.factor(sum([n_(s) * species_energy(s) for s in self.species]))
 
     @property
     def internal_energy(self):
-        u = sum([sp.Symbol(f"n_{s}") * k_B_cgs * T for s in self.species])
-
-    @property
-    def heat_capacity(self):
-        return
+        return sp.factor(self.energy_density / self.density)
 
     @property
     def pressure(self):
         """Pressure via ideal gas law"""
-        return sum([sp.Symbol(f"n_{s}") for s in self.species]) * k_B * sp.Symbol("T")
+        return sp.factor(sum([n_(s) for s in self.species]) * k_B * T)
+
+    # @property
+    # def heat_capacity(self):
+    #     return sum([n_(s) * species_heat_capacity(s) for s in self.species]) / self.density
