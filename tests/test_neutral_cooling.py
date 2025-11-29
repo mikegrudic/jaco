@@ -11,6 +11,7 @@ import sympy as sp
 from jaco.data import SolarAbundances
 import pytest
 import matplotlib
+import os
 
 matplotlib.use("Agg")
 
@@ -64,7 +65,7 @@ def test_neutral_cooling(T0):
     sol = system.solve(knowns, guesses, tol=1e-3)  # , careful_steps=30)
 
     fig, ax = plt.subplots(figsize=(3, 3))
-    T_test = np.load("tests/neutral_cooling_testdata.npy")[:, 1]
+    T_test = np.load(os.path.dirname(os.path.abspath(__file__)) + "/neutral_cooling_testdata.npy")[:, 1]
     ax.loglog(ngrid, sol["T"], label=r"T (K)", color="black")
     ax.loglog(ngrid, T_test, label=r"T (K) (reference.)", color="red", ls="dotted")
     ax.loglog(ngrid, sol["H"], label=r"$x_{\rm H0}$", ls="dotted", color="black")
@@ -75,7 +76,7 @@ def test_neutral_cooling(T0):
     ax.set_ylim(1e-4, 3e4)
     ax.set_yticks(10.0 ** np.arange(-4, 5))
     plt.savefig("tests/neutral_cooling.png", bbox_inches="tight")
-    np.save("neutral_cooling_testdata.npy", np.c_[ngrid, sol["T"]])
+    # np.save("neutral_cooling_testdata.npy", np.c_[ngrid, sol["T"]])
     assert np.all(np.abs((T_test - sol["T"]) / sol["T"]) < 0.1)
 
 

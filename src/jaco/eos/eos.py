@@ -8,20 +8,9 @@ from ..symbols import T
 from astropy import units as u
 from ..species_strings import species_charge, base_species, species_mass
 import sympy as sp
-from dataclasses import dataclass
+from .H2_partition_function import H2_energy_over_kbT
 
 k_B_cgs = k_B.to(u.erg / u.K).value
-
-
-def H2_energy_over_kbT(T):
-    """Fit for the average energy of a H_2 molecule in units of k_B T"""
-    p1 = ((0.0510229560518835 * sp.log(T) - 1.59102802948492) * sp.log(T) + 17.4609732213753) * sp.log(
-        T
-    ) - 64.5635781542307
-    p2 = ((0.102728060235312 * sp.log(T) - 2.42078687298443) * sp.log(T) + 19.4951634944834) * sp.log(
-        T
-    ) - 51.5605088374882
-    return 1.5 + 1 / (1 + sp.exp(-p1)) + 1 / (1 + sp.exp(-p2))
 
 
 def species_energy(species):
@@ -37,7 +26,7 @@ def species_energy(species):
 def species_heat_capacity(species):
     """Returns the average thermal energy per particle for a species"""
     if species == "H_2":  # currently the only defined special heat capacity, likely the only one that matters
-        fac = sp.diff(H2_energy_over_kbT(T), T)
+        fac = sp.diff(T * H2_energy_over_kbT(T), T)
     else:
         fac = 1.5
     return fac * k_B_cgs
