@@ -26,6 +26,7 @@ test_species = [
     "HCO+",
     "He++",
     "He2+",
+    "photon(656nm)",
 ]
 
 
@@ -33,6 +34,9 @@ test_species = [
 def test_species_components(species):
     """Bunch of test cases written by hand to catch edge behaviours"""
     match species:
+        case "photon(656nm)":
+            assert species_counts(species) == {}
+            assert species_mass(species) == 0
         case "e-":
             assert strip(species) == "e-"
             assert species_charge(species) == -1
@@ -87,7 +91,3 @@ def test_species_components(species):
             assert remove_electron(species) == "He2++"
             assert add_electron(species) == "He2"
             assert species_counts(species) == {"He": 2, "e-": 3}
-
-
-if __name__ == "__main__":
-    test_species_components("C_6H_12O_6")

@@ -18,7 +18,7 @@ def radiative_association(species):
     Symbolic expression for radiative association rate coefficient in cgs units
     """
 
-    # TODO: implement automatic lookup of electron affinity to get the photon energy
+    # TODO (low): implement automatic lookup of electron affinity to get the photon energy
     match species:
         case "H" | "D":
             bib = ["1979MNRAS.187P..59W"]

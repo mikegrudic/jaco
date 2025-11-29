@@ -1,6 +1,7 @@
 """Implementation of EquationSystem for representing, manipulating, and constructing systems of conservation laws"""
 
 import sympy as sp
+from .species_strings import species_mass
 from .symbols import d_dt, n_, x_, t, BDF, n_Htot, internal_energy  # NOTE: must make internal_energy network-specific
 from .eos import EOS
 from .data import SolarAbundances
@@ -43,6 +44,8 @@ class EquationSystem(dict):
         all = set()
         for e in self.values():
             all.update(e.free_symbols)
+            if e.lhs.atoms(sp.Function):  # yoink the n_ out of the LHS
+                all.update([str(e.lhs.atoms(sp.Function)).replace("(t)", "").replace("{", "").replace("}", "")])
         if t in all:  # leave time out
             all.remove(t)
         return all
@@ -130,8 +133,15 @@ class EquationSystem(dict):
     @property
     def chemical_species(self):
         """Returns a tuple of all chemical species detected within the network"""
-        # TODO: implement
-        pass
+        # strategy: look for things with n_ or x_, but not photons
+        species = set()
+        for s in self.symbols:
+            if not ("x_" in str(s) or "n_" in str(s)):
+                continue
+            s = str(s).replace("x_", "").replace("n_", "")
+            if species_mass(s) != 0:
+                species.add(s)
+        return tuple(species)
 
     def solve(
         self,

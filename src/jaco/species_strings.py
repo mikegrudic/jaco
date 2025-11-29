@@ -128,7 +128,7 @@ def species_counts(species: str) -> dict:
                 atom = formula[:num_char]
                 break
         if num_char == 0:
-            raise ValueError(f"Could not parse atomic symbols from {species}.")
+            return {}  # ValueError(f"Could not parse atomic symbols from {species}.")
         formula = formula[num_char:]
         num = 1
         i = 0
