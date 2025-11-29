@@ -7,6 +7,7 @@ def newton_rootsolve(
     params=[],
     jacfunc=None,
     tolfunc=None,
+    #    maxfunc=None,
     rtol=1e-6,
     max_iter=100,
     careful_steps=1,
@@ -61,6 +62,11 @@ def newton_rootsolve(
         def tolfunc(X, *params):
             return X
 
+    # if maxfunc is None:
+
+    #     def maxfunc(X, *params):
+    #         return jnp.repeat(jnp.inf, len(X))
+
     def solve(guess, params):
         """Function to be called in parallel that solves the root problem for one guess and set of parameters"""
 
@@ -83,7 +89,8 @@ def newton_rootsolve(
             #            dx = jnp.where(cond < 1e30, -jnp.linalg.solve(J, func(X, *params)) * fac, jnp.zeros_like(X))
             dx = -jnp.linalg.solve(J, func(X, *params)) * fac
             dx_finite = jnp.all(jnp.isfinite(dx))
-            Xnew = jnp.where(dx_finite, jnp.where(nonnegative, (X + dx).clip(SMALL), X + dx), X)
+            #            upper = maxfunc(X, *params)
+            Xnew = jnp.where(dx_finite, jnp.where(nonnegative, (X + dx).clip(SMALL), (X + dx).clip(-BIG, BIG)), X)
             return Xnew, dx, num_iter + 1
 
         init_val = guess, 100 * guess, 0

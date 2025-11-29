@@ -13,11 +13,10 @@ is C3+ (C_3)+ or C^{3+}?
 """
 
 from string import digits
-from itertools import count
 from .data.atoms import atoms, atomic_weights, atomic_numbers
 from astropy.constants import k_B, m_p, m_e
 from astropy import units as u
-import functools
+import sympy as sp
 
 boltzmann_cgs = k_B.to(u.erg / u.K).value
 protonmass_cgs = m_p.to(u.g).value
@@ -168,3 +167,41 @@ def species_mass(species: str) -> float:
         else:
             raise ValueError(f"I don't know the mass of species component {s}")
     return mass
+
+
+def total_atom_abundance(atom: str):
+    """Returns symbol representing the abundance of an atom relative to that of H"""
+    if atom not in atoms:
+        raise (ValueError(f"Cannot define total atomic abundance symbol for {atom}"))
+    if atom == "H":
+        xtot = 1
+    elif atom == "He":
+        xtot = sp.Symbol("y")
+    else:
+        xtot = sp.Symbol("x_" + (atom + ",tot"))
+    return xtot
+
+
+def total_atom_massfrac(atom: str):
+    """Returns symbol representing the mass fraction of an atom"""
+    if atom not in atoms:
+        raise (ValueError(f"Cannot define total atomic mass fraction symbol for {atom}"))
+    if atom == "H":
+        xtot = sp.Symbol("X")
+    elif atom == "He":
+        xtot = sp.Symbol("Y")
+    else:
+        xtot = sp.Symbol("Z_" + atom)
+    return xtot
+
+
+def species_max_abundance(species):
+    """Returns symbol representing the maximum possible abundance of a species from atom conservation."""
+    if not (isinstance(species, str) or isinstance(species, sp.Symbol)) and hasattr(species, "__iter__"):
+        return [species_max_abundance(s) for s in species]
+    # if this is an abundance symbol extract the species
+    counts = species_counts(str(species))
+    if "e-" in counts:
+        del counts["e-"]
+    print(species, counts)
+    return sp.Min(*[total_atom_abundance(a) / counts[a] for a in counts])

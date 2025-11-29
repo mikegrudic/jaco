@@ -38,14 +38,17 @@ class EOS:
 
     @property
     def density(self):
+        """Total mass density"""
         return sp.factor(sum([species_mass(s) * n_(s) for s in self.species]))
 
     @property
     def energy_density(self):
+        """Thermal energy density"""
         return sp.factor(sum([n_(s) * species_energy(s) for s in self.species]))
 
     @property
     def internal_energy(self):
+        """Internal energy per unit mass"""
         return sp.factor(self.energy_density / self.density)
 
     @property

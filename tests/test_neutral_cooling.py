@@ -57,9 +57,9 @@ def test_neutral_cooling(T0):
     y = SolarAbundances.x("He")
     guesses = {
         "T": T0 * ones,
-        "H": ones * 0.5,
-        "He": y * ones * 0.99,
+        "H+": ones * 0.5,
         "He+": y * ones * 0.01,
+        "He++": y * ones * 0.01,
     }
 
     sol = system.solve(knowns, guesses, tol=1e-3)  # , careful_steps=30)

@@ -10,8 +10,11 @@ from jaco.species_strings import (
     strip,
     species_counts,
     species_mass,
+    species_max_abundance,
+    total_atom_abundance,
 )
 import pytest
+import sympy as sp
 
 test_species = [
     "e-",

@@ -19,7 +19,7 @@ def test_CIE():
 
     knowns = {"T": Tgrid, "n_Htot": ngrid}
 
-    guesses = {"H": 0.5 * np.ones_like(Tgrid), "He": 1e-5 * np.ones_like(Tgrid), "He+": 1e-5 * np.ones_like(Tgrid)}
+    guesses = {"H+": 0.9 * np.ones_like(Tgrid), "He+": 1e-2 * np.ones_like(Tgrid), "He++": 1e-2 * np.ones_like(Tgrid)}
     sol = system.solve(knowns, guesses, tol=1e-3)
     Hep_frac = sol["He+"] / (sol["He"] + sol["He+"] + sol["He++"])
     assert (

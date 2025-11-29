@@ -57,3 +57,19 @@ def BDF(species):
     #     return rho * (internal_energy - sp.Symbol("u_0")) / dt
     # else:
     return (n_(species) - sp.Symbol(str(n_(species)) + "_0")) / dt
+
+
+def sanitize_symbols(expr):
+    """
+    Given a symbolic expression, replace all symbols with + or - in them with plus or minus
+    to avoid ambiguity or syntax errors in code generation.
+    """
+    if hasattr(expr, "__iter__"):  # if iterable call recursively until we get down to actual expressions
+        expr = [sanitize_symbols(e) for e in expr]
+    else:
+        for s in expr.free_symbols:
+            if "+" in str(s):
+                expr = expr.subs(s, sp.Symbol(str(s).replace("+", "plus")))
+            if "-" in str(s):
+                expr = expr.subs(s, sp.Symbol(str(s).replace("-", "minus")))
+    return expr
