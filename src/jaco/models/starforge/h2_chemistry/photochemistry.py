@@ -6,12 +6,12 @@ from jaco.processes import ChemicalReaction
 
 def f_selfshield_H2(prescription="Gnedin & Draine 2014"):
     """Self-shielding prescription as implemented in GIZMO"""
-    v_thermal_rms = sp.sqrt(T)
+    v_thermal_rms = 0.111 * sp.sqrt(T)
     match prescription:
         case "Gnedin & Draine 2014":
             surface_density_H2_0 = 5.0e14
             w0 = 0.035
-            dv_turb = grad_v * dx
+            dv_turb = grad_v * dx  # TODO: make sure the units work out on this! expressions here assume km/s/pc
             x00 = NH * (1 - x_("H+")) / surface_density_H2_0
             x01 = x00 / (
                 sp.sqrt(1.0 + 3.0 * dv_turb * dv_turb / (v_thermal_rms * v_thermal_rms)) * sp.sqrt(2.0) * v_thermal_rms

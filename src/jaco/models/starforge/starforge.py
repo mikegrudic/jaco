@@ -6,6 +6,8 @@ from ..model import Model
 import sympy as sp
 from .h2_chemistry import H2_chemistry
 from .H2_cooling import H2_cooling
+from .CO_cooling import CO_cooling
+from .gas_dust_collisions import gas_dust_collisions
 # import h2_chemistry
 
 
@@ -26,12 +28,12 @@ def make_model():
     processes += sum([LineCoolingSimple(s) for s in ("H", "He+", "C+")])
     processes += H2_cooling
     processes += CO_cooling
-    processes += dust_gas_collisions
-    processes += sum([cosmic_ray_ionization(s) for s in ("H", "C")])
-    processes += sum([grain_assisted_recombination(s) for s in ("C+",)])
-    processes += photon_absorption
-    processes += dust_emission
-    processes += photoelectric_heating
+    processes += gas_dust_collisions
+    # processes += sum([cosmic_ray_ionization(s) for s in ("H", "C")])
+    # processes += sum([grain_assisted_recombination(s) for s in ("C+",)])
+    # processes += photon_absorption
+    # processes += dust_emission
+    # processes += photoelectric_heating
 
     #    process = sum(processes)
 

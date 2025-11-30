@@ -98,6 +98,9 @@ class EquationSystem(dict):
         for s in self.symbols:
             if str(s)[:2] == "n_" and "Htot" not in str(s):
                 self.substitutions.append((s, n_Htot * sp.Symbol("x_" + str(s)[2:])))
+            # TODO: when we do this we must also fix the LHS of the evolution equation.
+            # n_i = n_H x_i -> d(n_i)/dt = x_i d(n_H)/dt + n_H d(x_i)/dt (Lagrangian density evolution term)
+            # d(x_i)/dt = d/dt (n_i/n_H) = -x_i dlog(n_H)/dt + d(n_i)/dt / n_H
 
         # charge neutrality
         if "e-" not in time_dependent_vars:

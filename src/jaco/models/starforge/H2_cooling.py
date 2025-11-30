@@ -5,6 +5,9 @@ import sympy as sp
 from .symbols import T, n_Htot, n_, log_T, x_
 
 
+# TODO: write test comparing with GA08 Fig 2
+
+
 def n_HD_prescription():
     return n_Htot * sp.Min(0.00126 * x_("H_2"), 4.0e-5)
 
