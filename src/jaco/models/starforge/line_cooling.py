@@ -1,9 +1,7 @@
 import sympy as sp
-from ..process import Process
-from ..species_strings import total_atom_abundance
-from .nbody_process import NBodyProcess
-from ..symbols import T, T5, n_
-from ..data import SolarAbundances
+from jaco.processes import NBodyProcess
+from jaco.symbols import T, T5, n_
+from jaco.data import SolarAbundances
 
 # put analytic fits for cooling efficiencies
 line_cooling_coeffs = {
@@ -55,6 +53,3 @@ def LineCoolingSimple(emitter: str, collider=None) -> NBodyProcess:
         process.name = f"{emitter} Line Cooling"
 
     return process
-
-
-# def LineCooling(emitter: str)

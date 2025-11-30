@@ -34,6 +34,7 @@ def d_dt(species: Union[str, sp.core.symbol.Symbol]):
 
 
 def n_(species: str):
+    """Returns number density symbol for species"""
     match species:
         case "heat":
             return sp.Symbol(f"⍴u")
@@ -41,17 +42,34 @@ def n_(species: str):
             return sp.Symbol(f"n_{species}")
 
 
+def x_(species: str):
+    """Returns abundance symbol for species"""
+    return sp.Symbol(f"x_{species}")
+
+
 egy_density = boltzmann_cgs * T * (1.5 * (n_("e-") + n_("H") + n_("H+") + n_("He") + n_("He+") + n_("He++")))
 rho = protonmass_cgs * (n_("H") + n_("H+") + 4 * (n_("He") + n_("He+") + n_("He++")))
 internal_energy = sp.factor(egy_density / rho)
 
 
-def x_(species: str):
-    return sp.Symbol(f"x_{species}")
-
-
 def BDF(species):
-    if species in ("T", "u"):  # this is the heat equation
-        return rho * (internal_energy - sp.Symbol("u_0")) / dt
+    # if species in ("T", "u"):  # this is the heat equation
+    #     return rho * (internal_energy - sp.Symbol("u_0")) / dt
+    # else:
+    return (n_(species) - sp.Symbol(str(n_(species)) + "_0")) / dt
+
+
+def sanitize_symbols(expr):
+    """
+    Given a symbolic expression, replace all symbols with + or - in them with plus or minus
+    to avoid ambiguity or syntax errors in code generation.
+    """
+    if hasattr(expr, "__iter__"):  # if iterable call recursively until we get down to actual expressions
+        expr = [sanitize_symbols(e) for e in expr]
     else:
-        return (n_(species) - sp.Symbol(str(n_(species)) + "_0")) / dt
+        for s in expr.free_symbols:
+            if "+" in str(s):
+                expr = expr.subs(s, sp.Symbol(str(s).replace("+", "plus")))
+            if "-" in str(s):
+                expr = expr.subs(s, sp.Symbol(str(s).replace("-", "minus")))
+    return expr

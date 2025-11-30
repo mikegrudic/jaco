@@ -33,4 +33,4 @@ h2_chemistry_processes = [
     cosmic_ray_dissociation.cosmic_ray_dissociation("H_2"),
     r16,
 ]
-h2_chemistry = sum(h2_chemistry_processes)
+H2_chemistry = sum(h2_chemistry_processes)

@@ -2,7 +2,7 @@
 
 from ..process import Process
 from .nbody_process import NBodyProcess
-from ..species_strings import recombine
+from ..species_strings import add_electron
 from ..symbols import T, T3, T6
 from .ionization import ionization_energy
 import sympy as sp
@@ -58,7 +58,7 @@ class Recombination(NBodyProcess):
 
     def __init__(self, ion: str):
         self.ion = ion
-        self.recombined_species = recombine(ion)
+        self.recombined_species = add_electron(ion)
         self.colliding_species = {ion, "e-"}
         super().__init__(self.colliding_species)
         self.ionization_energy = ionization_energy(self.recombined_species)

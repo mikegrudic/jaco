@@ -1,3 +1,5 @@
+"""Atomic data"""
+
 import periodictable
 
 atomic_weights = {str(el): el.mass for el in periodictable.elements}

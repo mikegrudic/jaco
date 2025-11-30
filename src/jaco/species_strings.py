@@ -13,9 +13,10 @@ is C3+ (C_3)+ or C^{3+}?
 """
 
 from string import digits
-from .data.atoms import atoms, atomic_weights
+from .data.atoms import atoms, atomic_weights, atomic_numbers
 from astropy.constants import k_B, m_p, m_e
 from astropy import units as u
+import sympy as sp
 
 boltzmann_cgs = k_B.to(u.erg / u.K).value
 protonmass_cgs = m_p.to(u.g).value
@@ -59,11 +60,12 @@ def is_an_ion(species: str) -> bool:
 
 def base_species(species: str) -> str:
     """Removes the charge suffix from a species"""
-    # FIXME: WILL FAIL FOR GENERAL CHEMICAL FORMULAE
     if species == "e-":
         return "e-"
-    base = species.rstrip(digits + "-+")
-    return base
+    if "^" in species:
+        return species.split("^")[0]
+    else:
+        return species.replace("-", "").replace("+", "")
 
 
 def neutralize(species: str) -> str:
@@ -88,43 +90,58 @@ def charge_suffix(charge: int) -> str:
             return "--"
         case _:
             if charge < -2:
-                return str(abs(charge)) + "-"
+                return "^" + str(abs(charge)) + "-"
             else:
-                return str(abs(charge)) + "+"
+                return "^" + str(abs(charge)) + "+"
 
 
-def ionize(species: str) -> str:
+def remove_electron(species: str) -> str:
     """Returns the symbol of the species produced by removing an electron from the input species"""
     charge = species_charge(species)
     return base_species(species) + charge_suffix(charge + 1)
 
 
-def recombine(species: str) -> str:
+def add_electron(species: str) -> str:
     """Returns the symbol of the species produced by adding an electron to the input species"""
     charge = species_charge(species)
     return base_species(species) + charge_suffix(charge - 1)
 
 
-def species_components(species: str) -> dict:
-    """Returns a dict of components (nuclei, electrons) found in a species whose values are the number of that species
+def species_counts(species: str) -> dict:
+    """Returns a dict of components (nuclei, electrons) found in a species whose values are the count of that species
     found in it"""
 
     if species == "e-":  # special behaviour
         return {"e-": 1}
 
-    components = {}
-    charge = species_charge(species)
+    counts = {}
     formula = base_species(strip(species))  # take off charge suffix
     formula = "".join(formula.split())  # remove whitespace
 
-    elements = []
-    # scan through looking for elements, adding up the numbers that follow. try 2-letter elements first
-    for length in (2, 1):
-        if formula[:length] in atoms:
-            elements.append(formula[:2])
-            formula = formula[length:]
+    # scan through looking for elements, adding up the numbers that follow.
+    while formula:
+        for num_char in (2, 1, 0):  # find an atomic symbol, starting with the 2-character ones
+            if len(formula) < num_char:
+                continue
+            if formula[:num_char] in atoms:
+                atom = formula[:num_char]
+                break
+        if num_char == 0:
+            return {}  # ValueError(f"Could not parse atomic symbols from {species}.")
+        formula = formula[num_char:]
+        num = 1
+        i = 0
+        while formula[: i + 1].isnumeric() and i < len(formula):
+            num = int(formula[: i + 1])
+            i += 1
+        formula = formula[i:]
+        counts[atom] = num
 
-    return components
+    charge = species_charge(species)
+    num_protons = sum([atomic_numbers[s] * counts[s] for s in counts])
+    num_electrons = num_protons - charge
+    counts["e-"] = num_electrons
+    return counts
 
 
 def species_mass(species: str) -> float:
@@ -141,13 +158,50 @@ def species_mass(species: str) -> float:
     mass: float
         mass of species in g
     """
-    # TODO: IMPLEMENT ME
-    return 0
+    mass = 0
+    for s, num in species_counts(species).items():
+        if s == "e-":
+            mass += num * electronmass_cgs
+        elif s in atomic_weights:
+            mass += num * atomic_weights[s] * (protonmass_cgs + electronmass_cgs)
+        else:
+            raise ValueError(f"I don't know the mass of species component {s}")
+    return mass
 
 
-#     # proper way to do this: write function that decomposes a general species into nuclei + electron
-#     if species in atomic_weights:  # atom
-#         return protonmass_cgs * atomic_weights[species]
-#     elif neutralize(species) in atomic_weights:  # atomic ion
-#         return protonmass_cgs * atomic_weights[neutralize(species)] - electronmass_cgs * species_charge
-#     elif "H_2" in
+def total_atom_abundance(atom: str):
+    """Returns symbol representing the abundance of an atom relative to that of H"""
+    if atom not in atoms:
+        raise (ValueError(f"Cannot define total atomic abundance symbol for {atom}"))
+    if atom == "H":
+        xtot = 1
+    elif atom == "He":
+        xtot = sp.Symbol("y")
+    else:
+        xtot = sp.Symbol("x_" + (atom + ",tot"))
+    return xtot
+
+
+def total_atom_massfrac(atom: str):
+    """Returns symbol representing the mass fraction of an atom"""
+    if atom not in atoms:
+        raise (ValueError(f"Cannot define total atomic mass fraction symbol for {atom}"))
+    if atom == "H":
+        xtot = sp.Symbol("X")
+    elif atom == "He":
+        xtot = sp.Symbol("Y")
+    else:
+        xtot = sp.Symbol("Z_" + atom)
+    return xtot
+
+
+def species_max_abundance(species):
+    """Returns symbol representing the maximum possible abundance of a species from atom conservation."""
+    if not (isinstance(species, str) or isinstance(species, sp.Symbol)) and hasattr(species, "__iter__"):
+        return [species_max_abundance(s) for s in species]
+    # if this is an abundance symbol extract the species
+    counts = species_counts(str(species))
+    if "e-" in counts:
+        del counts["e-"]
+    print(species, counts)
+    return sp.Min(*[total_atom_abundance(a) / counts[a] for a in counts])

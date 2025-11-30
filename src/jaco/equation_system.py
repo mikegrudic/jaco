@@ -1,10 +1,15 @@
 """Implementation of EquationSystem for representing, manipulating, and constructing systems of conservation laws"""
 
 import sympy as sp
-from .symbols import d_dt, n_, x_, t, BDF, n_Htot, internal_energy  # NOTE: must make internal_energy network-specific
+from .species_strings import species_mass, species_charge, species_counts, total_atom_abundance
+from .symbols import d_dt, dt, n_, x_, t, BDF, n_Htot, sanitize_symbols
 from .eos import EOS
 from .data import SolarAbundances
+from .data.atoms import atoms
 from jax import numpy as jnp
+# import jax
+
+# jax.config.update("jax_enable_x64", True)
 import numpy as np
 from .numerics import newton_rootsolve
 from astropy import units
@@ -43,6 +48,8 @@ class EquationSystem(dict):
         all = set()
         for e in self.values():
             all.update(e.free_symbols)
+            if e.lhs.atoms(sp.Function):  # yoink the n_ out of the LHS
+                all.update([str(e.lhs.atoms(sp.Function)).replace("(t)", "").replace("{", "").replace("}", "")])
         if t in all:  # leave time out
             all.remove(t)
         return all
@@ -77,9 +84,11 @@ class EquationSystem(dict):
                 self[q] = Equation(0, self[q].rhs)
 
         if "T" in time_dependent_vars:  # special behaviour
-            self["heat"] = Equation(BDF("T"), self["heat"].rhs)
+            self["heat"] = Equation(
+                self.eos.density * (self.eos.internal_energy - sp.Symbol("u_0")) / dt, self["heat"].rhs
+            )
             if "u" not in self:
-                self["u"] = Equation(0, sp.Symbol("u") - internal_energy)
+                self["u"] = Equation(0, sp.Symbol("u") - self.eos.internal_energy)
 
     def do_conservation_reductions(self, time_dependent_vars):
         """Eliminate equations from the system using known conservation laws."""
@@ -89,29 +98,42 @@ class EquationSystem(dict):
         for s in self.symbols:
             if str(s)[:2] == "n_" and "Htot" not in str(s):
                 self.substitutions.append((s, n_Htot * sp.Symbol("x_" + str(s)[2:])))
+            # TODO: when we do this we must also fix the LHS of the evolution equation.
+            # n_i = n_H x_i -> d(n_i)/dt = x_i d(n_H)/dt + n_H d(x_i)/dt (Lagrangian density evolution term)
+            # d(x_i)/dt = d/dt (n_i/n_H) = -x_i dlog(n_H)/dt + d(n_i)/dt / n_H
 
-        # NOTE: all of this makes assumptions about what's in the network! Need to analyze the symbols
         # charge neutrality
         if "e-" not in time_dependent_vars:
-            self.substitutions.append((x_("e-"), x_("H+") + x_("He+") + 2 * x_("He++")))
+            x_ion_sum = 0
+            for s in self.chemical_species:
+                if s == "e-":
+                    continue
+                x_ion_sum += species_charge(s) * x_(s)
+            self.substitutions.append((x_("e-"), x_ion_sum))
             del self["e-"]
 
-        #  general: sum(n_(species containing H) / (number of H in species))  - n_("H_2") / 2 #
-        if "H+" not in time_dependent_vars:
-            self.substitutions.append((x_("H+"), 1 - x_("H")))
-            if "H+" in self:
-                del self["H+"]
+        # atom species conservation
+        counts = {j: species_counts(j) for j in self.chemical_species}
+        for i in self.chemical_species:
+            if i not in atoms:  # i is an atom
+                continue
+            # get total abundance of species
+            x_total = 0
+            for j in self.chemical_species:
+                if j == i:
+                    continue
+                if i in counts[j]:
+                    x_total += counts[j][i] * x_(j)
 
-        if "He++" not in time_dependent_vars:
-            y = sp.Symbol("y")
-            self.substitutions.append((x_("He++"), y - x_("He") - x_("He+")))
-            if "He++" in self:
-                del self["He++"]
+            if x_total == 0:  # no other species containing i found
+                continue
+
+            xtot = total_atom_abundance(i)
+            self.substitutions.append((x_(i), xtot - x_total))
+            del self[i]
 
         for expr, sub in self.substitutions:
             self.subs(expr, sub)
-
-            # general: substitute highest ionization state with n_Htot * x_element - sum of lower ionization states
 
     @property
     def rhs(self):
@@ -121,7 +143,7 @@ class EquationSystem(dict):
     @property
     def rhs_scaled(self):
         """Returns a scaled version of the the RHS pulling out the usual factors affecting collision rates"""
-        return [r for r in self.rhs.values()]  # / (T**0.5 * n_Htot * n_Htot * 1e-12)
+        return [r for r in self.rhs.values()]
 
     @property
     def eos(self):
@@ -130,8 +152,15 @@ class EquationSystem(dict):
     @property
     def chemical_species(self):
         """Returns a tuple of all chemical species detected within the network"""
-        # TODO: implement
-        pass
+        # strategy: look for things with n_ or x_, but not photons
+        species = set()
+        for s in self.symbols:
+            if not ("x_" in str(s) or "n_" in str(s)):
+                continue
+            s = str(s).replace("x_", "").replace("n_", "")
+            if species_mass(s) != 0:
+                species.add(s)
+        return tuple(species)
 
     def solve(
         self,
@@ -141,7 +170,7 @@ class EquationSystem(dict):
         dt=None,
         verbose=False,
         tol=1e-3,
-        careful_steps=10,
+        careful_steps=20,
         symbolic_keys=False,
     ):
         """
@@ -186,7 +215,7 @@ class EquationSystem(dict):
             knowns["Δt"] = np.repeat(dt.to(units.s), num_params)
 
         if "u" in guesses or "T" in time_dependent:
-            self["u"] = Equation(0, internal_energy - sp.Symbol("u"))
+            self["u"] = Equation(0, self.eos.internal_energy - sp.Symbol("u"))
         subsystem = self.reduced(knowns, time_dependent)
         symbols = subsystem.symbols
         num_equations = len(subsystem)
@@ -229,16 +258,28 @@ class EquationSystem(dict):
                 if k == str(s) or f"x_{k}" == str(s):
                     paramvals[s] = (knowns | assumed_values)[k]
 
-        lambda_args = [list(guessvals.keys()), list(paramvals.keys())]
-        func = sp.lambdify(lambda_args, subsystem.rhs_scaled, modules="jax", cse=True)
+        # tuple: first is list of solved variables, second is list of known parameters
+        lambda_args = (list(guessvals.keys()), list(paramvals.keys()))
+        # bounds = len(lambda_args[0]) * [sp.oo]  # default upper bound is infinity
+        # for i, x in enumerate(lambda_args[0]):
+        #     if "x_" in str(x) and str(x).split("x_")[1] in self.chemical_species:
+        #         bounds[i] = species_max_abundance(str(x).split("x_")[1])
 
-        tolerance_vars = [x_("H"), x_("He+") + x_("He"), 1 - x_("H")]
+        def lambdify(expr):
+            """Turns an expression into a function for numerical evaluation"""
+            return sp.lambdify(sanitize_symbols(lambda_args), sanitize_symbols(expr), modules="jax", cse=True)
+
+        func = lambdify(subsystem.rhs_scaled)
+        #        maxfunc = lambdify(bounds)
+
+        tolerance_vars = [x_(s) for s in subsystem.chemical_species]  # default: converge on all abundances
+
         if "T" in guesses:
             tolerance_vars += [sp.Symbol("T")]
         if "u" in guesses:
             tolerance_vars += [sp.Symbol("u"), subsystem["heat"].rhs]
             # , subsystem["heat"]]  # converge on the internal energy and  cooling rate
-        tolfunc = sp.lambdify(lambda_args, tolerance_vars, modules="jax", cse=True)
+        tolfunc = lambdify(tolerance_vars)  # sp.lambdify(lambda_args, tolerance_vars, modules="jax", cse=True)
 
         def f_numerical(X, *params):
             """JAX function to rootfind"""
@@ -248,16 +289,22 @@ class EquationSystem(dict):
             """Solution will terminate if the relative change in this quantity is < tol"""
             return jnp.array(tolfunc(X, params))
 
+        # def max_func(X, *params):
+        #     """Function that returns upper bounds"""
+        #     return jnp.array(maxfunc(X, params))
+
         sol, num_iter = newton_rootsolve(
             f_numerical,
             jnp.array([g for g in guessvals.values()]).T,
             jnp.array([p for p in paramvals.values()]).T,
             tolfunc=tolerance_func,
+            #            maxfunc=max_func,
             rtol=tol,
             careful_steps=careful_steps,
             nonnegative=True,
             return_num_iter=True,
         )
+        printv(f"num_iter average={num_iter.mean()} min={num_iter.min()} max={num_iter.max()}")
 
         soldict = self.package_solution(sol, guessvals, guesses, paramvals, subsystem, symbolic_keys)
 
@@ -302,7 +349,7 @@ class EquationSystem(dict):
 
         solve_vars = list(solve_vars)
         if "u" in solve_vars or "T" in time_dependent:
-            self["u"] = Equation(0, self.internal_energy - sp.Symbol("u"))
+            self["u"] = Equation(0, self.eos.internal_energy - sp.Symbol("u"))
             solve_vars.append("u")
 
         knowns = self.symbols.difference(solve_vars)
@@ -337,7 +384,9 @@ class EquationSystem(dict):
 
     def generate_code(self, solve_vars, time_dependent=[], language="Fortran", jac=True, do_cse=True):
         """Generates numerical code that implements the system RHS and/or Jacobian in the specified language."""
-        func, jac, indices = self.sanitized.solver_functions(solve_vars, time_dependent, return_jac=jac)
+        func, jac, indices = self.solver_functions(solve_vars, time_dependent, return_jac=jac)
+
+        func, jac = sanitize_symbols(func), sanitize_symbols(jac)
 
         def printer(x, language="c"):
             match language.lower():
@@ -368,7 +417,6 @@ class EquationSystem(dict):
             cse, (func, jac) = sp.cse((sp.Matrix(func), sp.Matrix(jac)))
             block = []
             for expr in cse:
-                print(expr)
                 block.append(printer(Assignment(*expr), language))
             codeblocks.append(" \n".join(block))
 
@@ -381,17 +429,3 @@ class EquationSystem(dict):
 
         code = "\n\n".join(codeblocks)
         return code
-
-    @property
-    def sanitized(self):
-        """Returns a version of the system with variables sanitized of characters that will cause syntax issues"""
-        replacements = {"+": "plus", "-": "minus"}
-        sanitized = self.copy()
-        symbols = sanitized.symbols
-        for s in symbols:
-            for r in replacements:
-                if r in str(s):
-                    print(r, s)
-                    sanitized.subs(s, sp.Symbol(str(s).replace(r, replacements[r])))
-
-        return sanitized

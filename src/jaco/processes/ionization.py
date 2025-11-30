@@ -1,7 +1,7 @@
 """Implementation of ionization process"""
 
 from ..process import Process
-from ..species_strings import ionize
+from ..species_strings import remove_electron
 from ..symbols import T, T5, T3, T6, n_e, n_
 import sympy as sp
 from astropy import units as u
@@ -16,7 +16,7 @@ class Ionization(Process):
 
     def __init__(self, species: str, rate_per_volume=0):
         self.species = species
-        self.ionized_species = ionize(species)
+        self.ionized_species = remove_electron(species)
         self.__ionization_energy = None
         super().__init__()
         self.__rate_per_volume = rate_per_volume
