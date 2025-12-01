@@ -27,3 +27,4 @@ T_CMB = sp.Symbol("T_CMB")
 A_V = 5.34e-22 * NH * Z_dust * f_dust
 cosmicray_attenuation_fac = sp.Min(1, 1e21 / NH * sp.exp(-NH / 1e24))
 cosmicray_ionization_rate_H = sp.sqrt(ISRF) * 1.6e-12 * 1e-5 * cosmicray_attenuation_fac
+psi_grain = G_0 * sqrt_T / (0.5 * (1.0e-12 + x_("e-")) * n_Htot)  # grain charging parameter

@@ -49,11 +49,6 @@ def x_(species: str):
     return sp.Symbol(f"x_{species}")
 
 
-egy_density = boltzmann_cgs * T * (1.5 * (n_("e-") + n_("H") + n_("H+") + n_("He") + n_("He+") + n_("He++")))
-rho = protonmass_cgs * (n_("H") + n_("H+") + 4 * (n_("He") + n_("He+") + n_("He++")))
-internal_energy = sp.factor(egy_density / rho)
-
-
 def BDF(species):
     # if species in ("T", "u"):  # this is the heat equation
     #     return rho * (internal_energy - sp.Symbol("u_0")) / dt

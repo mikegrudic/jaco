@@ -14,10 +14,12 @@ from jaco.models.starforge.starforge import make_model
 import sympy as sp
 from jaco.symbols import n_
 
-model = make_model()
-collected = sp.collect(model.network["H-"].rhs, n_("H-"))
-x_Hminus = collected.coeff(n_("H-"), 0) / collected.coeff(n_("H-"), 1)
-print(x_Hminus)
-print()
-print(model.network["dust heat"])
-# print(H2_chemistry.heat)
+
+def test_starforge_network():
+    model = make_model()
+    collected = sp.collect(model.network["H-"].rhs, n_("H-"))
+    x_Hminus = collected.coeff(n_("H-"), 0) / collected.coeff(n_("H-"), 1)
+    print(x_Hminus)
+    print()
+    print(model.network["dust heat"])
+    # print(H2_chemistry.heat)

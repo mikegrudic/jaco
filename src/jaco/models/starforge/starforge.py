@@ -9,6 +9,8 @@ from .H2_cooling import H2_cooling
 from .CO_cooling import CO_cooling
 from .gas_dust_collisions import gas_dust_collisions
 from .cosmic_ray_ionization import cosmic_ray_ionization, cosmic_ray_photoionization
+from .photoelectric_heating import photoelectric_heating
+from jaco.processes import inv_compton_cooling
 # import h2_chemistry
 
 
@@ -29,6 +31,8 @@ def make_model():
         cosmic_ray_ionization("H"),
         cosmic_ray_ionization("C"),
         cosmic_ray_photoionization("C"),
+        photoelectric_heating,
+        inv_compton_cooling,
     ]
 
     # processes += sum([cosmic_ray_ionization(s) for s in ("H", "C")])
