@@ -22,7 +22,6 @@ def make_model():
         *[CollisionalIonization(s) for s in ("H", "He", "He+")],
         *[GasPhaseRecombination(i) for i in ("H+", "He+", "He++")],
         *[FreeFreeEmission(i) for i in ("H+", "He+", "He++")],
-        *[LineCoolingSimple(i) for i in ("H", "He+", "C+")],
         H2_cooling,
         CO_cooling,
         gas_dust_collisions,
