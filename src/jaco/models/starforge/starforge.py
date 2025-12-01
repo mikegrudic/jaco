@@ -10,21 +10,19 @@ from .CO_cooling import CO_cooling
 from .gas_dust_collisions import gas_dust_collisions
 from .cosmic_ray_ionization import cosmic_ray_ionization, cosmic_ray_photoionization
 from .photoelectric_heating import photoelectric_heating
+from .grain_assisted_recombination import grain_assisted_recombination
 from jaco.processes import inv_compton_cooling
 # import h2_chemistry
 
 
 def make_model():
-    processes = (
-        [CollisionalIonization(s) for s in ("H", "He", "He+")]
-        + [GasPhaseRecombination(i) for i in ("H+", "He+", "He++")]
-        + [FreeFreeEmission(i) for i in ("H+", "He+", "He++")]
-        + [LineCoolingSimple(i) for i in ("H", "He+", "C+")]
-    )
-
-    processes += [
+    processes = [
         H2_chemistry,
         sum([LineCoolingSimple(s) for s in ("H", "He+", "C+")]),
+        sum([CollisionalIonization(s) for s in ("H", "He", "He+")]),
+        sum([GasPhaseRecombination(i) for i in ("H+", "He+", "He++")]),
+        sum([FreeFreeEmission(i) for i in ("H+", "He+", "He++")]),
+        sum([LineCoolingSimple(i) for i in ("H", "He+", "C+")]),
         H2_cooling,
         CO_cooling,
         gas_dust_collisions,
@@ -33,6 +31,7 @@ def make_model():
         cosmic_ray_photoionization("C"),
         photoelectric_heating,
         inv_compton_cooling,
+        grain_assisted_recombination("C+"),
     ]
 
     # processes += sum([cosmic_ray_ionization(s) for s in ("H", "C")])
