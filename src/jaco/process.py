@@ -13,6 +13,9 @@ class Process:
     + conservation equations.
     """
 
+    # TODO: want to define an equivalence relation between processes that compares only the equations/rates, so that
+    # process composition is commutative
+
     def __init__(self, name="", bibliography=[]):
         """Construct an empty Process instance
 

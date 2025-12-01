@@ -18,11 +18,11 @@ from jaco.processes import inv_compton_cooling
 def make_model():
     processes = [
         H2_chemistry,
-        sum([LineCoolingSimple(s) for s in ("H", "He+", "C+")]),
-        sum([CollisionalIonization(s) for s in ("H", "He", "He+")]),
-        sum([GasPhaseRecombination(i) for i in ("H+", "He+", "He++")]),
-        sum([FreeFreeEmission(i) for i in ("H+", "He+", "He++")]),
-        sum([LineCoolingSimple(i) for i in ("H", "He+", "C+")]),
+        *[LineCoolingSimple(s) for s in ("H", "He+", "C+")],
+        *[CollisionalIonization(s) for s in ("H", "He", "He+")],
+        *[GasPhaseRecombination(i) for i in ("H+", "He+", "He++")],
+        *[FreeFreeEmission(i) for i in ("H+", "He+", "He++")],
+        *[LineCoolingSimple(i) for i in ("H", "He+", "C+")],
         H2_cooling,
         CO_cooling,
         gas_dust_collisions,

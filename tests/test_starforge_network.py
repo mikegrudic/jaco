@@ -1,4 +1,3 @@
-from jaco.models.starforge.h2_chemistry import H2_chemistry
 # from jaco.eos import EOS
 # import sympy as sp
 
