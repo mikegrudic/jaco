@@ -104,7 +104,6 @@ def piecewise_linear(X, Y, x, extrapolate=False):
 
     for i in range(len(X) - 1):
         cases.append((Y[i] + slopes[i] * (x - X[i]), (x >= X[i]) & (x < X[i + 1])))
-    print(cases)
     return sp.Piecewise(*cases)
 
 
