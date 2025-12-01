@@ -38,6 +38,8 @@ def n_(species: str):
     match species:
         case "heat":
             return sp.Symbol(f"⍴u")
+        case "dust heat":
+            return sp.Symbol(f"⍴u_dust")
         case _:
             return sp.Symbol(f"n_{species}")
 

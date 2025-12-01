@@ -61,7 +61,7 @@ class ChemicalReaction(NBodyProcess):
         """Returns the lists of species and corresponding stoichiometric coefficients from the equation"""
         if "->" not in equation:
             raise ValueError(f"Chemical equation {equation} has no ->")
-
+        # TODO: add check that the equation is balanced
         coeffs_dicts = []
         for idx, side in enumerate(("lhs", "rhs")):
             terms = equation.split("->")[idx].split(" + ")

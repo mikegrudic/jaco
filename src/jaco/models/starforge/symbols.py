@@ -25,3 +25,5 @@ rho = sp.Symbol("rho")
 cs = sp.Symbol("c_s")
 T_CMB = sp.Symbol("T_CMB")
 A_V = 5.34e-22 * NH * Z_dust * f_dust
+cosmicray_attenuation_fac = sp.Min(1, 1e21 / NH * sp.exp(-NH / 1e24))
+cosmicray_ionization_rate_H = sp.sqrt(ISRF) * 1.6e-12 * 1e-5 * cosmicray_attenuation_fac
