@@ -32,6 +32,9 @@ def make_model():
         grain_assisted_recombination("C+"),
     ]
 
+    model = sum(processes)
+    return model
+
     # processes += sum([cosmic_ray_ionization(s) for s in ("H", "C")])
     # processes += sum([grain_assisted_recombination(s) for s in ("C+",)])
     # processes += photon_absorption
@@ -52,7 +55,8 @@ def make_model():
 
     # UV background with shieldfac
 
-    return sum(processes)
+
+#    return sum(processes)
 
 
 #     processes += sum(h2_chemistry.reactions)

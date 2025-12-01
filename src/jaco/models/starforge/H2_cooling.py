@@ -13,6 +13,7 @@ def n_HD_prescription():
 
 
 def lambda_H2_thin(collider):
+    """Returns symbolic expression for the non-LTE collisional excitation cooling rate for H_2 with a colliding species"""
     q = sp.Min(log_T - 3.0, 2.0)
     match collider:
         case "H":
