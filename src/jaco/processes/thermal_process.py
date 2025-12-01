@@ -20,5 +20,5 @@ PdV_heating = ThermalProcess(
 )
 
 inv_compton_cooling = ThermalProcess(
-    5.41e-36 * n_e * T * (1 + z) ** 4, name="Inverse Compton Cooling", bibliography=["1986ApJ...301..522I"]
+    -5.41e-36 * n_e * T * (1 + z) ** 4, name="Inverse Compton Cooling", bibliography=["1986ApJ...301..522I"]
 )
