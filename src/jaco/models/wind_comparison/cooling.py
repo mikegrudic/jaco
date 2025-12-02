@@ -44,4 +44,4 @@ exponent_cooling_curve = np.array(
 
 lambda_cooling = piecewise_powerlaw(T_cooling_curve, lambda_cooling_curve, T)
 cooling = ThermalProcess(-lambda_cooling * n_("H") ** 2, name="Cooling")
-heating = ThermalProcess(2e-26 * n_("H") / (1 + sp.exp((T - 15000) / 1000)), name="Heating")
+heating = ThermalProcess(2e-26 * n_("H") / (1 + sp.exp(sp.Min((T - 15000) / 1000, 100))), name="Heating")
