@@ -104,7 +104,7 @@ def piecewise_linear(X, Y, x, extrapolate=False):
 
     for i in range(len(X) - 1):
         cases.append((Y[i] + slopes[i] * (x - X[i]), (x >= X[i]) & (x < X[i + 1])))
-    return sp.Piecewise(*cases)
+    return sp.piecewise_exclusive(sp.Piecewise(*cases))
 
 
 def piecewise_powerlaw(X, Y, x, extrapolate=False):
