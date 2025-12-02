@@ -1,3 +1,4 @@
+#include "./indices.h"
 #include "microphysics_func_jac.h"
 #include <Eigen/Dense>
 #include <fstream>
@@ -6,7 +7,6 @@
 #include <string>
 #include <vector>
 
-#define NUM_VARS 2
 void do_timestep(double *X, double *params);
 
 int main() {
@@ -22,7 +22,7 @@ int main() {
             params[IDX_u_0] = X[IDX_u]; // update u_0
                                         //            printf("u=%g T=%g\n", X[IDX_u], X[IDX_T]);
         }
-        std::printf("nH=%g T=%g\n", n_Htot, X[IDX_T]);
+        std::printf("n=%d nH=%g T=%g\n", n, n_Htot, X[IDX_T]);
         //        temps.push_back(X[0]);
         //        ns.push_back(n_Htot);
         output_file << n_Htot << " " << X[IDX_T] << std::endl;
@@ -45,7 +45,7 @@ void do_timestep(double *X, double *params) {
     double tol = 1e-6;
     int num_iter = 0;
     while ((fabs(dx[0]) > tol * fabs(X[0])) && (fabs(dx[1]) > tol * fabs(X[1]))) {
-        const int careful_steps = 10;
+        const int careful_steps = 20;
         microphysics_func_jac(X, params, funcjac);
         std::copy(std::begin(funcjac), std::begin(funcjac) + NUM_VARS, std::begin(func));
         std::copy(std::begin(funcjac) + NUM_VARS, std::end(funcjac), std::begin(jac));

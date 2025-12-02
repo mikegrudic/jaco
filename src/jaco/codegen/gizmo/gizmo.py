@@ -34,9 +34,12 @@ def generate_funcjac_code(system, cse=True):
     routine = cg.routine("microphysics_func_jac", funcjac)  # cg.routine("func",sp.Matrix(func + sp.flatten(jac)))
     cg.write([routine], "microphysics_func_jac", to_files=True)
 
-    with open("assignments.h", "w") as F:
+    with open("indices.h", "w") as F:
         for i in index_defs:
             F.write(i + "\n")
+        F.write(f"#define NUM_VARS {len(indices)}")
+
+    with open("assignments.h", "w") as F:
         F.write(f"double params[{len(paramsvars)}];\n")
         F.write(sp.ccode(Assignment(P, sp.Matrix(list(paramsvars)))) + "\n")
         F.write(f"double X[{len(indices)}];\n")
