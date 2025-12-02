@@ -103,7 +103,7 @@ class EquationSystem(dict):
             # d(x_i)/dt = d/dt (n_i/n_H) = -x_i dlog(n_H)/dt + d(n_i)/dt / n_H
 
         # charge neutrality
-        if "e-" not in time_dependent_vars:
+        if x_("e-") in self.symbols and "e-" not in time_dependent_vars:
             x_ion_sum = 0
             for s in self.chemical_species:
                 if s == "e-":
@@ -221,6 +221,7 @@ class EquationSystem(dict):
         num_equations = len(subsystem)
 
         # are there any symbols for which we can make a reasonable assumption or directly solve the steady-state approximation?
+        # TODO: need to reject symbols in knowns that are not found in the network
         prescriptions = {"y": SolarAbundances.x("He"), "Y": SolarAbundances.mass_fraction["He"], "Z": 1.0, "C_2": 1.0}
         assumed_values = {}
         if len(symbols) > num_equations + len(knowns):
