@@ -14,6 +14,7 @@ def generate_funcjac_code(system, cse=True):
     solve_vars = ["u", "T"]
     time_dependent = ["T"]
     func, jac, indices = system.solver_functions(solve_vars, time_dependent, return_jac=True)
+    # TODO: keep track of which func element is the heat equation - need this to generate cooling function
     funcjac = sp.Matrix(func + sp.flatten(jac))
     X = sp.MatrixSymbol("X", len(indices), 1)
 
