@@ -11,7 +11,7 @@ void do_timestep(double *X, double *params);
 
 int main() {
     double n_Htot = 1e-2, x_H = 1, Δt = 3.154e12, T = 100, u = 1e8 * T, u_0 = u;
-    int num_dt = 100;
+    int num_dt = 10;
     std::vector<double> temps, ns;
     std::ofstream output_file("./example.txt");
 

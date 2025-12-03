@@ -10,6 +10,7 @@ def generate_funcjac_code(system, cse=True):
     """Generates a .h and .c pair of C source files specifying the function funcjac"""
 
     system = cooling + heating
+    system.heat += sp.Symbol("pdv_work")
     solve_vars = ["u", "T"]
     time_dependent = ["T"]
     func, jac, indices = system.solver_functions(solve_vars, time_dependent, return_jac=True)
@@ -18,10 +19,8 @@ def generate_funcjac_code(system, cse=True):
 
     index_defs = []
     for var in indices:
-        funcjac = funcjac.subs(
-            var, X[indices[var]]
-        )  # .subs("T",sp.MatrixSymbol("X",2,1)[1]).subs("u",sp.MatrixSymbol("X",2,1)[0])
-        index_defs.append(f"#define IDX_{var} {indices[var]}")
+        funcjac = funcjac.subs(var, X[indices[var]])
+        index_defs.append(f"#define INDEX_{var} {indices[var]}")
     paramsvars = funcjac.free_symbols.copy()
     paramsvars.remove(X)
     P = sp.MatrixSymbol("params", len(paramsvars), 1)
