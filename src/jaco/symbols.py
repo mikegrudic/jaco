@@ -5,6 +5,7 @@ from typing import Union
 import sympy as sp
 from astropy.constants import k_B, m_p
 from astropy import units as u
+import numpy as np
 
 T = sp.Symbol("T")  # temperature
 T5 = T / 10**5
@@ -38,6 +39,8 @@ def n_(species: str):
     match species:
         case "heat":
             return sp.Symbol(f"⍴u")
+        case "dust heat":
+            return sp.Symbol(f"⍴u_dust")
         case _:
             return sp.Symbol(f"n_{species}")
 
@@ -45,11 +48,6 @@ def n_(species: str):
 def x_(species: str):
     """Returns abundance symbol for species"""
     return sp.Symbol(f"x_{species}")
-
-
-egy_density = boltzmann_cgs * T * (1.5 * (n_("e-") + n_("H") + n_("H+") + n_("He") + n_("He+") + n_("He++")))
-rho = protonmass_cgs * (n_("H") + n_("H+") + 4 * (n_("He") + n_("He+") + n_("He++")))
-internal_energy = sp.factor(egy_density / rho)
 
 
 def BDF(species):
@@ -73,3 +71,55 @@ def sanitize_symbols(expr):
             if "-" in str(s):
                 expr = expr.subs(s, sp.Symbol(str(s).replace("-", "minus")))
     return expr
+
+
+def piecewise_linear(X, Y, x, extrapolate=False):
+    """
+    Returns a symbolic expression describing a piecewise-linear interpolant of data X and Y
+
+    Parameters
+    ----------
+    X: array_like
+        array of X values
+    Y: array_like
+        array of Y values
+    x: sympy.Symbol
+        Symbol for the independent variable associated with X
+    extrapolate: Boolean, optional
+        Whether to use a linear extrapolant past the limits, or simply limit to the outermost values
+    """
+    if not np.all(np.diff(X) > 0):
+        raise ValueError("X values passed to piecewise_linear must be monotonic.")
+    if len(X) != len(Y):
+        raise ValueError("X and Y must have the same length.")
+
+    slopes = np.diff(Y) / np.diff(X)
+    cases = []
+    if extrapolate:
+        cases.append((Y[0] + slopes[0] * (x - X[0]), x < X[0]))
+        cases.append((Y[-1] + slopes[-1] * (x - X[-1]), x >= X[-1]))
+    else:
+        cases.append((Y[0], x < X[0]))
+        cases.append((Y[-1], x >= X[-1]))
+
+    for i in range(len(X) - 1):
+        cases.append((Y[i] + slopes[i] * (x - X[i]), (x >= X[i]) & (x < X[i + 1])))
+    return sp.piecewise_exclusive(sp.Piecewise(*cases))
+
+
+def piecewise_powerlaw(X, Y, x, extrapolate=False):
+    """
+    Returns a symbolic expression describing a piecewise-powerlaw interpolant of data X and Y
+
+    Parameters
+    ----------
+    X: array_like
+        array of X values
+    Y: array_like
+        array of Y values
+    x: sympy.Symbol
+        Symbol for the independent variable associated with X
+    extrapolate: Boolean, optional
+        Whether to use a powerlaw extrapolant past the limits, or simply limit to the outermost values
+    """
+    return sp.exp(piecewise_linear(np.log(X), np.log(Y), sp.log(x), extrapolate))

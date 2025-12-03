@@ -8,15 +8,17 @@ import sympy as sp
 class ThermalProcess(Process):
     """Generic heating/cooling process"""
 
-    def __init__(self, heating_rate, name=""):
-        super().__init__(name=name)
+    def __init__(self, heating_rate, name="", bibliography=[]):
+        super().__init__(name=name, bibliography=bibliography)
         self.heat = heating_rate
 
 
 PdV_heating = ThermalProcess(
-    sp.Symbol("C_1") * c_s**2 * sp.sqrt(4 * sp.pi * G * ρ), name="Grav. Compression"
-)  # 1998ApJ...495..346M
+    sp.Symbol("C_1") * c_s**2 * sp.sqrt(4 * sp.pi * G * ρ),
+    name="Grav. Compression",
+    bibliography=["1998ApJ...495..346M"],
+)
 
 inv_compton_cooling = ThermalProcess(
-    5.41e-36 * n_e * T * (1 + z) ** 4, name="Inverse Compton Cooling"
-)  # 1986ApJ...301..522I
+    -5.41e-36 * n_e * T * (1 + z) ** 4, name="Inverse Compton Cooling", bibliography=["1986ApJ...301..522I"]
+)

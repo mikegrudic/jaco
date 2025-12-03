@@ -5,7 +5,6 @@ import sympy as sp
 from jaco.processes import Process
 from jaco.equation import Equation
 from jaco.symbols import d_dt
-import pytest
 
 
 def gas_dust_heattransfer_coeff(a_grain_angstrom=10.0):
@@ -27,7 +26,7 @@ class GasDustCollisions(Process):
         super().__init__(name="Gas-dust collisions", bibliography=["1979ApJS...41..555H"])
         self.heat = n_Htot * n_Htot * sp.Symbol("C_2") * gas_dust_heattransfer_coeff() * (T_dust - T)
         self.dust_heat = -self.heat
-        self.network["dust heat"] = Equation(d_dt("dust_heat"), self.dust_heat)
+        self.network["dust heat"] = Equation(d_dt("dust heat"), self.dust_heat)
 
 
 gas_dust_collisions = GasDustCollisions()

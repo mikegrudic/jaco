@@ -8,27 +8,33 @@ from .h2_chemistry import H2_chemistry
 from .H2_cooling import H2_cooling
 from .CO_cooling import CO_cooling
 from .gas_dust_collisions import gas_dust_collisions
+from .cosmic_ray_ionization import cosmic_ray_ionization, cosmic_ray_photoionization
+from .photoelectric_heating import photoelectric_heating
+from .grain_assisted_recombination import grain_assisted_recombination
+from jaco.processes import inv_compton_cooling
 # import h2_chemistry
 
 
 def make_model():
-    atoms = "H", "He", "C"
-    ions = "H+", "He+", "He++", "C+"
-    molecules = ("H_2",)
+    processes = [
+        H2_chemistry,
+        *[LineCoolingSimple(s) for s in ("H", "He+", "C+")],
+        *[CollisionalIonization(s) for s in ("H", "He", "He+")],
+        *[GasPhaseRecombination(i) for i in ("H+", "He+", "He++")],
+        *[FreeFreeEmission(i) for i in ("H+", "He+", "He++")],
+        H2_cooling,
+        CO_cooling,
+        gas_dust_collisions,
+        *[cosmic_ray_ionization(s) for s in ("H", "C")],
+        cosmic_ray_photoionization("C"),
+        photoelectric_heating,
+        inv_compton_cooling,
+        grain_assisted_recombination("C+"),
+    ]
 
-    processes = (
-        [CollisionalIonization(s) for s in ("H", "He", "He+")]
-        + [GasPhaseRecombination(i) for i in ("H+", "He+", "He++")]
-        + [FreeFreeEmission(i) for i in ("H+", "He+", "He++")]
-        + [LineCoolingSimple(i) for i in ("H", "He+", "C+")]
-    )
-    processes = sum(processes)
+    model = sum(processes)
+    return model
 
-    processes += H2_chemistry
-    processes += sum([LineCoolingSimple(s) for s in ("H", "He+", "C+")])
-    processes += H2_cooling
-    processes += CO_cooling
-    processes += gas_dust_collisions
     # processes += sum([cosmic_ray_ionization(s) for s in ("H", "C")])
     # processes += sum([grain_assisted_recombination(s) for s in ("C+",)])
     # processes += photon_absorption
@@ -49,7 +55,8 @@ def make_model():
 
     # UV background with shieldfac
 
-    return sum(processes)
+
+#    return sum(processes)
 
 
 #     processes += sum(h2_chemistry.reactions)

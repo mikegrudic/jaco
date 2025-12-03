@@ -6,6 +6,7 @@ from .symbols import T, n_Htot, n_, log_T, x_
 
 
 # TODO: write test comparing with GA08 Fig 2
+# TODO: make sure bibliography is complete
 
 
 def n_HD_prescription():
@@ -13,6 +14,7 @@ def n_HD_prescription():
 
 
 def lambda_H2_thin(collider):
+    """Returns symbolic expression for the non-LTE collisional excitation cooling rate for H_2 with a colliding species"""
     q = sp.Min(log_T - 3.0, 2.0)
     match collider:
         case "H":
@@ -93,4 +95,8 @@ def H2_cooling_rate():
     return total_cooling
 
 
-H2_cooling = ThermalProcess(-H2_cooling_rate(), name="H2 + HD Line Cooling")
+H2_cooling = ThermalProcess(
+    -H2_cooling_rate(),
+    name="H2 + HD Line Cooling",
+    bibliography=["2008MNRAS.388.1627G", "1998A&A...335..403G", "1979ApJS...41..555H"],
+)
