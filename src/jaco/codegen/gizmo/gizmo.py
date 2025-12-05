@@ -29,7 +29,7 @@ def generate_funcjac_code(system, cse=True):
     for i, p in enumerate(paramsvars):
         funcjac = funcjac.subs(p, P[i])
         assignments.append(Assignment(P[i], p))
-        index_defs.append(f"#define IDX_{p} {i}")
+        index_defs.append(f"#define INDEX_{p} {i}")
     cg = C99CodeGen(cse=cse)
     routine = cg.routine("microphysics_func_jac", funcjac)  # cg.routine("func",sp.Matrix(func + sp.flatten(jac)))
     cg.write([routine], "microphysics_func_jac", to_files=True)

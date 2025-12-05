@@ -1,4 +1,5 @@
 import sympy as sp
+from jaco.math import logistic
 
 
 def H2_energy_over_kbT(T):
@@ -9,4 +10,4 @@ def H2_energy_over_kbT(T):
     p2 = ((0.102728060235312 * sp.log(T) - 2.42078687298443) * sp.log(T) + 19.4951634944834) * sp.log(
         T
     ) - 51.5605088374882
-    return 1.5 + 1 / (1 + sp.exp(-p1)) + 1 / (1 + sp.exp(-p2))
+    return 1.5 + logistic(p1) + logistic(p2)
