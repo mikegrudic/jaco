@@ -24,7 +24,7 @@ def FreeFreeEmission(ion: str) -> NBodyProcess:
     process: NBodyProcess
         `NBodyProcess` instance describing the cooling process
     """
-    process = NBodyProcess({ion, "e-"}, bibliography=["1978ppim.book.....S"])
+    process = NBodyProcess({ion, "e-"}, bibliography=["1978ppim.book.....S"], name=f"Free-free emission from {ion}")
     charge = species_charge(ion)
     if charge <= 0:
         raise ValueError(f"{ion} does not appear to be a cation - cannot do bremmstrahlung.")
