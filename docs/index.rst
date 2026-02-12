@@ -10,6 +10,7 @@ Welcome to jaco's documentation!
 
    source/installation
    source/Quickstart
+   source/jaco_to_numerical
    source/API
    source/community
 
