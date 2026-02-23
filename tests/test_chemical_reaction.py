@@ -3,6 +3,8 @@ from jaco.processes.recombination import GasPhaseRecombination, gasphase_recombi
 import sympy as sp
 from jaco.symbols import T, n_
 
+default_bib = ["Meville 1851"]
+
 
 def test_chemical_reaction():
     equation = "2Tom + 3Dick++ + Harry -> 3Gerald"
@@ -22,6 +24,11 @@ def test_chemical_reaction():
         bibliography=["Osterbrock 1987"],
     )
     assert reaction2.network == GasPhaseRecombination("H+").network
+
+    assert (
+        ChemicalReaction("H + H -> H_2", bibliography=default_bib).species_and_coeffs
+        == ChemicalReaction("2H -> H_2", bibliography=default_bib).species_and_coeffs
+    )
 
 
 if __name__ == "__main__":

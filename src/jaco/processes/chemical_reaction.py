@@ -75,10 +75,15 @@ class ChemicalReaction(NBodyProcess):
                     substr = species_string[:j]
                     if substr.isnumeric():
                         coefficients[i] = int(substr)
+                        s = species_string[j:]
                         species[i] = species_string[j:]
                     else:
                         break
 
-            coeffs_dicts.append(dict(zip(species, coefficients)))
+            # if we have duplicates, must sum the coefficients, otherwise we lose that info when we make the dict
+            coeffdict = {s: 0 for s in species}
+            for i, s in enumerate(species):
+                coeffdict[s] += coefficients[i]
 
+            coeffs_dicts.append(coeffdict)
         return coeffs_dicts
