@@ -125,8 +125,10 @@ JACO_DUAL_FUNC dual jaco_table2d_interp(dual x0, dual x1, const JacoTable2D* t) 
     double fx = (v0 - lo0) / dx;
     double fy = (v1 - lo1) / dy;
 
-    if (fx < 0) fx = 0; if (fx > t->n0 - 1) fx = t->n0 - 1;
-    if (fy < 0) fy = 0; if (fy > t->n1 - 1) fy = t->n1 - 1;
+    if (fx < 0) fx = 0;
+    if (fx > t->n0 - 1) fx = t->n0 - 1;
+    if (fy < 0) fy = 0;
+    if (fy > t->n1 - 1) fy = t->n1 - 1;
 
     int ix = (int)fx; if (ix >= t->n0 - 1) ix = t->n0 - 2;
     int iy = (int)fy; if (iy >= t->n1 - 1) iy = t->n1 - 2;
@@ -172,9 +174,12 @@ JACO_DUAL_FUNC dual jaco_table3d_interp(dual x0, dual x1, dual x2, const JacoTab
     double fy = (v1 - lo1) / dy;
     double fz = (v2 - lo2) / dz;
 
-    if (fx < 0) fx = 0; if (fx > t->n0 - 1) fx = t->n0 - 1;
-    if (fy < 0) fy = 0; if (fy > t->n1 - 1) fy = t->n1 - 1;
-    if (fz < 0) fz = 0; if (fz > t->n2 - 1) fz = t->n2 - 1;
+    if (fx < 0) fx = 0;
+    if (fx > t->n0 - 1) fx = t->n0 - 1;
+    if (fy < 0) fy = 0;
+    if (fy > t->n1 - 1) fy = t->n1 - 1;
+    if (fz < 0) fz = 0;
+    if (fz > t->n2 - 1) fz = t->n2 - 1;
 
     int ix = (int)fx; if (ix >= t->n0 - 1) ix = t->n0 - 2;
     int iy = (int)fy; if (iy >= t->n1 - 1) iy = t->n1 - 2;

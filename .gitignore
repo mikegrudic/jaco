@@ -1,0 +1,4 @@
+__pycache__/
+*.egg-info/
+# built by `python -m jaco.models.starforge.convert_spcool_tables` (8.7 MB)
+src/jaco/models/starforge/spcool_tables.hdf5

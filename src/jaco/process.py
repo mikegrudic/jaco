@@ -126,22 +126,17 @@ class Process:
         return self.network.solver_functions(solve_vars, time_dependent, return_jac, return_dict)
 
     def generate_code(self, solve_vars=[], time_dependent=[], language="c", cse=True,
-                       func_name="microphysics_func_jac", jac_mode="symbolic"):
-        """Generates source files for the RHS + Jacobian function and writes them
-        to the current directory.
+                       func_name="microphysics_func_jac", jac_mode="symbolic", output_dir="."):
+        """Generate the RHS + Jacobian sources (plus headers, EOS and table glue) into ``output_dir``.
 
-        For C, produces:
-          - microphysics_func_jac.c  — RHS + Jacobian function
-          - microphysics_func_jac.h  — union types, enums, declaration
-          - jaco_interp.h            — interpolation helpers + static table data
-          - jaco_eos.c               — EOS pressure function
+        See :func:`jaco.codegen.gizmo.generate_funcjac_code` for the artifact list.
 
         Parameters
         ----------
         solve_vars : list
-            Variables to solve for. If empty, solves for all species.
+            Variables to solve for, in index order. Defaults to ["u", "T"].
         time_dependent : list
-            Variables that are time-dependent (get BDF discretization)
+            Variables that get a backward-Euler term. Defaults to ["T"].
         language : str
             Target language: 'c', 'c++', 'cuda', 'python', 'julia'
         cse : bool
@@ -150,11 +145,13 @@ class Process:
             Name of the generated function.
         jac_mode : str
             'symbolic' or 'autodiff'
+        output_dir : str
+            Directory to write into.
         """
         from .codegen.gizmo import generate_funcjac_code
-        generate_funcjac_code(
+        return generate_funcjac_code(
             self, solve_vars=solve_vars or None,
             time_dependent=time_dependent or None,
             cse=cse, language=language, jac_mode=jac_mode,
-            func_name=func_name,
+            func_name=func_name, output_dir=output_dir,
         )
