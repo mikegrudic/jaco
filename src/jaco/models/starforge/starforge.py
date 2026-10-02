@@ -3,7 +3,8 @@
 Full network including collisional ionization/recombination of H and He,
 H2 formation/destruction, CO cooling, dust-gas collisions, cosmic ray
 ionization, photoelectric heating, inverse Compton cooling, grain-assisted
-recombination, and metal-line cooling from tabulated rates.
+recombination, metal-line cooling from tabulated rates, and nebular
+forbidden-line cooling of photoionized gas (switched by the ``f_neb`` parameter).
 
 The model declares:
 
@@ -25,6 +26,7 @@ from .cosmic_ray_ionization import cosmic_ray_ionization, cosmic_ray_photoioniza
 from .photoelectric_heating import photoelectric_heating
 from .grain_assisted_recombination import grain_assisted_recombination
 from .metal_line_cooling import metal_line_cooling
+from .nebular_cooling import nebular_cooling
 from jaco.processes import inv_compton_cooling
 
 
@@ -55,6 +57,7 @@ def make_model():
         inv_compton_cooling,
         grain_assisted_recombination("C+"),
         metal_line_cooling(z=0.0),
+        nebular_cooling,
         ThermalProcess(sp.Symbol("pdv_work"), name="PdV work"),
     ]
 
