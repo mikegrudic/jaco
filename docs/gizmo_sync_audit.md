@@ -59,8 +59,8 @@ The Status column uses: **same** (identical expression and coefficients); **FIXE
 | He+ recombination cooling | 1002, 1004 | `recombination.py` | **FIXED 39bfa73** | was 1.55e-26 T^-0.3647 (exponent sign; ~800x low at 1e4 K); the dielectronic term 6.526e-11 alpha_d was missing (4e-23 at 1e5 K) |
 | He++ recombination cooling | 1003 | `recombination.py` | **FIXED 39bfa73** | was overwritten with 4x the H+ value, which is 0.57-0.77x GIZMO's over 1e4-3e5 K; now uses its own VF96 rate |
 | free-free | 1478 (1.43e-27), 1300 (1.42e-27 above Tmax) | `processes/freefree_emission.py` (1.42e-27) | differs 0.7% | GIZMO itself uses two values; left alone |
-| H/He ionization state | 901-930: KWH equilibrium including UVB photoionization x Rahmati shieldfac, no CR ionization of H | steady state of collisional + CR (`cosmic_ray_ionization("H")`) + recombination, no UVB | **differs** (structural) | UVB missing in jaco; jaco has CR ionization of H that GIZMO's H balance lacks |
-| electrons from metals | 940-948; `simple_chemistry.cc` 97-170 (heavy ions, alkali, C+ via Gong17 balance, O+ = x_H+ x 3.2e-4 Z_O, molecular ions) | C+ only, as a fixed species with the Tielens-form f_C+ | **MISSING** (structural) | would need new fixed species |
+| H/He ionization state | 901-930: KWH equilibrium including UVB photoionization x Rahmati shieldfac, no CR ionization of H | steady state of collisional ionization + recombination | **FIXED 5fafaec** (UVB still missing) | jaco also ionized H by CRs, which GIZMO counts as metal and molecular ions: x_H+ 1.5e-3 at n_H ~ 2 and 1e-4 at 20 against GIZMO's < 1e-7 |
+| electrons from metals | 940-948; `simple_chemistry.cc` 97-170 (heavy ions, alkali, C+ via Gong17 balance, O+ = x_H+ x 3.2e-4 Z_O, molecular ions) | `metal_electrons.py`, as `fixed_electrons` | **FIXED 759b9bf** | was C+ only, at the cooling-curve fraction x_C,tot f_C+ (3e-4 in diffuse gas, 5e-6 - 5e-5 at n_H = 100-1000 vs GIZMO's ~1e-6); the C+ fixed point is two Newton steps (within GIZMO's 1%), the heavy-ion regime switches are blended over 0.01 dex |
 | UVB photoheating | 1218 | none | **MISSING** (structural) | needs Gamma/epsilon (x shieldfac) parameters |
 | UVB self-shielding (Rahmati+12) | 2473-2487 | none | **MISSING** | only meaningful together with the UVB |
 
@@ -170,7 +170,6 @@ alphabetical, so the new symbols shift the indices of later fields. That only ma
 ## 6. Reported, not implemented
 
 - **UVB photoionization, photoheating and Rahmati shielding:** structural (new parameters for Gamma and epsilon).
-- **Electrons from heavy ions, alkali, molecular ions and O+; Gong17 C+ balance:** structural (new fixed species).
 - **Optically-thick cap:** structural (a cap on the total rate with an opacity model). Not active in gmc_cooling.
 - **[CI] 609 um; the C+ x_H0 factor and H2 collider:** ambiguous (GIZMO's weighting is unphysical) and small.
 - **HD abundance and the CO model:** prescription choices that differ deliberately.
@@ -196,8 +195,9 @@ alphabetical, so the new symbols shift the indices of later fields. That only ma
 - **`SolarAbundances.get_abundance_per_H`** uses f/(1-f)/A. This affects the generic `processes/line_cooling.py` C+
   copy and the default `y` prescription in `EquationSystem.solve` (0.0925 vs 0.0951). The starforge model now uses
   `starforge.symbols.x_solar`, which follows GIZMO's packing convention.
-- **Reactions that do nothing:** `grain_assisted_recombination("C+")`, `cosmic_ray_ionization("C")` and
-  `cosmic_ray_photoionization("C")` act only on species that the reductions fix or eliminate, so they have no effect.
+- **Reactions that do nothing:** `cosmic_ray_ionization("C")` and `cosmic_ray_photoionization("C")` act only on species
+  that the reductions fix or eliminate, so they have no effect (`grain_assisted_recombination("C+")` was dropped in
+  228e4cf; its WD01 coefficient, now with GIZMO's n_H normalization, ln T and psi + 50, serves the C+ electron balance).
 - **C_2 clumping on cooling:** jaco applies the C_2 factor to every 2-body process including cooling; GIZMO applies
   clumping only in its H2 network.
 - **Untracked data files:** `tests/chianti_H_abundances.npy` was never committed, so `tests/test_CIE.py` fails;
@@ -235,9 +235,12 @@ The rest is three deliberate differences, attributed by evaluating the model at 
   bins from 1.7-2.1x to 1.2-1.35x.
 - **Clumping factor C_2 on cooling:** 1.8-4 in this cloud; GIZMO clumps only its H2 network. Without it (experiment, with
   GIZMO's CO) the low-density bins go from 0.7x to 1.5x, because of the next item.
-- **Electrons in the photoelectric efficiency:** jaco's x_e (CR-ionized H, and C+ at the Tielens fraction) is 3-75x the
-  legacy n_elec (no CR ionization in its H balance; heavy-ion, alkali and Gong17 C+ electrons), so the grains charge
-  less and photoelectric heating is 1.5-2.4x GIZMO's at the same G_0.
+- **Electrons in the photoelectric efficiency:** jaco's x_e (CR-ionized H, and C+ at the Tielens fraction) was 3-75x the
+  legacy n_elec (no CR ionization in its H balance; heavy-ion, alkali and Gong17 C+ electrons), so the grains charged
+  less and photoelectric heating was 1.5-2.4x GIZMO's at the same G_0. **FIXED 759b9bf, 5fafaec:** the run's stored
+  x_e is GIZMO's budget at its own cell states to < 1% (n_H < 10) and 0.96-1.004 (above), and 0.93-1.07x the legacy
+  run's x_e at n_H < 10 and > 100. With the excess electrons gone, the bins below n_H ~ 80 are colder (0.46-0.64x, from
+  0.68-0.87x) and the dense bins closer (0.93-1.55x, from 1.24-2.11x): the C_2 and CO items above remain.
 
 With all three replaced by GIZMO's versions, the equilibrium temperature at the legacy state is within 13% of the legacy
 temperature in every bin (1.09, 1.09, 1.06, 1.01, 0.89, 0.88, 0.87, 0.92, 0.93).
