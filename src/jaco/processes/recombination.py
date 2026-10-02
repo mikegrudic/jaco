@@ -21,27 +21,24 @@ def hydrogenic_recombination_rate(Z):
     )
 
 
-# All fits below are from Verner & Ferland 1996
+# Radiative rates: Verner & Ferland 1996. He+ dielectronic: Aldrovandi & Pequignot 1973 (as in KWH96).
+He_plus_radiative_recombination_rate = 9.356e-10 / (
+    sp.sqrt(T / 4.266e-2) * sp.Pow((1.0 + sp.sqrt(T / 4.266e-2)), 0.2108) * sp.Pow((1.0 + sp.sqrt(T / 3.676e7)), 1.7892)
+)
+He_plus_dielectronic_recombination_rate = 1.9e-3 * T**-1.5 * sp.exp(-4.7e5 / T) * (1 + 0.3 * sp.exp(-9.4e4 / T))
 gasphase_recombination_rates = {
     "H+": hydrogenic_recombination_rate(1),
-    "He+": 9.356e-10
-    / (
-        sp.sqrt(T / 4.266e-2)
-        * sp.Pow((1.0 + sp.sqrt(T / 4.266e-2)), 0.2108)
-        * sp.Pow((1.0 + sp.sqrt(T / 3.676e7)), 1.7892)
-    )
-    + 1.9e-3 * T**-1.5 * sp.exp(-4.7e5 / T) * (1 + 0.3 * sp.exp(-9.4e4 / T)),
+    "He+": He_plus_radiative_recombination_rate + He_plus_dielectronic_recombination_rate,
     "He++": hydrogenic_recombination_rate(2),
 }
-# an electron—ion pair removes the mean kinetic energy during recombination
-# To a good approximation, the mean energy lost by the gas during dielectronic recombination of He+ is the w = 2 excitation energy of He+.
+# radiative recombination removes the mean kinetic energy of the captured electron
 mean_kinetic_energy = 1.036e-16 * T
+# dielectronic recombination of He+ removes ~ the n=2 excitation energy of He+ (40.7 eV)
 gasphase_recombination_cooling = {
     "H+": mean_kinetic_energy * gasphase_recombination_rates["H+"],
-    "He+": 1.55e-26 * T**-0.3647,
+    "He+": mean_kinetic_energy * He_plus_radiative_recombination_rate + 6.526e-11 * He_plus_dielectronic_recombination_rate,
     "He++": mean_kinetic_energy * gasphase_recombination_rates["He++"],
 }
-gasphase_recombination_cooling["He++"] = 4 * gasphase_recombination_cooling["H+"]  # H-like
 
 
 class Recombination(NBodyProcess):

@@ -93,6 +93,7 @@ class PiecewiseLinearInterp(sp.Function):
         extrapolate_flag: sympy.Integer(0) to clamp, sympy.Integer(1) to extrapolate
         name: sympy.core.symbol.Str, descriptive identifier for code generation (optional)
     """
+    is_commutative = True  # scalar-valued; the Str/Tuple arguments otherwise leave this undetermined
 
     @classmethod
     def eval(cls, x, X_tuple, Y_tuple, extrapolate_flag, name=None):
@@ -191,6 +192,7 @@ class PiecewiseConstantInterp(sp.Function):
         extrapolate_flag: sympy.Integer(0) or sympy.Integer(1)
         name: sympy.core.symbol.Str, descriptive identifier for code generation (optional)
     """
+    is_commutative = True  # scalar-valued; the Str/Tuple arguments otherwise leave this undetermined
 
     @property
     def table_name(self):
@@ -264,6 +266,7 @@ class TableInterp2D(sp.Function):
         x, y: sympy expressions for the interpolation variables
         table_name: Str identifying the registered table
     """
+    is_commutative = True  # scalar-valued; the Str/Tuple arguments otherwise leave this undetermined
 
     @classmethod
     def eval(cls, x, y, table_name):
@@ -306,6 +309,7 @@ class TableInterp2D_dx(sp.Function):
 
     Computed analytically from the bilinear formula — no extra table needed.
     """
+    is_commutative = True  # scalar-valued; the Str/Tuple arguments otherwise leave this undetermined
 
     @classmethod
     def eval(cls, x, y, table_name):
@@ -332,6 +336,7 @@ class TableInterp2D_dx(sp.Function):
 
 class TableInterp2D_dy(sp.Function):
     """Partial derivative of TableInterp2D w.r.t. its second argument (y)."""
+    is_commutative = True  # scalar-valued; the Str/Tuple arguments otherwise leave this undetermined
 
     @classmethod
     def eval(cls, x, y, table_name):
@@ -360,6 +365,7 @@ class TableInterp3D(sp.Function):
 
     Arguments: (x, y, z, table_name)
     """
+    is_commutative = True  # scalar-valued; the Str/Tuple arguments otherwise leave this undetermined
 
     @classmethod
     def eval(cls, x, y, z, table_name):
@@ -401,6 +407,8 @@ class TableInterp3D(sp.Function):
 
 class TableInterp3D_dx(sp.Function):
     """Partial derivative of TableInterp3D w.r.t. x."""
+    is_commutative = True  # scalar-valued; the Str/Tuple arguments otherwise leave this undetermined
+
     @classmethod
     def eval(cls, x, y, z, table_name):
         return None
@@ -413,6 +421,8 @@ class TableInterp3D_dx(sp.Function):
 
 class TableInterp3D_dy(sp.Function):
     """Partial derivative of TableInterp3D w.r.t. y."""
+    is_commutative = True  # scalar-valued; the Str/Tuple arguments otherwise leave this undetermined
+
     @classmethod
     def eval(cls, x, y, z, table_name):
         return None
@@ -425,6 +435,8 @@ class TableInterp3D_dy(sp.Function):
 
 class TableInterp3D_dz(sp.Function):
     """Partial derivative of TableInterp3D w.r.t. z."""
+    is_commutative = True  # scalar-valued; the Str/Tuple arguments otherwise leave this undetermined
+
     @classmethod
     def eval(cls, x, y, z, table_name):
         return None

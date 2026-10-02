@@ -5,6 +5,18 @@ NOTE: all quantites are assumed to be in cgs units!
 
 import sympy as sp
 from ...symbols import x_, n_
+from ...data import SolarAbundances
+
+# Integer mass numbers and solar H mass fraction with which GIZMO's interface packs the x_X parameters
+# (x_X = Z_X / (A_X X_H)), so that x_X / x_solar(X) reproduces GIZMO's Z_X / Z_X,sun scalings.
+MASS_NUMBER = {"C": 12, "N": 14, "O": 16, "Ne": 20, "Mg": 24, "Si": 28, "S": 32, "Ca": 40, "Fe": 56}
+X_H_SOLAR = 1 - SolarAbundances.mass_fraction["Z"] - SolarAbundances.mass_fraction["He"]
+
+
+def x_solar(element):
+    """Solar abundance per H nucleus of an element, in the convention of GIZMO's x_X parameters."""
+    return SolarAbundances.mass_fraction[element] / (MASS_NUMBER[element] * X_H_SOLAR)
+
 
 T = sp.Symbol("T")  # Gas temperature
 sqrt_T = sp.sqrt(T)
@@ -17,7 +29,7 @@ Z_dust = sp.Symbol("Z_d")  # Solar-normalized dust abundance. Value of 1 corresp
 G_0 = sp.Symbol("G_0")  # UV radiation field normalized to Habing
 f_shield = sp.Symbol("f_shield")  # Lyman-Werner self-shielding factor
 grad_v = sp.Symbol("∇v")  # velocity gradient Frobenius norm in CGS (s^-1)
-NH = sp.Symbol("N_H")  # column density of H nuclei
+NH = sp.Symbol("N_H")  # column density in nucleons, Sigma/m_p (as GIZMO passes it)
 dx = sp.Symbol("Δx")  # effective cell size in cm
 ISRF = sp.Symbol("ISRF")  # scaling factor for ISRF and cosmic ray background
 H2_formation_heat_cgs = 7.2e-12
@@ -25,6 +37,20 @@ rho = sp.Symbol("rho")
 cs = sp.Symbol("c_s")
 T_CMB = sp.Symbol("T_CMB")
 A_V = 5.34e-22 * NH * Z_dust * f_dust
-cosmicray_attenuation_fac = sp.Min(1, 1e21 / NH * sp.exp(-NH / 1e24))
-cosmicray_ionization_rate_H = sp.sqrt(ISRF) * 1.6e-12 * 1e-5 * cosmicray_attenuation_fac
+z = sp.Symbol("z")  # cosmological redshift
+T_cmb = 2.73 * (1 + z)
+# GIZMO multiplies molecular, fine-structure and metal-line cooling by this to approximate the CMB bath
+cmb_bath_factor = (T - T_cmb) / (T + T_cmb)
+# GIZMO's low-temperature cooling block (H2/HD, C+, CO, gas-dust) is cut off where the CIE tables take over
+lowtemp_truncation = sp.Piecewise((1, T <= 10**4.5), (sp.exp(-(((log_T - 4.5) / 0.2) ** 2)), True))
+# gas-dust coupling additionally falls off where grains are sputtered
+dust_sputtering_truncation = sp.Piecewise((1, T <= 3.0e5), (sp.exp(-(((T - 3.0e5) / 2.0e5) ** 2)), True))
+# GIZMO's Get_CosmicRayEnergyDensity_cgs: CR energy density falls as Sigma_0/Sigma above Sigma_0 = 2.23e-3 g cm^-2,
+# with an exponential cut-off at 100 g cm^-2
+PROTONMASS_CGS = 1.67262178e-24
+cosmicray_attenuation_fac = sp.Min(1, 2.23e-3 / (PROTONMASS_CGS * NH) * sp.exp(-PROTONMASS_CGS * NH / 100.0))
+# 1.6e-17 s^-1 per eV cm^-3 of CRs, plus GIZMO's radioactive-decay floor (K-40 ~ Z; short-lived radionuclides ~ Fe)
+cosmicray_ionization_rate_H = (
+    sp.sqrt(ISRF) * 1.6e-12 * 1e-5 * cosmicray_attenuation_fac + 1e-21 * Z_dust + 1e-19 * x_("Fe") / x_solar("Fe")
+)
 psi_grain = G_0 * sqrt_T / (0.5 * (1.0e-12 + x_("e-")) * n_Htot)  # grain charging parameter

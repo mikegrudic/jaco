@@ -2,7 +2,7 @@
 
 from jaco.processes.thermal_process import ThermalProcess
 import sympy as sp
-from .symbols import T, n_Htot, n_, log_T, x_
+from .symbols import T, n_Htot, n_, log_T, x_, cmb_bath_factor, lowtemp_truncation
 
 
 # TODO: write test comparing with GA08 Fig 2
@@ -104,7 +104,7 @@ def H2_cooling_rate():
 
 
 H2_cooling = ThermalProcess(
-    -H2_cooling_rate(),
+    -H2_cooling_rate() * cmb_bath_factor * lowtemp_truncation,
     name="H2 + HD Line Cooling",
     bibliography=["2008MNRAS.388.1627G", "1998A&A...335..403G", "1979ApJS...41..555H"],
 )

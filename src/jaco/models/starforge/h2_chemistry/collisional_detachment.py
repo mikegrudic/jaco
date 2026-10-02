@@ -7,10 +7,12 @@ from jaco.processes import ChemicalReaction
 def Hminus_collisional_detachment(collider):
     """Collisional dissociation of H- by colliding species"""
 
-    lnTeV = sp.ln(T / 8.617e-5)
+    # the fits take T in eV: ln(T_eV) = ln(T/K) - ln(11604.5)
+    lnTeV = sp.ln(T) - 9.35915
     match collider:
         case "H":
-            k_lo = 2.5634e-9 * T**1.78186
+            # 2.5634e-9 T_eV^1.78186, converted to T in K
+            k_lo = 1.46629e-16 * T**1.78186
             k_hi = sp.exp(
                 -2.0372609e1
                 + 1.13944933e0 * lnTeV

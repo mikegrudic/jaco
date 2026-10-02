@@ -3,7 +3,8 @@
 Full network including collisional ionization/recombination of H and He,
 H2 formation/destruction, CO cooling, dust-gas collisions, cosmic ray
 ionization, photoelectric heating, inverse Compton cooling, grain-assisted
-recombination, and metal-line cooling from tabulated rates.
+recombination, metal-line cooling from tabulated rates, and nebular
+forbidden-line cooling of photoionized gas (switched by the ``f_neb`` parameter).
 
 The model declares:
 
@@ -25,7 +26,8 @@ from .cosmic_ray_ionization import cosmic_ray_ionization, cosmic_ray_photoioniza
 from .photoelectric_heating import photoelectric_heating
 from .grain_assisted_recombination import grain_assisted_recombination
 from .metal_line_cooling import metal_line_cooling
-from jaco.processes import inv_compton_cooling
+from .nebular_cooling import nebular_cooling
+from .compton import compton_cooling
 
 # Solve variables in index order (GIZMO's jaco.cc assumes u, T first, abundances after) and the
 # subset that gets a backward-Euler term; the ions are solved in steady state.
@@ -57,9 +59,10 @@ def make_model():
         *[cosmic_ray_ionization(s) for s in ("H", "C")],
         cosmic_ray_photoionization("C"),
         photoelectric_heating,
-        inv_compton_cooling,
+        compton_cooling,
         grain_assisted_recombination("C+"),
         metal_line_cooling(z=0.0),
+        nebular_cooling,
         ThermalProcess(sp.Symbol("pdv_work"), name="PdV work"),
     ]
 

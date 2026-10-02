@@ -1,6 +1,6 @@
 """Implementation of dust-gas collisions"""
 
-from .symbols import f_dust, Z_dust, sqrt_T, T, T_dust, n_Htot
+from .symbols import f_dust, Z_dust, sqrt_T, T, T_dust, n_Htot, lowtemp_truncation, dust_sputtering_truncation
 import sympy as sp
 from jaco.processes import Process
 from jaco.equation import Equation
@@ -8,13 +8,16 @@ from jaco.symbols import d_dt
 
 
 def gas_dust_heattransfer_coeff(a_grain_angstrom=10.0):
-    """Returns expression for the gas-dust heat transfer coefficient
+    """Returns expression for the gas-dust heat transfer coefficient, with GIZMO's high-temperature cut-offs
 
     Parameters
     ----------
     a_grain_angstrom: assumed minimum grain size in angstrom. Note that
     """
-    return 1.116e-32 * sqrt_T * (1.0 - 0.8 * sp.exp(-75.0 / T)) * Z_dust * f_dust * (a_grain_angstrom / 10) ** -0.5
+    return (
+        1.116e-32 * sqrt_T * (1.0 - 0.8 * sp.exp(-75.0 / T)) * Z_dust * f_dust * (a_grain_angstrom / 10) ** -0.5
+        * lowtemp_truncation * dust_sputtering_truncation
+    )
 
 
 # need to make a new kind of process: awkward to do this with NBodyProcess because multiple colliders. Instead,
