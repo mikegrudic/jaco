@@ -5,7 +5,8 @@ Artifact set (C, with source extension ``ext``):
 - ``microphysics_func_jac{ext}`` -- RHS + analytic Jacobian of the backward-Euler system
 - ``microphysics_func_jac.h``    -- SolveVars/Params unions, IDX_/PARAM_ enums, JACO_MODEL_<NAME>
 - ``jaco_interp.h``              -- 1D interpolation helpers and static 1D table data
-- ``jaco_eos{ext}``              -- jaco_eos_pressure, jaco_T_to_u, jaco_u_to_T
+- ``jaco_eos{ext}``              -- jaco_eos_pressure, jaco_T_to_u, jaco_u_to_T, jaco_electron_abundance,
+                                    jaco_fixed_electron_abundance
 - ``jaco_tables.h``              -- 2D/3D table types, extern table objects, jaco_init_tables()
 - ``jaco_util{ext}``             -- table storage + HDF5 loader, jaco_isfinite()
 - ``jaco_tables.hdf5``           -- runtime table data; must sit in the run directory (only if the

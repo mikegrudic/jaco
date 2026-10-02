@@ -43,6 +43,17 @@ class EquationSystem(dict):
         into the equations BEFORE time discretization and code generation,
         so their derivatives w.r.t. solve variables (e.g. T) appear correctly
         in the Jacobian. Example: ``C_2 = 1 + (0.5 * grad_v * Delta_x / cs(T))^2``.
+    fixed_electrons : sympy expression, optional
+        Free electrons per H nucleus prescribed by the model for species
+        outside the network (e.g. metal ions), in terms of solve variables
+        and parameters. When set, it replaces the charges of the fixed
+        species in charge neutrality.
+    intermediates : list of (Symbol, expression) pairs
+        Named quantities evaluated in order before the equations, each an
+        expression of solve variables, parameters and earlier intermediates.
+        The equations (and fixed_electrons) may use them as symbols; generated
+        code evaluates each once and builds the Jacobian by the chain rule, so
+        nested expressions (e.g. unrolled iterations) stay compact.
     substitutions : list of (expr, replacement) tuples
         Accumulated symbolic substitutions from conservation reductions,
         charge neutrality, atom conservation, and fixed species.
@@ -55,6 +66,8 @@ class EquationSystem(dict):
         new.equilibrium_overrides = dict(getattr(self, 'equilibrium_overrides', {}))
         new.fixed_species = dict(getattr(self, 'fixed_species', {}))
         new.derived_params = dict(getattr(self, 'derived_params', {}))
+        new.fixed_electrons = getattr(self, 'fixed_electrons', None)
+        new.intermediates = list(getattr(self, 'intermediates', []))
         return new
 
     def __getitem__(self, __key: str):
@@ -77,6 +90,13 @@ class EquationSystem(dict):
                              **getattr(other, 'fixed_species', {})}
         new.derived_params = {**getattr(self, 'derived_params', {}),
                               **getattr(other, 'derived_params', {})}
+        fe = [e for e in (getattr(self, 'fixed_electrons', None), getattr(other, 'fixed_electrons', None)) if e is not None]
+        if len(fe) > 1:
+            raise ValueError("both operands prescribe fixed_electrons")
+        new.fixed_electrons = fe[0] if fe else None
+        new.intermediates = list(getattr(self, 'intermediates', [])) + list(getattr(other, 'intermediates', []))
+        if len({w for w, _ in new.intermediates}) != len(new.intermediates):
+            raise ValueError("an intermediate is defined twice")
         return new
 
     @property
@@ -154,13 +174,14 @@ class EquationSystem(dict):
         decoupled from the main system after fix_species() has been applied.
         """
         to_remove = []
+        used_by_intermediates = set().union(*[sp.sympify(W).free_symbols for _, W in getattr(self, 'intermediates', [])])
         for key in list(self.keys()):
             if key in ("heat", "u"):
                 continue  # always keep energy equations
             # Check if x_{key} appears in any OTHER equation's RHS
             xs = x_(key)
             ns = n_(key)
-            found = False
+            found = xs in used_by_intermediates or ns in used_by_intermediates
             for other_key, eq in self.items():
                 if other_key == key:
                     continue
@@ -203,6 +224,8 @@ class EquationSystem(dict):
         derived = getattr(subsystem, 'derived_params', {})
         for sym_name, expr in derived.items():
             subsystem.subs(sp.Symbol(sym_name), expr)
+            if getattr(subsystem, 'fixed_electrons', None) is not None:
+                subsystem.fixed_electrons = sp.sympify(subsystem.fixed_electrons).subs(sp.Symbol(sym_name), expr)
         subsystem.set_time_dependence(time_dependent)
         subsystem.do_conservation_reductions(time_dependent)
         fixed = getattr(subsystem, 'fixed_species', {})
@@ -220,6 +243,17 @@ class EquationSystem(dict):
                         expr = expr.subs(sym, sub)
                     fixed[species] = expr
             subsystem.fix_species(fixed)
+        inter = []
+        for w, W in getattr(subsystem, 'intermediates', []):
+            W = sp.sympify(W)
+            if {x_("e-"), n_("e-")} & W.free_symbols:
+                raise ValueError(f"intermediate {w} must not depend on the electron abundance")
+            for sym_name, dp_expr in derived.items():
+                W = W.subs(sp.Symbol(sym_name), dp_expr)
+            for sym, sub in subsystem.substitutions:
+                W = W.subs(sym, sub)
+            inter.append((w, W))
+        subsystem.intermediates = inter
         if "T" in (str(k) for k in knowns) and "T" not in time_dependent:
             del subsystem["heat"]
         subsystem.prune_decoupled()
@@ -304,13 +338,21 @@ class EquationSystem(dict):
         # charge neutrality — exclude fixed species with negative charge whose
         # equilibrium expressions depend on x_e (e.g. H-), to avoid circular
         # substitutions. Positive fixed species (e.g. C+) are included since
-        # they contribute significantly to the electron budget.
+        # they contribute significantly to the electron budget, unless the
+        # model prescribes their electrons itself (fixed_electrons).
         fixed = getattr(self, 'fixed_species', {})
+        fixed_electrons = getattr(self, 'fixed_electrons', None)
         conservation_subs = []
         if (n_("e-") in self.symbols or x_("e-") in self.symbols) and "e-" not in time_dependent_vars:
             x_ion_sum = 0
+            if fixed_electrons is not None:
+                if {x_("e-"), n_("e-")} & sp.sympify(fixed_electrons).free_symbols:
+                    raise ValueError("fixed_electrons must not depend on the electron abundance")
+                x_ion_sum = sp.sympify(fixed_electrons).subs(self.substitutions)
             for s in self.chemical_species:
                 if s == "e-":
+                    continue
+                if s in fixed and fixed_electrons is not None:
                     continue
                 if s in fixed:
                     fval = fixed[s]
@@ -435,6 +477,8 @@ class EquationSystem(dict):
         if "u" in guesses or "T" in time_dependent:
             self["u"] = Equation(0, self.eos.internal_energy - sp.Symbol("u"))
         subsystem = self.reduced(knowns, time_dependent)
+        if subsystem.intermediates:
+            raise NotImplementedError("solve() does not support intermediates; use the generated code")
         symbols = subsystem.symbols
         num_equations = len(subsystem)
 
@@ -609,6 +653,8 @@ class EquationSystem(dict):
         knowns = self.symbols.difference(solve_vars)
         subsystem = self.reduced(knowns, time_dependent)
         self._reduction_substitutions = getattr(subsystem, 'substitutions', [])
+        self._intermediates = list(getattr(subsystem, 'intermediates', []))
+        self._intermediate_prelude = []
 
         rhs = {}
         for s in subsystem.symbols:
@@ -629,9 +675,25 @@ class EquationSystem(dict):
         rhs = dict(sorted(rhs.items(), key=lambda kv: _var_sort_key(kv[0])))
 
         if return_jac:
+            # d(intermediate)/d(solve variable) by the chain rule over earlier intermediates, as named symbols
+            D = {}
+            prelude = []
+            for k, (w, W) in enumerate(self._intermediates):
+                prelude.append((w, W))
+                for j, s2 in enumerate(rhs):
+                    d = sp.diff(W, s2) + sum(sp.diff(W, wj) * D[(wj, s2)] for wj, _ in self._intermediates[:k]
+                                             if wj in W.free_symbols)
+                    if d == 0:
+                        D[(w, s2)] = sp.S.Zero
+                    else:
+                        D[(w, s2)] = sp.Symbol(f"d{w}_d{j}")
+                        prelude.append((D[(w, s2)], d))
+            self._intermediate_prelude = prelude
             jac = {}
             for s, expr in rhs.items():
-                jac[s] = {s2: sp.diff(expr, s2) for s2 in rhs}
+                jac[s] = {s2: sp.diff(expr, s2) + sum(sp.diff(expr, w) * D[(w, s2)] for w, _ in self._intermediates
+                                                      if w in expr.free_symbols)
+                          for s2 in rhs}
 
             if return_dict:
                 return rhs, jac
@@ -662,6 +724,8 @@ class EquationSystem(dict):
             'symbolic' or 'autodiff' (only used when minimal=False; autodiff requires C++ or CUDA)
         """
         func, jac_expr, indices = self.solver_functions(solve_vars, time_dependent, return_jac=jac)
+        if self._intermediates and (minimal or jac_mode != "symbolic" or not jac):
+            raise NotImplementedError("intermediates are supported only by full symbolic-Jacobian code generation")
 
         if minimal:
             return self._generate_minimal(func, jac_expr, indices, language, jac, do_cse)
@@ -750,8 +814,12 @@ class EquationSystem(dict):
 
         var_names = [sanitize_name(str(s)) for s in indices.keys()]
         var_name_set = set(var_names)
+        prelude = [(sanitize_symbols(w), sanitize_symbols(W)) for w, W in self._intermediate_prelude]
+        local_names = {str(w) for w, _ in prelude}
         all_syms = func_mat.free_symbols | jac_mat.free_symbols
-        param_syms = sorted([s for s in all_syms if str(s) not in var_name_set], key=str)
+        for _, W in prelude:
+            all_syms |= W.free_symbols
+        param_syms = sorted([s for s in all_syms if str(s) not in var_name_set | local_names], key=str)
 
         match lang:
             case "cuda": printer = JacoCudaCodePrinter()
@@ -764,7 +832,8 @@ class EquationSystem(dict):
                 raise ValueError("autodiff jac_mode requires C++ or CUDA (not C)")
             code = self._gen_autodiff_code(func_mat, var_names, param_syms, printer, do_cse, lang, func_name)
         else:
-            code = self._gen_symbolic_code(func_mat, jac_mat, var_names, param_syms, printer, do_cse, lang, func_name)
+            code = self._gen_symbolic_code(func_mat, jac_mat, var_names, param_syms, printer, do_cse, lang, func_name,
+                                           prelude)
 
         result = {"code": code, "func_name": func_name}
 
@@ -796,8 +865,9 @@ class EquationSystem(dict):
 
         return result
 
-    def _gen_symbolic_code(self, func_mat, jac_mat, var_names, param_syms, printer, cse, lang, func_name):
-        """Generate code string with explicit symbolic Jacobian."""
+    def _gen_symbolic_code(self, func_mat, jac_mat, var_names, param_syms, printer, cse, lang, func_name, prelude=()):
+        """Generate code string with explicit symbolic Jacobian; prelude is the ordered (symbol, expression) list of
+        intermediates and their derivatives."""
         is_scripting = lang in ("python", "julia")
         n_vars = len(var_names)
 
@@ -834,6 +904,11 @@ class EquationSystem(dict):
                 lines.append(f"{ind}const double {p} = params[PARAM_{p}];")
         lines.append("")
 
+        if prelude:
+            lines.append(f"{ind}{comment} Intermediates and their derivatives")
+            lines += self._prelude_lines(prelude, printer, "" if is_scripting else "const double ", semi, ind, cse)
+            lines.append("")
+
         for sym, expr in cse_exprs:
             if is_scripting:
                 lines.append(f"{ind}{printer.doprint(sym)} = {printer.doprint(expr)}")
@@ -854,6 +929,35 @@ class EquationSystem(dict):
 
         body = "\n".join(lines)
         return self._wrap_source(body, func_name, lang, var_names, param_syms, n_vars, printer)
+
+    @staticmethod
+    def _prelude_lines(prelude, printer, decl, semi, ind, cse=True):
+        """Assignments for an ordered (symbol, expression) list, with common subexpressions eliminated within each run
+        of entries that only refer to symbols assigned before it (an intermediate and its derivatives)."""
+        lines, chunk, defined = [], [], set()
+
+        def flush(k):
+            if not chunk:
+                return
+            exprs = [e for _, e in chunk]
+            if cse:
+                tmps, exprs = sp.cse(exprs, symbols=sp.numbered_symbols(f"p{k}_"))
+            else:
+                tmps = []
+            for t, e in tmps:
+                lines.append(f"{ind}{decl}{printer.doprint(t)} = {printer.doprint(e)}{semi}")
+            for (w, _), e in zip(chunk, exprs):
+                lines.append(f"{ind}{decl}{printer.doprint(w)} = {printer.doprint(e)}{semi}")
+            defined.update(w for w, _ in chunk)
+            chunk.clear()
+
+        names = {w for w, _ in prelude}
+        for k, (w, W) in enumerate(prelude):
+            if (W.free_symbols & names) - defined:
+                flush(k)
+            chunk.append((w, W))
+        flush(len(prelude))
+        return lines
 
     def _gen_autodiff_code(self, func_mat, var_names, param_syms, printer, cse, lang, func_name):
         """Generate code string with forward-mode autodiff Jacobian."""
@@ -1022,6 +1126,8 @@ end
           - jaco_eos_pressure(sv, pr)  — P = sum(n_s * k_B * T) in CGS
           - jaco_T_to_u(T, pr, *cv)   — specific internal energy u(T) in CGS, with cv output
           - jaco_u_to_T(u, pr)         — Newton-Raphson inversion of u(T)
+          - jaco_electron_abundance(sv, pr)       — free electrons per H nucleus, as the rates use them
+          - jaco_fixed_electron_abundance(sv, pr) — the part of it not on solved species
 
         Rewrites species number densities n_s as n_Htot * x_s so the expression
         uses quantities that exist in the SolveVars/Params structs.
@@ -1059,6 +1165,17 @@ end
                 expr = expr.subs(sym, sub)
             return expr
 
+        inter = [(sanitize_symbols(w), sanitize_symbols(W)) for w, W in getattr(self, '_intermediates', [])]
+        inter_names = {str(w) for w, _ in inter}
+
+        def _with_intermediates(syms):
+            """(symbols to unpack, intermediate assignments) for an expression with free symbols syms"""
+            if not {str(s) for s in syms} & inter_names:
+                return set(syms), []
+            syms = set(syms).union(*[W.free_symbols for _, W in inter])
+            syms = {s for s in syms if str(s) not in inter_names}
+            return syms, self._prelude_lines(inter, printer, "const double ", ";", "    ")
+
         lines = []
         lines.append('/* Generated by jaco codegen — EOS functions from species contributions. */')
         lines.append('#include "microphysics_func_jac.h"')
@@ -1072,11 +1189,12 @@ end
         else:
             P_expr = _rewrite_for_abundances(eos.pressure)
         P_code = printer.doprint(sanitize_symbols(P_expr))
-        P_syms = P_expr.free_symbols
+        P_syms, P_inter = _with_intermediates(sanitize_symbols(P_expr).free_symbols)
 
         lines.append('double jaco_eos_pressure(const SolveVars *sv, const Params *pr) {')
         lines.extend(_unpack_syms(P_syms, skip={"T"}))
         lines.append('    const double T = sv->T;')
+        lines.extend(P_inter)
         lines.append(f'    return {P_code};')
         lines.append('}')
         lines.append('')
@@ -1096,9 +1214,11 @@ end
         u_reduced = reduced[0]
         cv_reduced = reduced[1]
 
-        u_syms = u_expr.free_symbols | cv_expr.free_symbols
+        u_syms, u_inter = _with_intermediates(sanitize_symbols(u_expr).free_symbols
+                                              | sanitize_symbols(cv_expr).free_symbols)
         lines.append('double jaco_T_to_u(double T, const SolveVars *sv, const Params *pr, double *cv_out) {')
         lines.extend(_unpack_syms(u_syms, skip={"T"}))
+        lines.extend(u_inter)
         for sym, expr in cse_pairs:
             lines.append(f'    const double {printer.doprint(sym)} = {printer.doprint(expr)};')
         lines.append(f'    if (cv_out) {{ *cv_out = {printer.doprint(cv_reduced)}; }}')
@@ -1124,4 +1244,29 @@ end
         lines.append('    return T;')
         lines.append('}')
         lines.append('')
+
+        # --- free electrons: all of them, and those not on solved species ---
+        x_e = _rewrite_for_abundances(x_("e-"))
+        if x_("e-") in x_e.free_symbols and sanitize_name(str(x_("e-"))) not in var_name_set:
+            x_e = sp.S.Zero  # no electrons in this model
+        x_e_fixed = x_e
+        if x_e != 0:
+            for s in species:
+                if s != "e-" and sanitize_name(str(x_(s))) in var_name_set:
+                    x_e_fixed -= species_charge(s) * x_(s)
+        for fname, expr, doc in (
+            ("jaco_electron_abundance", x_e, "Free electrons per H nucleus, as the rates use them"),
+            ("jaco_fixed_electron_abundance", x_e_fixed, "The part of jaco_electron_abundance not on solved species"),
+        ):
+            expr = sanitize_symbols(sp.sympify(expr))
+            e_syms, e_inter = _with_intermediates(expr.free_symbols)
+            lines.append(f'/* {doc} */')
+            lines.append(f'double {fname}(const SolveVars *sv, const Params *pr) {{')
+            lines.extend(_unpack_syms(e_syms, skip={"T"}))
+            lines.append('    const double T = sv->T;')
+            lines.append('    (void)T; (void)sv; (void)pr;')
+            lines.extend(e_inter)
+            lines.append(f'    return {printer.doprint(expr)};')
+            lines.append('}')
+            lines.append('')
         return '\n'.join(lines)
