@@ -68,10 +68,10 @@ def old_dissociation_rate(iso, collider, Tv, nH, xHp, xH2, xHep, xHepp, yv, *_):
 
 
 def old_selfshield(Tv, nH, xHp, xH2, xHep, xHepp, yv, NHv, gv, dxv):
-    """The previous form, with f_H2 = 2 n_H2 / (2 n_H2 + n_H) and x00 = N_H (1 - x_H+) / Sigma_0."""
+    """The previous form, with f_H2 = 2 n_H2 / (2 n_H2 + n_H) and x00 = N_H (1 - x_H+) / Sigma_0 (Doppler parameter in km/s)."""
     v_th = 1.11e4 * np.sqrt(Tv)
     x00 = NHv * (1 - xHp) / 5.0e14
-    x01 = x00 / (np.sqrt(1.0 + 3.0 * (gv * dxv) ** 2 / v_th**2) * np.sqrt(2.0) * v_th)
+    x01 = x00 / (np.sqrt(1.0 + 3.0 * (gv * dxv) ** 2 / v_th**2) * np.sqrt(2.0) * v_th / 1e5)
     fH2 = 2 * xH2 / (2 * xH2 + (1 - xHp - 2 * xH2))
     s1, ssqrt = 1 + fH2 * x01, np.sqrt(1.0 + fH2 * x00)
     return 0.965 / s1**2 + 0.035 / ssqrt * np.exp(-0.00085 * ssqrt)

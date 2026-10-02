@@ -1,0 +1,38 @@
+"""H2 self-shielding against GIZMO's update_explicit_molecular_fraction (COOL_MOLECFRAC_NONEQM).
+
+GIZMO's self-shielding factor y_ss (Gnedin & Draine 2014) takes the Doppler parameter in km/s.
+"""
+
+import numpy as np
+import pytest
+import sympy as sp
+from jaco.symbols import x_
+from ..h2_chemistry.photochemistry import f_selfshield_H2
+from ..symbols import T, grad_v, dx, NH
+
+PROTONMASS_CGS = 1.67262178e-24
+
+
+def gizmo_y_ss(Tv, column_cgs, xH0, fH2, gradv_cgs, dx_cm):
+    """y_ss as GIZMO computes it, for neutral fraction xH0 and f = 2 n_H2 / n_H0"""
+    surface_density_H2_0, x_exp_fac, w0 = 5.0e14 * PROTONMASS_CGS, 0.00085, 0.035
+    surface_density_local = xH0 * column_cgs
+    v_thermal_rms = 0.111 * np.sqrt(Tv)  # km/s
+    dv_turb = gradv_cgs * dx_cm / 1e5  # km/s
+    x00 = surface_density_local / surface_density_H2_0
+    x01 = x00 / (np.sqrt(1.0 + 3.0 * dv_turb**2 / v_thermal_rms**2) * np.sqrt(2.0) * v_thermal_rms)
+    x_ss_1, x_ss_sqrt = 1.0 + fH2 * x01, np.sqrt(1.0 + fH2 * x00)
+    return (1.0 - w0) / (x_ss_1 * x_ss_1) + w0 / x_ss_sqrt * np.exp(-min(90.0, x_exp_fac * x_ss_sqrt))
+
+
+fss = sp.lambdify((T, NH, x_("H_2"), grad_v, dx), f_selfshield_H2(), modules="numpy")
+
+
+@pytest.mark.parametrize("Tv", [10.0, 100.0, 3000.0])
+@pytest.mark.parametrize("column", [1e-6, 3e-3, 0.1])
+@pytest.mark.parametrize("xH0,xH2", [(1.0, 1e-6), (1.0, 0.3), (0.9, 0.45)])
+@pytest.mark.parametrize("gradv", [1e-16, 3e-14])
+def test_selfshielding_matches_gizmo(Tv, column, xH0, xH2, gradv):
+    dx_cm = 3e18
+    expected = gizmo_y_ss(Tv, column, xH0, 2 * xH2 / xH0, gradv, dx_cm)
+    assert fss(Tv, column / PROTONMASS_CGS, xH2, gradv, dx_cm) == pytest.approx(expected, rel=1e-10, abs=0)

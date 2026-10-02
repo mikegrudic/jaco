@@ -15,9 +15,9 @@ def f_selfshield_H2(prescription="Gnedin & Draine 2014"):
             # GIZMO's f_H2 * x00, with f_H2 = 2 n_H2 / n_H,neutral and x00 = neutral column / Sigma_0. The neutral
             # fraction cancels, leaving the H2 column; written this way it stays finite (and -> 0) as x_H+ -> 1.
             fH2_x00 = 2 * x_("H_2") * NH / surface_density_H2_0
-            fH2_x01 = fH2_x00 / (
-                sp.sqrt(1.0 + 3.0 * dv_turb * dv_turb / (v_thermal_rms * v_thermal_rms)) * sp.sqrt(2.0) * v_thermal_rms
-            )
+            # Doppler parameter in km/s (the b_5 of Draine & Bertoldi 1996), as in GIZMO
+            b5 = sp.sqrt(1.0 + 3.0 * dv_turb * dv_turb / (v_thermal_rms * v_thermal_rms)) * sp.sqrt(2.0) * v_thermal_rms / 1e5
+            fH2_x01 = fH2_x00 / b5
             x_ss_1 = 1 + fH2_x01
             x_ss_sqrt = sp.sqrt(1.0 + fH2_x00)
             x_exp_fac = 0.00085
@@ -44,7 +44,7 @@ def photodissociation(molecule):
             Rdiss = 3.3e-11 * G_0
             rate = Rdiss * f_selfshield_H2()
             bib = "2014ApJ...795...37G"
-            return ChemicalReaction("H_2 -> H + H", rate, name="Photodissociation of H-", bibliography=[bib])
+            return ChemicalReaction("H_2 -> H + H", rate, name="Photodissociation of H_2", bibliography=[bib])
             # could add heat of UV pumping: heat = 2e-11 Rdiss n_H_2
             # and heat of photo dissociation: heat = 6.4e-13 R_diss n_H_2 n/(n+n_crit)
             # while we're in here.
