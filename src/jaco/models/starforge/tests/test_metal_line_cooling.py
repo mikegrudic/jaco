@@ -53,9 +53,16 @@ def test_cmb_factor_acts_on_net_sum():
     process = mlc.metal_line_cooling()
     tables = sorted(process.heat.atoms(TableInterp2D), key=str)
     assert len(tables) == len(mlc.METAL_SPECIES)
-    rest = {sp.Symbol("C_2"): 1.0, z: 0.0, n_("e-"): 1.0, n_Htot: 1.0, x_("C+"): 0.0, x_("CO"): 0.0}
+    rest = {sp.Symbol("C_2"): 1.0, z: 0.0, n_("e-"): 1.0, n_Htot: 1.0, x_("C+"): 0.0, x_("CO"): 0.0, sp.Symbol("f_metal"): 1.0}
     rest.update({x_(s): 1.0 for _, s in mlc.METAL_SPECIES})
     for Tv, values in [(20.0, [2e-21] + [-1e-21] * 8), (20.0, [-2e-21] + [1e-22] * 8), (500.0, [1e-21] * 9)]:
         heat = process.heat.xreplace({tab: sp.Float(v) for tab, v in zip(tables, values)})
         expected = gizmo_metal_volumetric(sum(values), Tv)
         assert -float(heat.subs({**rest, T: Tv})) == pytest.approx(expected, rel=1e-12, abs=0)
+
+
+def test_switched_by_f_metal():
+    """GIZMO applies the tables only with a UV background loaded; f_metal carries that switch."""
+    heat = mlc.metal_line_cooling().heat
+    assert heat.subs(sp.Symbol("f_metal"), 0) == 0
+    assert sp.simplify(sp.diff(heat, sp.Symbol("f_metal"), 2)) == 0

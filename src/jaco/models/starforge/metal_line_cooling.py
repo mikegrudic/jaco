@@ -118,10 +118,13 @@ def metal_line_cooling_process(species, dataset, z=0.0):
 
 
 def metal_line_cooling(z=0.0):
-    """Combined metal-line cooling of all tabulated elements; the CMB-bath factor acts on the sum, as in GIZMO."""
+    """Combined metal-line cooling of all tabulated elements; the CMB-bath factor acts on the sum, as in GIZMO.
+
+    Scaled by the switch parameter f_metal: GIZMO applies these tables only when its UV background is loaded (J_UV != 0).
+    """
     Lambda = sum(metal_line_cooling_rate(sp_, ds, z=z) for ds, sp_ in METAL_SPECIES)
     return ThermalProcess(
-        -cmb_corrected(Lambda) * sp.Symbol("C_2"),
+        -sp.Symbol("f_metal") * cmb_corrected(Lambda) * sp.Symbol("C_2"),
         name="Metal line cooling",
         bibliography=["2009MNRAS.393...99W"],  # Wiersma+ tables used in GIZMO
     )
