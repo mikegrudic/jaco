@@ -22,7 +22,7 @@ from .h2_chemistry import H2_chemistry
 from .H2_cooling import H2_cooling
 from .CO_cooling import CO_cooling
 from .gas_dust_collisions import gas_dust_collisions
-from .cosmic_ray_ionization import cosmic_ray_ionization, cosmic_ray_photoionization
+from .cosmic_ray_ionization import cosmic_ray_ionization, cosmic_ray_photoionization, cosmic_ray_heating
 from .photoelectric_heating import photoelectric_heating
 from .grain_assisted_recombination import grain_assisted_recombination
 from .metal_line_cooling import metal_line_cooling
@@ -53,6 +53,7 @@ def make_model():
         gas_dust_collisions,
         *[cosmic_ray_ionization(s) for s in ("H", "C")],
         cosmic_ray_photoionization("C"),
+        cosmic_ray_heating,
         photoelectric_heating,
         compton_cooling,
         grain_assisted_recombination("C+"),

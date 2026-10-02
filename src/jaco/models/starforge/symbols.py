@@ -50,8 +50,8 @@ dust_sputtering_truncation = sp.Piecewise((1, T <= 3.0e5), (sp.exp(-(((T - 3.0e5
 # with an exponential cut-off at 100 g cm^-2
 PROTONMASS_CGS = 1.67262178e-24
 cosmicray_attenuation_fac = sp.Min(1, 2.23e-3 / (PROTONMASS_CGS * NH) * sp.exp(-PROTONMASS_CGS * NH / 100.0))
+# CR energy density (erg cm^-3): 1 eV cm^-3 scaled by sqrt(ISRF), as GIZMO assumes under RT_ISRF_BACKGROUND
+cosmicray_energy_density = sp.sqrt(ISRF) * 1.6e-12 * cosmicray_attenuation_fac
 # 1.6e-17 s^-1 per eV cm^-3 of CRs, plus GIZMO's radioactive-decay floor (K-40 ~ Z; short-lived radionuclides ~ Fe)
-cosmicray_ionization_rate_H = (
-    sp.sqrt(ISRF) * 1.6e-12 * 1e-5 * cosmicray_attenuation_fac + 1e-21 * Z_dust + 1e-19 * x_("Fe") / x_solar("Fe")
-)
+cosmicray_ionization_rate_H = 1e-5 * cosmicray_energy_density + 1e-21 * Z_dust + 1e-19 * x_("Fe") / x_solar("Fe")
 psi_grain = G_0 * sqrt_T / (0.5 * (1.0e-12 + x_("e-")) * n_Htot)  # grain charging parameter

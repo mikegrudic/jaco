@@ -1,9 +1,8 @@
-"""Implementation of cosmic ray ionization and photodissociation"""
+"""Implementation of cosmic ray ionization, photodissociation and heating"""
 
-from .symbols import x_, T, cosmicray_ionization_rate_H, n_Htot
-from jaco.processes import ChemicalReaction
+from .symbols import x_, T, cosmicray_ionization_rate_H, cosmicray_energy_density, n_Htot
+from jaco.processes import ChemicalReaction, ThermalProcess
 from jaco.species_strings import remove_electron
-from astropy import units as u
 
 # reactions and their rates relative to ionization of H
 # Le Teuff 2000
@@ -23,18 +22,24 @@ def cosmic_ray_ionization(species):
     """Process describing dissociation of molecules by cosmic rays"""
     equation = f"{species} -> {remove_electron(species)} + e-"
     rate = cr_ionization_reaction_rates[equation] * cosmicray_ionization_rate_H
-    if species == "H":
-        heat = 20 * u.eV.to(u.erg)
-    else:
-        heat = 0  # already accounted for heat with H
 
     return ChemicalReaction(
         equation,
         rate,
-        heat_per_reaction=heat,
         name=f"Direct ionization of {species} by cosmic rays",
         bibliography=["2000A&AS..146..157L"],
-    )
+    )  # the heat is in cosmic_ray_heating
+
+
+# GIZMO's CR_gas_heating without a CR fluid (COOL_LOW_TEMPERATURES branch): 1/6 of the hadronic losses (87% of CRs above
+# threshold) plus the Coulomb/ionization losses, which scale with x_e + 0.57 x_H0 (HYDROGEN_MASSFRAC = 0.76), in any
+# neutral or molecular gas; GIZMO's per-n_H^2 rate carries a 1/(0.01 + n_H) factor.
+cosmic_ray_heating = ThermalProcess(
+    (0.87 / 6.0 * 6.37e-16 + 0.53 * 3.09e-16 * (x_("e-") + 0.57 * (1 - x_("H+"))) * 0.76)
+    * cosmicray_energy_density * n_Htot**2 / (0.01 + n_Htot),
+    name="Cosmic ray heating",
+    bibliography=["2008MNRAS.384..251G", "1994A&A...286..983M"],
+)
 
 
 cr_photoionization_reaction_rates = {
