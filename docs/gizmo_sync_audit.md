@@ -179,13 +179,17 @@ alphabetical, so `f_neb` sits between `f_d` and `grad_v`. That only matters to c
 - **GIZMO's half-speed H2 rates and mass-fraction collider weights:** these are GIZMO-side; jaco is correct.
 - **H2-He+ dissociation:** minor.
 
-## 7. Pre-existing jaco issues found (unchanged)
+## 7. Pre-existing jaco issues found
 
-- **NaNs in the generated Jacobian/RHS** (present at f6d0c76):
-  - H2 + H+ collisional dissociation `Max(k0, 0)**f0` has a NaN derivative where the Savin fit clamps to 0
-    (seen at T = 10 K).
-  - The GD14 self-shielding fH2 = 2n_H2/(2n_H2 + n_H) is 0/0 at x_H+ = 1 (fully ionized gas). GIZMO returns early
-    when x_H0 = 0.
+- **NaNs in the generated Jacobian/RHS** (present at f6d0c76; **FIXED 41c2e72, 9413220**). Evaluating the
+  compiled generated C on a grid (T = 3 K to 1e9 K, n_H = 1e-4 to 1e8, x_H+ from 1e-6 to 1) gave non-finite
+  entries in 3406 of 5382 states before the fixes and in 0 after:
+  - H2 collisional dissociation `Max(k, 0)**f0 * Max(k_LTE, 0)**(1-f0)`: d/dT carried log(0) wherever a rate
+    underflowed (He collider below ~100 K) or the Savin+04 H+ fit went negative (below 76 K). Above ~5e6 K the He
+    critical density underflowed to 0, and 1/n_cr did the same. Rates are now assembled in log space, the H+ fit is
+    frozen below 100 K, and the 1/n_cr,He exponent is capped at 500.
+  - The GD14 self-shielding f_H2 = 2n_H2/(2n_H2 + n_H) was 0/0 at x_H+ = 1. It is now written in terms of the H2
+    column, 2 x_H2 N_H / Sigma_0: the neutral fraction cancels algebraically, as it does in GIZMO.
 - **Python vs C table interpolation** disagree (see 3.3).
 - **`SolarAbundances.get_abundance_per_H`** uses f/(1-f)/A. This affects the generic `processes/line_cooling.py` C+
   copy and the default `y` prescription in `EquationSystem.solve` (0.0925 vs 0.0951). The starforge model now uses
@@ -202,11 +206,15 @@ alphabetical, so `f_neb` sits between `f_d` and `grad_v`. That only matters to c
 `PYTHONPATH=src python3 -m pytest tests src -q`, run with `spcool_tables.hdf5` symlinked from `jaco_gizmo`:
 
 - **before (f6d0c76):** 50 passed, 1 failed (`tests/test_CIE.py`, missing data file).
-- **after:** 291 passed, 2 skipped (H- fits below GIZMO's exp(-90) floor), 1 failed (the same `test_CIE`).
+- **after:** 340 passed, 2 skipped (H- fits below GIZMO's exp(-90) floor), 1 failed (the same `test_CIE`).
   With `-x` the run stops at `test_CIE` both before and after.
 - **New GIZMO-parity tests** in `src/jaco/models/starforge/tests/`: `test_nebular_cooling`, `test_CO_cooling`,
   `test_Hminus_detachment`, `test_recombination_cooling`, `test_Cplus_cooling`, `test_metal_line_cooling` (skips
   without the hdf5), `test_gizmo_lowtemp_factors`, `test_photoelectric_heating`, `test_cosmic_ray_rate`, `test_compton`.
+  `test_nan_regularization` evaluates its expressions with the generated C's floating-point semantics
+  (`tests/c_semantics.py`).
 - **Full-model C codegen** (`generate_code(..., minimal=False)`) succeeds before and after: 29 s and 24 parameters
-  before, 34 s and 25 after. The reduced RHS and Jacobian are finite at representative states, apart from the two
-  pre-existing NaNs in section 7.
+  before, 34 s and 25 after. The compiled code from `python -m jaco.codegen.gizmo.gizmo starforge` (on
+  `gizmo_integration` plus these commits) has finite RHS and Jacobian at every grid state (section 7). At 7 regular
+  states it agrees with the pre-fix build to 7e-12 in the RHS and 1.2e-10 in the Jacobian; the largest difference is
+  in an entry 1e-9 of its row's scale.
