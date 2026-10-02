@@ -1,5 +1,5 @@
-"""H2 collisional dissociation stays finite, with finite partials, at the states where the generated C code used to
-produce nan (cold gas; hot gas), and is unchanged elsewhere. Evaluated with C floating-point
+"""H2 collisional dissociation and self-shielding stay finite, with finite partials, at the states where the generated
+C code used to produce nan (cold gas; x_H+ = 1), and are unchanged elsewhere. Evaluated with C floating-point
 semantics (see c_semantics.py); the derivatives are taken in the solve variables after the conservation reductions."""
 
 import numpy as np
@@ -7,6 +7,7 @@ import pytest
 import sympy as sp
 from jaco.symbols import x_
 from ..h2_chemistry.collisional_dissociation import H2_collisional_dissociation
+from ..h2_chemistry.photochemistry import f_selfshield_H2
 from ..symbols import T, n_Htot, NH, grad_v, dx
 from .c_semantics import c_lambdify
 
@@ -66,6 +67,16 @@ def old_dissociation_rate(iso, collider, Tv, nH, xHp, xH2, xHep, xHepp, yv, *_):
     return max(k0, 0) ** f0 * max(kLTE, 0) ** (1 - f0)
 
 
+def old_selfshield(Tv, nH, xHp, xH2, xHep, xHepp, yv, NHv, gv, dxv):
+    """The previous form, with f_H2 = 2 n_H2 / (2 n_H2 + n_H) and x00 = N_H (1 - x_H+) / Sigma_0."""
+    v_th = 1.11e4 * np.sqrt(Tv)
+    x00 = NHv * (1 - xHp) / 5.0e14
+    x01 = x00 / (np.sqrt(1.0 + 3.0 * (gv * dxv) ** 2 / v_th**2) * np.sqrt(2.0) * v_th)
+    fH2 = 2 * xH2 / (2 * xH2 + (1 - xHp - 2 * xH2))
+    s1, ssqrt = 1 + fH2 * x01, np.sqrt(1.0 + fH2 * x00)
+    return 0.965 / s1**2 + 0.035 / ssqrt * np.exp(-0.00085 * ssqrt)
+
+
 @pytest.mark.parametrize("iso,collider", DISSOCIATIONS)
 @pytest.mark.parametrize("point", list(PATHOLOGICAL))
 def test_dissociation_finite(iso, collider, point):
@@ -87,3 +98,26 @@ def test_dissociation_unchanged_in_regular_regime(iso, collider):
         assert f(*vals) == pytest.approx(expected, rel=1e-10, abs=0)
         checked += 1
     assert checked >= 5
+
+
+@pytest.mark.parametrize("point", list(PATHOLOGICAL))
+def test_selfshield_finite(point):
+    f, partials = value_and_partials(f_selfshield_H2())
+    vals = PATHOLOGICAL[point]
+    assert np.isfinite(f(*vals)) and 0 < f(*vals) <= 1
+    for d, v in zip(partials, SOLVE_VARS):
+        assert np.isfinite(d(*vals)), f"d f_shield / d {v} not finite"
+
+
+def test_selfshield_no_H2_limit():
+    """Zero H2 column gives the Gnedin & Draine 2014 zero-column value (no shielding), whatever x_H+ is."""
+    f, _ = value_and_partials(f_selfshield_H2())
+    unshielded = 0.965 + 0.035 * np.exp(-0.00085)
+    for xHp in (0.0, 0.5, 1.0):
+        assert f(*state(1e4, 1.0, xHp, 0.0)) == pytest.approx(unshielded, rel=1e-14)
+
+
+def test_selfshield_unchanged_in_regular_regime():
+    f, _ = value_and_partials(f_selfshield_H2())
+    for vals in REGULAR + [state(30.0, 1e3, 1e-5, 0.45, 1e23), state(1e4, 1.0, 0.99, 1e-4, 1e19)]:
+        assert f(*vals) == pytest.approx(old_selfshield(*vals), rel=1e-10, abs=0)

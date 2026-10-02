@@ -1,6 +1,6 @@
 """Implementation of photodissociation of various hydrogen species"""
 
-from ..symbols import sp, G_0, T, grad_v, dx, NH, x_, n_
+from ..symbols import sp, G_0, T, grad_v, dx, NH, x_
 from jaco.processes import ChemicalReaction
 
 
@@ -12,13 +12,14 @@ def f_selfshield_H2(prescription="Gnedin & Draine 2014"):
             surface_density_H2_0 = 5.0e14
             w0 = 0.035
             dv_turb = grad_v * dx  # grad_v in s^-1, dx in cm -> dv_turb in cm/s
-            x00 = NH * (1 - x_("H+")) / surface_density_H2_0
-            x01 = x00 / (
+            # GIZMO's f_H2 * x00, with f_H2 = 2 n_H2 / n_H,neutral and x00 = neutral column / Sigma_0. The neutral
+            # fraction cancels, leaving the H2 column; written this way it stays finite (and -> 0) as x_H+ -> 1.
+            fH2_x00 = 2 * x_("H_2") * NH / surface_density_H2_0
+            fH2_x01 = fH2_x00 / (
                 sp.sqrt(1.0 + 3.0 * dv_turb * dv_turb / (v_thermal_rms * v_thermal_rms)) * sp.sqrt(2.0) * v_thermal_rms
             )
-            fH2 = 2 * n_("H_2") / (2 * n_("H_2") + n_("H"))
-            x_ss_1 = 1 + fH2 * x01
-            x_ss_sqrt = sp.sqrt(1.0 + fH2 * x00)
+            x_ss_1 = 1 + fH2_x01
+            x_ss_sqrt = sp.sqrt(1.0 + fH2_x00)
             x_exp_fac = 0.00085
             return (1.0 - w0) / (x_ss_1 * x_ss_1) + w0 / x_ss_sqrt * sp.exp(-x_exp_fac * x_ss_sqrt)
         case "Wolcott-Green 2011":
