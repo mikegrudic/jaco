@@ -27,6 +27,11 @@ from .grain_assisted_recombination import grain_assisted_recombination
 from .metal_line_cooling import metal_line_cooling
 from jaco.processes import inv_compton_cooling
 
+# Solve variables in index order (GIZMO's jaco.cc assumes u, T first, abundances after) and the
+# subset that gets a backward-Euler term; the ions are solved in steady state.
+SOLVE_VARS = ["u", "T", "H+", "He+", "He++", "H_2"]
+TIME_DEPENDENT = ["T", "H_2"]
+
 
 def make_model():
     """Build the STARFORGE thermochemistry model.
