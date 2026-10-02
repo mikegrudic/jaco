@@ -20,5 +20,5 @@ beta = 1.23 * (0.5 * n_Htot) ** beta_nH2 * T**beta_T
 lambda_CO = (lambda_CO_lo ** (-1 / beta) + lambda_CO_hi ** (-1 / beta)) ** -beta
 
 CO_cooling = NBodyProcess(
-    ("CO", "H_2"), heat_rate_coefficient=lambda_CO, name="CO Cooling", bibliography=["2018A&A...611A..20W"]
+    ("CO", "H_2"), heat_rate_coefficient=-lambda_CO, name="CO Cooling", bibliography=["2018A&A...611A..20W"]
 )
