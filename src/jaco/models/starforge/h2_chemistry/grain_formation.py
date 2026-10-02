@@ -1,7 +1,7 @@
 """Implementation of H_2 formation on dust grain surfaces"""
 
 from ....processes import ChemicalReaction
-from ..symbols import sp, T, T_dust, f_dust, Z_dust, H2_formation_heat_cgs
+from ..symbols import sp, T, T_dust, f_dust, Z_dust, H2_chemical_heat_cgs
 
 # Formation on dust grains from Hollenbach & McKee 1979
 H2_dust_formation_rate = (
@@ -15,7 +15,7 @@ H2_dust_formation_rate = (
 grain_formation = ChemicalReaction(
     "H + H -> H_2",
     H2_dust_formation_rate,
-    heat_per_reaction=H2_formation_heat_cgs,
+    heat_per_reaction=H2_chemical_heat_cgs,
     name="Formation of H_2 on dust grains",
     bibliography=["1979ApJS...41..555H"],
 )

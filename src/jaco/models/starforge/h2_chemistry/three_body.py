@@ -1,7 +1,7 @@
 """Implementation of the 3-body H_2 formation channel"""
 
 from jaco.processes import ChemicalReaction
-from ..symbols import sp, T, T_dust, f_dust, Z_dust, H2_formation_heat_cgs
+from ..symbols import sp, T, T_dust, f_dust, Z_dust, H2_chemical_heat_cgs
 
 
 def threebody_rate(number: int):
@@ -34,7 +34,7 @@ rate, bibcode = threebody_rate(5)  # take Forrey 2013 by default
 H2_3body_formation = ChemicalReaction(
     "H + H + H -> H_2 + H",
     rate,  # Forrey 2013 rate
-    heat_per_reaction=H2_formation_heat_cgs,
+    heat_per_reaction=H2_chemical_heat_cgs,
     name="3-body formation of H_2",
     bibliography=[bibcode],
 )

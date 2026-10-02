@@ -33,7 +33,9 @@ grad_v = sp.Symbol("∇v")  # velocity gradient Frobenius norm in CGS (s^-1)
 NH = sp.Symbol("N_H")  # column density in nucleons, Sigma/m_p (as GIZMO passes it)
 dx = sp.Symbol("Δx")  # effective cell size in cm
 ISRF = sp.Symbol("ISRF")  # scaling factor for ISRF and cosmic ray background
-H2_formation_heat_cgs = 7.2e-12
+H2_formation_heat_cgs = 7.2e-12  # 4.48 eV binding energy
+# heat given to (taken from) the gas per H2 formed (collisionally dissociated): none, as in GIZMO's cooling module
+H2_chemical_heat_cgs = 0.0
 rho = sp.Symbol("rho")
 cs = sp.Symbol("c_s")
 T_CMB = sp.Symbol("T_CMB")

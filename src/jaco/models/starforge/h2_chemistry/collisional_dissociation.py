@@ -5,7 +5,7 @@ the generated code evaluates them in double precision, where k_0 and k_LTE under
 d(k_0^f_0)/dT = k_0^f_0 (f_0' ln k_0 + ...) then becomes 0 * inf = nan.
 """
 
-from ..symbols import T, log_T, x_, n_Htot, H2_formation_heat_cgs
+from ..symbols import T, log_T, x_, n_Htot, H2_chemical_heat_cgs
 from jaco.processes import ChemicalReaction
 import sympy as sp
 
@@ -98,7 +98,7 @@ def H2_collisional_dissociation(collider, isotopologue="H_2"):
     return ChemicalReaction(
         f"H_2 + {collider} -> 2H + {collider}",
         rate_coefficient=k,
-        heat_per_reaction=-H2_formation_heat_cgs,
+        heat_per_reaction=-H2_chemical_heat_cgs,
         name=f"Collisional dissociation of {isotopologue} by {collider}",
         bibliography=bib,
     )
