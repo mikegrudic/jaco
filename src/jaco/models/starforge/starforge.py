@@ -11,6 +11,8 @@ The model declares:
 - **Fixed species** (``fixed_species``): C+, H-, H_2+, CO, HD — computed
   by the host code and passed as parameters, not solved by the Newton system.
 - **Equilibrium overrides**: H_2+ = 0, HD = 2.527e-5 × x_H2 (deuterium locked in HD).
+- **Free electrons** (``fixed_electrons``): the solved H and He ions plus GIZMO's metal electrons
+  (metal_electrons.py), which stand in for the charge of the fixed species.
 - **PdV work**: included as a ``pdv_work`` parameter in the heating term.
 """
 
@@ -25,6 +27,7 @@ from .gas_dust_collisions import gas_dust_collisions
 from .cosmic_ray_ionization import cosmic_ray_ionization, cosmic_ray_photoionization, cosmic_ray_heating
 from .photoelectric_heating import photoelectric_heating
 from .metal_line_cooling import metal_line_cooling
+from .metal_electrons import metal_electrons
 from .nebular_cooling import nebular_cooling
 from .compton import compton_cooling
 
@@ -124,6 +127,10 @@ def make_model():
         "C_2": C_2_expr,
         "C_3": C_2_expr**3,                          # <n^3>/<n>^3 = C_2^3 for lognormal
     }
+
+    # Free electrons beyond the solved H and He ions: GIZMO's neutral-gas budget (C+ by its own ionization balance,
+    # not the cooling-curve fraction above, plus CR-ionized metals and molecular ions)
+    model.network.intermediates, model.network.fixed_electrons = metal_electrons()
 
     return model
 
