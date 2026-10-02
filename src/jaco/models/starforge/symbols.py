@@ -27,6 +27,7 @@ T_dust = sp.Symbol("Td")  # Dust temperature
 f_dust = sp.Symbol("f_d")  # Factor accounting for sublimation
 Z_dust = sp.Symbol("Z_d")  # Solar-normalized dust abundance. Value of 1 corresponds to Solar neighborhood dust.
 G_0 = sp.Symbol("G_0")  # UV radiation field normalized to Habing
+G_LW = sp.Symbol("G_LW")  # Lyman-Werner band field in Habing units seen by H2 before its self-shielding
 f_shield = sp.Symbol("f_shield")  # Lyman-Werner self-shielding factor
 grad_v = sp.Symbol("∇v")  # velocity gradient Frobenius norm in CGS (s^-1)
 NH = sp.Symbol("N_H")  # column density in nucleons, Sigma/m_p (as GIZMO passes it)

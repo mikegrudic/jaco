@@ -1,6 +1,6 @@
 """Implementation of photodissociation of various hydrogen species"""
 
-from ..symbols import sp, G_0, T, grad_v, dx, NH, x_
+from ..symbols import sp, G_LW, T, grad_v, dx, NH, x_
 from jaco.processes import ChemicalReaction
 
 
@@ -41,7 +41,7 @@ def photodissociation(molecule):
     """
     match molecule:
         case "H_2":
-            Rdiss = 3.3e-11 * G_0
+            Rdiss = 3.3e-11 * G_LW
             rate = Rdiss * f_selfshield_H2()
             bib = "2014ApJ...795...37G"
             return ChemicalReaction("H_2 -> H + H", rate, name="Photodissociation of H_2", bibliography=[bib])

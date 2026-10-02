@@ -1,14 +1,16 @@
-"""H2 self-shielding against GIZMO's update_explicit_molecular_fraction (COOL_MOLECFRAC_NONEQM).
+"""H2 photodissociation against GIZMO's update_explicit_molecular_fraction (COOL_MOLECFRAC_NONEQM).
 
-GIZMO's self-shielding factor y_ss (Gnedin & Draine 2014) takes the Doppler parameter in km/s.
+GIZMO evolves the H2 mass fraction per neutral H, f, with dissociation term G_LW * y_ss * f, G_LW = 3.3e-11 urad_G0 / 2;
+per molecule that is 3.3e-11 urad_G0 y_ss. Its self-shielding y_ss (Gnedin & Draine 2014) takes the Doppler parameter in
+km/s.
 """
 
 import numpy as np
 import pytest
 import sympy as sp
-from jaco.symbols import x_
-from ..h2_chemistry.photochemistry import f_selfshield_H2
-from ..symbols import T, grad_v, dx, NH
+from jaco.symbols import x_, n_
+from ..h2_chemistry.photochemistry import photodissociation, f_selfshield_H2
+from ..symbols import T, grad_v, dx, NH, G_LW
 
 PROTONMASS_CGS = 1.67262178e-24
 
@@ -26,6 +28,8 @@ def gizmo_y_ss(Tv, column_cgs, xH0, fH2, gradv_cgs, dx_cm):
 
 
 fss = sp.lambdify((T, NH, x_("H_2"), grad_v, dx), f_selfshield_H2(), modules="numpy")
+rate = sp.lambdify((T, NH, x_("H_2"), grad_v, dx, G_LW, n_("H_2")), photodissociation("H_2").network["H_2"].rhs,
+                   modules="numpy")
 
 
 @pytest.mark.parametrize("Tv", [10.0, 100.0, 3000.0])
@@ -36,3 +40,10 @@ def test_selfshielding_matches_gizmo(Tv, column, xH0, xH2, gradv):
     dx_cm = 3e18
     expected = gizmo_y_ss(Tv, column, xH0, 2 * xH2 / xH0, gradv, dx_cm)
     assert fss(Tv, column / PROTONMASS_CGS, xH2, gradv, dx_cm) == pytest.approx(expected, rel=1e-10, abs=0)
+
+
+@pytest.mark.parametrize("G", [1e-3, 1.0, 30.0])
+def test_dissociation_rate_matches_gizmo(G):
+    Tv, column, xH2, gradv, dx_cm, n_H2 = 20.0, 1e-2, 0.2, 1e-14, 3e18, 50.0
+    per_molecule = 3.3e-11 * G * gizmo_y_ss(Tv, column, 1.0, 2 * xH2, gradv, dx_cm)
+    assert -rate(Tv, column / PROTONMASS_CGS, xH2, gradv, dx_cm, G, n_H2) == pytest.approx(per_molecule * n_H2, rel=1e-10)
