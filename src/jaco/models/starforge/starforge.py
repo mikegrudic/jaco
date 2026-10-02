@@ -27,7 +27,7 @@ from .photoelectric_heating import photoelectric_heating
 from .grain_assisted_recombination import grain_assisted_recombination
 from .metal_line_cooling import metal_line_cooling
 from .nebular_cooling import nebular_cooling
-from jaco.processes import inv_compton_cooling
+from .compton import compton_cooling
 
 
 def make_model():
@@ -54,7 +54,7 @@ def make_model():
         *[cosmic_ray_ionization(s) for s in ("H", "C")],
         cosmic_ray_photoionization("C"),
         photoelectric_heating,
-        inv_compton_cooling,
+        compton_cooling,
         grain_assisted_recombination("C+"),
         metal_line_cooling(z=0.0),
         nebular_cooling,
