@@ -1,13 +1,16 @@
 """Metal line cooling for the STARFORGE model.
 
 Loads tabulated cooling rate coefficients from spcool_tables.hdf5 and builds
-2-body NBodyProcess objects of the form:
+cooling processes of the form:
 
-    rate per volume = k(n_Htot, T) * n_e * n_X
+    rate per volume = k(n_Htot, T) * n_e * n_X,tot * C_2
 
-where X is each metal species. The table values are normalized such that
-multiplying by n_e * n_X yields the cooling rate density at solar abundance;
-the 3D (z, n_H, T) table is sliced to a 2D (n_Htot, T) grid at fixed redshift.
+where n_X,tot is the total number density of element X summed over every
+network species carrying it (the tables already sum over ionization stages).
+The table values are normalized such that multiplying by n_e * n_X,tot yields
+the cooling rate density; the 3D (z, n_H, T) table is sliced to a 2D
+(n_Htot, T) grid at fixed redshift. As in GIZMO, the tables are tapered below
+their 100 K edge instead of being held at the edge value.
 
 The HDF5 file is shipped alongside this module.
 """
@@ -16,9 +19,10 @@ from importlib.resources import files
 import numpy as np
 import h5py
 
-from jaco.processes import NBodyProcess
-from jaco.symbols import T, table_interp_2d
-from .symbols import n_Htot
+import sympy as sp
+from jaco.processes import ThermalProcess
+from jaco.symbols import T, table_interp_2d, n_, x_
+from .symbols import n_Htot, log_T
 
 
 def _hdf5_path():
@@ -37,6 +41,21 @@ METAL_SPECIES = [
     ("Calcium_cooling", "Ca"),
     ("Iron_cooling", "Fe"),
 ]
+
+
+# network species carrying each element, with multiplicity; elements not listed are carried by their atom alone
+ELEMENT_CARRIERS = {"C": {"C": 1, "C+": 1, "CO": 1}, "O": {"O": 1, "CO": 1}}
+
+# GIZMO: LambdaMetal *= exp(-min((2 - log10 T)^2 / 0.1, 40)) below the tables' 100 K edge
+low_T_taper = sp.Piecewise((sp.exp(-sp.Min((2 - log_T) ** 2 / 0.1, 40)), T < 100), (1, True))
+
+
+def element_number_density(element):
+    """Total number density of an element summed over the network species that carry it.
+
+    Written in abundances so that atom conservation reduces the sum to the total-abundance parameter.
+    """
+    return n_Htot * sum(count * x_(s) for s, count in ELEMENT_CARRIERS.get(element, {element: 1}).items())
 
 
 def _load_redshift_slice(dataset_name, z=0.0, hdf5_path=None):
@@ -61,12 +80,12 @@ def _load_redshift_slice(dataset_name, z=0.0, hdf5_path=None):
 
 
 def metal_line_cooling_process(species, dataset, z=0.0):
-    """Build a 2-body cooling NBodyProcess for one metal element at fixed redshift.
+    """Build the cooling process for one metal element at fixed redshift.
 
     Parameters
     ----------
     species : str
-        Symbol used in the chemical network (e.g. "C", "O", "Fe").
+        Element symbol used in the chemical network (e.g. "C", "O", "Fe").
     dataset : str
         HDF5 dataset name in spcool_tables.hdf5 (e.g. "Carbon_cooling").
     z : float
@@ -74,9 +93,8 @@ def metal_line_cooling_process(species, dataset, z=0.0):
 
     Returns
     -------
-    NBodyProcess
-        2-body process between e- and the metal species. Cooling rate per
-        volume is `k(n_Htot, T) * n_e * n_species`.
+    ThermalProcess
+        Cooling rate per volume `k(n_Htot, T) * n_e * n_X,tot * C_2`, tapered below 100 K.
     """
     table_2d, nH_axis, T_axis = _load_redshift_slice(dataset, z=z)
     table_name = f"{dataset}_z{int(round(z))}"
@@ -84,9 +102,8 @@ def metal_line_cooling_process(species, dataset, z=0.0):
         table_name, table_2d, [nH_axis, T_axis], n_Htot, T,
         log_axes=[True, True],
     )
-    return NBodyProcess(
-        colliding_species=["e-", species],
-        heat_rate_coefficient=-k,  # negative -> energy lost from gas
+    return ThermalProcess(
+        -k * low_T_taper * n_("e-") * element_number_density(species) * sp.Symbol("C_2"),
         name=f"{species} line cooling",
         bibliography=["2009MNRAS.393...99W"],  # Wiersma+ tables used in GIZMO
     )
