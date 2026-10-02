@@ -1,8 +1,7 @@
-"""Implementation of grain-assisted recombination"""
+"""Grain-assisted recombination (Weingartner & Draine 2001), as GIZMO's alpha_recomb_grain (simple_chemistry.cc)"""
 
-from .symbols import log_T, Z_dust, f_dust, psi_grain, T
-from jaco.processes import ChemicalReaction
-from jaco.species_strings import add_electron
+import sympy as sp
+from .symbols import T, G_0, Z_dust, f_dust, n_Htot
 
 coeffs = {  # fit parameters from 2001ApJ...563..842W
     "H+": [12.25, 8.074e-6, 1.378, 5.087e2, 1.586e-2, 0.4723, 1.102e-5],  #  H+
@@ -20,21 +19,16 @@ coeffs = {  # fit parameters from 2001ApJ...563..842W
 }
 
 
-def grain_assisted_recombination(ion):
-    """Returns a process describing grain-assisted recombination"""
+def grain_charge_psi(x_e):
+    """GIZMO's grain_charge_psi: G0 sqrt(T) / n_e, plus 50 to keep it finite in shielded gas (Kim+2023)"""
+    return G_0 * sp.sqrt(T) / (n_Htot * x_e) + 50
+
+
+def alpha_grain(ion, x_e):
+    """Rate coefficient (cm^3 s^-1) per ion and H nucleus: the recombination rate per volume is alpha n_ion n_H"""
     if ion not in coeffs:
         raise NotImplementedError(f"idk the grain-assisted recombination coefficient for {ion}.")
     C = coeffs[ion]
-    rate = (
-        Z_dust
-        * f_dust
-        * 1e-14
-        * C[0]
-        / (1 + C[1] * psi_grain ** C[2] * (1 + C[3] * T ** C[4] * psi_grain ** (-C[5] - C[6] * log_T)))
-    )
-    return ChemicalReaction(
-        f"{ion} + e- -> {add_electron(ion)}",
-        rate,
-        bibliography=["2001ApJ...563..842W"],
-        name=f"Grain-assisted recombination of {ion}",
-    )
+    psi = grain_charge_psi(x_e)
+    return (Z_dust * f_dust * 1e-14 * C[0]
+            / (1 + C[1] * psi ** C[2] * (1 + C[3] * T ** C[4] * psi ** (-C[5] - C[6] * sp.log(T)))))
