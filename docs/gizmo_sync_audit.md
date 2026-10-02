@@ -25,7 +25,9 @@ Expanded with `cpp -dM` over `declarations/precompiler_logic.h`, using the GIZMO
 - `TWO_TEMPERATURE_PLASMA=1` is referenced nowhere in this tree's sources (its test skips when it is not
   implemented). The two configs therefore have identical cooling physics; `gmc_cooling` only adds `OPENMP_GPU_OFFLOAD`.
 - Run-time settings: `ComovingIntegrationOn=0`, `InterstellarRadiationFieldStrength=1`, and `Redshift_RT_Background`
-  unset (0). With TREECOOL present, `J_UV != 0`, so GIZMO's UVB and FIRE-3 metal-line branches are both active.
+  unset (0). The TREECOOL these tests copy from `cooling/` starts with `##` comment lines, so `ReadIonizeParams` reads
+  zero entries ("0 non-zero UVB entries" in the run log) and `J_UV = gJH0 = 0`: these runs have no UVB and, since
+  FIRE-3 gates them on `J_UV != 0`, no tabulated metal-line cooling.
 
 ## 2. GIZMO cooling/EOS commits since the model was written (`4bdd08bc..HEAD -- cooling/ eos/`)
 
@@ -80,7 +82,7 @@ made dust-specific, switch this term to `x_O,tot / x_solar("O")`.
 | element abundance multiplying each table | 1118, `GetCoolingRateWSpecies` 1866 (total Z_k) | `starforge/metal_line_cooling.py` | **FIXED 1dc26a2** | C used the network's neutral C (x_C,tot - x_C+ - x_CO) and O used x_O,tot - x_CO. Carbon table cooling vanished wherever C+ dominates. The tables are per total element abundance. |
 | taper below the tables' 100 K edge | 1124 | | **FIXED 1dc26a2** | jaco held the 100 K value (clamped lookup); now x exp(-(2-log T)^2/0.1) |
 | CMB bath (T-T_cmb)/(T+T_cmb), applied to the summed rate only when it is positive | 1125-1127, 1272 | | **FIXED 5bc57ea, 90cfcf3** | the tables carry UVB photoheating (negative entries up to log T ~ 6-7). GIZMO adds net negative LambdaMetal to Heat without the CMB factor. |
-| applied at all T, including negative entries | 1112 (`J_UV != 0` for FIRE>2; `logT > 4` only for FIRE<=2) | applied at all T | same | not a discrepancy for these configs (coordinator item 2). If `J_UV == 0` (no TREECOOL, or z beyond the table), GIZMO turns metal lines off entirely; jaco has no switch for that. |
+| applied at all T, including negative entries | 1112 (`J_UV != 0` for FIRE>2; `logT > 4` only for FIRE<=2) | applied at all T, times `f_metal` | **FIXED f3e3228** | GIZMO turns the tables off when `J_UV == 0`, which is the case in these tests (section 1). `f_metal` carries that switch; GIZMO packs `J_UV != 0`. |
 | per-element solar normalization | GIZMO: Z_k/(Z_sun,k x 0.0127/Z_sun) | conversion script: x_k/x_k,Wiersma | **differs** (reported) | jaco/GIZMO at solar: C 1.07, N 0.78, O 0.98, Ne 0.84, Mg 1.14, Si 0.92, S 0.70, Ca 0.94, Fe 1.09. jaco's normalization is the physically consistent one; GIZMO approximates the tables' solar pattern by its own pattern rescaled to Z = 0.0127. |
 | table interpolation | bilinear in (log n_H, log T), clamped | C header `jaco_table.h`: same | same in generated code | Python-side `TableInterp2D._evaluate` interpolates linearly in linear n_H and T and extrapolates (`RegularGridInterpolator` on 10**log axes), so Python solves disagree with GIZMO and with the C code |
 
@@ -98,7 +100,7 @@ made dust-specific, switch this term to `x_O,tot / x_solar("O")`.
 | CMB bath (T-T_cmb)/(T+T_cmb) on LambdaMol (H2/HD, C+, CO) | 1207 | | **FIXED 5bc57ea** | T_cmb = 2.73 (1+z) from the existing `z` parameter |
 | gas-dust coupling coefficient | eos.cc 248 | `gas_dust_collisions.py` | same | jaco adds C_2 and an a_grain factor (= 1) |
 | gas-dust sputtering cut-off above 3e5 K | 1202 | | **FIXED 5bc57ea** | |
-| dust temperature | 2168 (`SINGLE_STAR_SINK_DYNAMICS` branch: `rt_eqm_dust_temp` with CMB + ISRF absorption, optical extinction and gas coupling) | parameter `Td` | **MISSING** (structural) | GIZMO's interface passes Td = 10 K (jaco.cc 364) |
+| dust temperature | 2168 (`SINGLE_STAR_SINK_DYNAMICS` branch: `rt_eqm_dust_temp` with CMB + ISRF absorption, optical extinction and gas coupling) | parameter `Td` | **FIXED GIZMO-side** (jaco_physics 503f26ce) | `gizmo_to_jaco` now passes `get_equilibrium_dust_temperature_estimate` at the cached gas temperature (was 10 K); 14-16 K in the gmc_cooling cloud |
 | dust-to-metals ratio | eos.cc 217 | `f_d` | same | equals 1 under `SINGLE_STAR_SINK_DYNAMICS`, and GIZMO passes f_d = 1 |
 | low-T fallback fit (2.8958629e-26 ...) | 1149-1156 | none | n/a | replaced by the detailed branch in these configs |
 | optically-thick cap on net cooling (Rafikov 2007 photosphere) | 1392-1418 | none | **MISSING** (structural) | a cap on the total rate, plus an opacity model |
@@ -108,7 +110,7 @@ made dust-specific, switch this term to `x_O,tot / x_solar("O")`.
 | term | GIZMO | jaco | status | difference |
 |---|---|---|---|---|
 | photoelectric (BT94/Wolfire) | 1281-1293 | `photoelectric_heating.py` | same expression; **FIXED b2372aa** | GIZMO's `T < 1e6` condition was missing. The efficiency fit grows as T^0.7, which heated 1e7 K gas at roughly 20% of its cooling rate (estimate at n_H ~ 1e-3-1e-2). The step is smoothed over ~0.05 dex. G0 differs through the interface. |
-| CR heating | 1269, `cosmic_ray_utilities.cc` 1829 (Guo & Oh form, x e_CR/(0.01+n_H)) | 20 eV per CR ionization of atomic H (`cosmic_ray_ionization.py`) | **differs** (reported) | GIZMO gives ~2.5e-28 erg/s per H in any neutral gas; jaco gives ~5e-28 per H atom and **zero in molecular gas** (the CR H2 channels carry no heat) |
+| CR heating | 1269, `cosmic_ray_utilities.cc` 1829 (Guo & Oh form, x e_CR/(0.01+n_H)) | `cosmic_ray_heating` (`cosmic_ray_ionization.py`) | **FIXED 3570e49** | was 20 eV per CR ionization of atomic H (~5e-28 erg/s per H atom, zero in molecular gas); now GIZMO's thermal form, ~2.5e-28 erg/s per H in any neutral gas, and the ionization carries no heat |
 | CR ionization rate | `cosmic_ray_utilities.cc` 1775-1823 | `starforge/symbols.py` | **FIXED 1fea3dd** | attenuation was Min(1, 1e21/N exp(-N/1e24)). GIZMO's is Sigma_0/Sigma with Sigma_0 = 2.23e-3 g cm^-2 (1.33e21 in the Sigma/m_p units GIZMO passes N_H in) and an exponential cut at 100 g cm^-2 (6e25, not 1e24). Also added the radionuclide floor 1e-21 Z/Z_sun + 1e-19 Fe/Fe_sun. |
 | Compton off the CMB | 2315-2325 | `starforge/compton.py` | **FIXED 72fe6db** | was 5.41e-36 n_e T (1+z)^4; now 2.16e-35 x 0.262 (1+z)^4 n_e (T - T_cmb). The generic `inv_compton_cooling` is unchanged. |
 | Compton off the UVB, the fixed MW ISRF (0.31 eV/cc at 30 K, 0.66 at 5800 K), and synchrotron (`MAGNETIC`) | 2321, 2371, 2387 | none | **MISSING** | needs radiation and magnetic energy-density parameters. Negligible except in hot, diffuse gas. |
@@ -120,11 +122,12 @@ made dust-specific, switch this term to `x_O,tot / x_solar("O")`.
 |---|---|---|---|---|
 | overall rate convention | 1969-2148 | `h2_chemistry/*` | differs (GIZMO-side) | GIZMO evolves the mass fraction f = 2n_H2/n_H0 with per-molecule rates times 1/2, so its formation and destruction are both half speed: same equilibrium, 2x relaxation time. jaco is per molecule. |
 | dust formation (GJ07/HM79) | 2052 | `grain_formation.py` | same coefficient | collider product n_HI^2 vs GIZMO's n_H0 n_HI (/2, as above) |
+| heat of H2 formation / collisional dissociation | none | 4.48 eV per event | **FIXED 30ab8f0** | GIZMO's cooling module carries none; in jaco it was the largest heating term in GMC gas. `H2_chemical_heat_cgs = 0` |
 | H- channel k1, k2, k5, k17, photodetachment R51 | 2061-2072 | `radiative_association.py`, `associative_detachment.py`, `mutual_neutralization.py`, `H2_chemistry.py` | same | |
 | H- collisional detachment k15 (e-), k16 (H) | 2060-2069 | `collisional_detachment.py` | **FIXED 7665512** | the T_eV fits were evaluated at ln(T/8.617e-5) = ln T + 9.36 instead of ln T - 9.36, and the low-T k16 branch used the T_eV coefficient with T in K (1.75e7x too fast) |
 | 3-body formation (Forrey 2013) | 2075 | `three_body.py` | same coefficient | |
 | collisional dissociation by H, H2, He, e-, H+ (v=0/LTE interpolation) | 2033-2039 | `collisional_dissociation.py` | same fits | GIZMO's n_crit weights use mass fractions. H2-He+ (and D/D+ x 1e-10) are not in jaco (minor). |
-| LW photodissociation 3.3e-11 G0 x GD14 self-shielding | 2018-2030, 2076 | `photochemistry.py` | same form | GIZMO uses the unattenuated ISRF (+UVB) here, but 1.7 ISRF exp(-500 Z Sigma) for photoelectric and C+; jaco has a single G_0 |
+| LW photodissociation 3.3e-11 G0 x GD14 self-shielding | 2018-2030, 2076 | `photochemistry.py` | **FIXED c6667f5, ebadb71** | the GD14 Doppler parameter was in cm/s where GIZMO uses km/s, so self-shielding was ~1e3x too weak and H2 never formed in gmc_cooling. GIZMO uses the unattenuated ISRF (+UVB) here but 1.7 ISRF exp(-500 Z Sigma) for photoelectric and C+; the dissociating field is now its own parameter `G_LW` |
 | CR dissociation | 2079 | `cosmic_ray_dissociation.py` | same | zeta per H2 |
 
 ### 3.7 EOS / thermodynamics
@@ -140,9 +143,11 @@ made dust-specific, switch this term to `x_O,tot / x_solar("O")`.
 | symbol | C field | meaning | what GIZMO's `gizmo_to_jaco` must pass |
 |---|---|---|---|
 | `f_neb` | `pr->f_neb` | switch for nebular cooling | `1.0` under `RT_CHEM_PHOTOION` (with `METALS`), `0.0` otherwise. `Params pr = {}` zero-initializes, so leaving it unset already gives GIZMO's non-RT behaviour. |
+| `G_LW` | `pr->G_LW` | Lyman-Werner field (Habing) dissociating H2, before its self-shielding | `urad_G0` of `update_explicit_molecular_fraction`: `InterstellarRadiationFieldStrength` under `RT_ISRF_BACKGROUND` (else 1), or the LW/photoelectric RT band or `Rad_Flux_UV`, plus the shielded UVB, clamped to [1e-10, 1e10] (`jaco_radiation_inputs`) |
+| `f_metal` | `pr->f_metal` | switch for the tabulated metal lines | `1.0` where `CoolingRate()` applies them (`COOL_METAL_LINES_BY_SPECIES` and `J_UV != 0`), else `0.0`. Unset (0) turns them off. |
 
-No solve variable or existing parameter was added, renamed or removed. Generated `Params` now has 25 fields; it is
-alphabetical, so `f_neb` sits between `f_d` and `grad_v`. That only matters to code indexing `pr->data[k]` by number.
+No solve variable or existing parameter was renamed or removed. Generated `Params` now has 27 fields; it is
+alphabetical, so the new symbols shift the indices of later fields. That only matters to code indexing `pr->data[k]` by number.
 
 ## 5. GIZMO-side interface issues in `cooling/jaco.cc` (not editable from jaco)
 
@@ -150,7 +155,7 @@ alphabetical, so `f_neb` sits between `f_d` and `grad_v`. That only matters to c
    `x_H_2` is n_H2/n_H and `jaco_to_gizmo` stores `MolecularMassFraction = 2 x_H_2`. The backward-Euler reference
    therefore doubles every step. The PRIMORDIAL branch correctly uses `0.5 * fmol`.
 2. **Dust temperature** is hard-coded to 10 K (jaco.cc 364). The legacy path computes `rt_eqm_dust_temp` from CMB +
-   ISRF absorption.
+   ISRF absorption. *Fixed on jaco_physics (503f26ce), with 3 below and the helium accounting (52a4fda6).*
 3. **Radiation field in non-RT builds:** `G_0 = 1` and `ISRF = 1` (jaco.cc 368-369). Legacy GIZMO uses
    G0 = 1.7 x ISRF x exp(-500 Z Sigma) (`get_FUV_G0`, 2249-2268) for photoelectric heating and the C+ fraction,
    the unattenuated ISRF for H2 photodissociation, and sqrt(InterstellarRadiationFieldStrength) for CRs. Suggested:
@@ -166,10 +171,7 @@ alphabetical, so `f_neb` sits between `f_d` and `grad_v`. That only matters to c
 
 - **UVB photoionization, photoheating and Rahmati shielding:** structural (new parameters for Gamma and epsilon).
 - **Electrons from heavy ions, alkali, molecular ions and O+; Gong17 C+ balance:** structural (new fixed species).
-- **CR heating model:** a model choice. jaco ties heat to atomic-H ionization only, so molecular gas gets none. Fix
-  options: give the CR H2 channels a heat per event (~10-13 eV, Glassgold+12), or adopt GIZMO's thermal form.
-- **Optically-thick cap and dust temperature:** structural (a cap on the total rate with an opacity model; an
-  implicit dust energy balance).
+- **Optically-thick cap:** structural (a cap on the total rate with an opacity model). Not active in gmc_cooling.
 - **[CI] 609 um; the C+ x_H0 factor and H2 collider:** ambiguous (GIZMO's weighting is unphysical) and small.
 - **HD abundance and the CO model:** prescription choices that differ deliberately.
 - **Metal-table per-element normalization:** convention. jaco's is the consistent one, and it belongs to the
@@ -218,3 +220,24 @@ alphabetical, so `f_neb` sits between `f_d` and `grad_v`. That only matters to c
   `gizmo_integration` plus these commits) has finite RHS and Jacobian at every grid state (section 7). At 7 regular
   states it agrees with the pre-fix build to 7e-12 in the RHS and 1.2e-10 in the Jacobian; the largest difference is
   in an entry 1e-9 of its row's scale.
+
+## 9. gmc_cooling with JACO=starforge after these fixes
+
+Test statistic (median T in 9 log bins over n_H = 10-1000 cm^-3), JACO / legacy: before 1.11, 1.34, 1.71, 2.22, 2.82,
+3.14, 3.69, 4.23, 5.19 (max f_H2 0.005); after 0.68, 0.68, 0.72, 0.87, 1.25, 1.68, 2.10, 2.11, 1.81 (max f_H2 0.81,
+mean 0.22 vs legacy 0.37). The legacy run matches the reference to 0.2%.
+
+The rest is three deliberate differences, attributed by evaluating the model at the legacy run's cell states
+(equilibrium T, legacy inputs) and by experimental runs:
+
+- **CO cooling:** GIZMO's HM79 form does not depend on f_H2; WJ18 here scales as x_CO x_H2 with x_CO ~ x_H2. At the
+  legacy state jaco's CO is 0.002-0.6x GIZMO's (n_H = 13-730). Swapping in GIZMO's CO (experiment) takes the high-density
+  bins from 1.7-2.1x to 1.2-1.35x.
+- **Clumping factor C_2 on cooling:** 1.8-4 in this cloud; GIZMO clumps only its H2 network. Without it (experiment, with
+  GIZMO's CO) the low-density bins go from 0.7x to 1.5x, because of the next item.
+- **Electrons in the photoelectric efficiency:** jaco's x_e (CR-ionized H, and C+ at the Tielens fraction) is 3-75x the
+  legacy n_elec (no CR ionization in its H balance; heavy-ion, alkali and Gong17 C+ electrons), so the grains charge
+  less and photoelectric heating is 1.5-2.4x GIZMO's at the same G_0.
+
+With all three replaced by GIZMO's versions, the equilibrium temperature at the legacy state is within 13% of the legacy
+temperature in every bin (1.09, 1.09, 1.06, 1.01, 0.89, 0.88, 0.87, 0.92, 0.93).
