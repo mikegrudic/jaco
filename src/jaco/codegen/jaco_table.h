@@ -37,10 +37,14 @@ JACO_TABLE_FUNC double jaco_table2d_eval(double x0, double x1, const JacoTable2D
     double fx = (v0 - lo0) / dx;
     double fy = (v1 - lo1) / dy;
 
-    if (fx < 0) fx = 0;
-    if (fx > t->n0 - 1) fx = t->n0 - 1;
-    if (fy < 0) fy = 0;
-    if (fy > t->n1 - 1) fy = t->n1 - 1;
+    // A query outside the table is clamped to the edge, so the interpolant is
+    // constant along that axis there and its gradient must be zero, not the
+    // edge cell's slope: Newton solvers need the derivative of what is returned.
+    int cl0 = 0, cl1 = 0;
+    if (fx < 0) { fx = 0; cl0 = 1; }
+    if (fx > t->n0 - 1) { fx = t->n0 - 1; cl0 = 1; }
+    if (fy < 0) { fy = 0; cl1 = 1; }
+    if (fy > t->n1 - 1) { fy = t->n1 - 1; cl1 = 1; }
 
     int ix = (int)fx; if (ix >= t->n0 - 1) ix = t->n0 - 2;
     int iy = (int)fy; if (iy >= t->n1 - 1) iy = t->n1 - 2;
@@ -56,11 +60,11 @@ JACO_TABLE_FUNC double jaco_table2d_eval(double x0, double x1, const JacoTable2D
 
     if (grad_x0) {
         double df_dtx = -(1-ty)*f00 + (1-ty)*f10 - ty*f01 + ty*f11;
-        *grad_x0 = df_dtx / dx * (t->log0 ? 1.0 / x0 : 1.0);
+        *grad_x0 = cl0 ? 0.0 : df_dtx / dx * (t->log0 ? 1.0 / x0 : 1.0);
     }
     if (grad_x1) {
         double df_dty = -(1-tx)*f00 - tx*f10 + (1-tx)*f01 + tx*f11;
-        *grad_x1 = df_dty / dy * (t->log1 ? 1.0 / x1 : 1.0);
+        *grad_x1 = cl1 ? 0.0 : df_dty / dy * (t->log1 ? 1.0 / x1 : 1.0);
     }
     return val;
 }
@@ -108,12 +112,13 @@ JACO_TABLE_FUNC double jaco_table3d_eval(double x0, double x1, double x2, const 
     double fy = (v1 - lo1) / dy;
     double fz = (v2 - lo2) / dz;
 
-    if (fx < 0) fx = 0;
-    if (fx > t->n0 - 1) fx = t->n0 - 1;
-    if (fy < 0) fy = 0;
-    if (fy > t->n1 - 1) fy = t->n1 - 1;
-    if (fz < 0) fz = 0;
-    if (fz > t->n2 - 1) fz = t->n2 - 1;
+    int cl0 = 0, cl1 = 0, cl2 = 0; // clamped axes get a zero gradient (see the 2D case)
+    if (fx < 0) { fx = 0; cl0 = 1; }
+    if (fx > t->n0 - 1) { fx = t->n0 - 1; cl0 = 1; }
+    if (fy < 0) { fy = 0; cl1 = 1; }
+    if (fy > t->n1 - 1) { fy = t->n1 - 1; cl1 = 1; }
+    if (fz < 0) { fz = 0; cl2 = 1; }
+    if (fz > t->n2 - 1) { fz = t->n2 - 1; cl2 = 1; }
 
     int ix = (int)fx; if (ix >= t->n0 - 1) ix = t->n0 - 2;
     int iy = (int)fy; if (iy >= t->n1 - 1) iy = t->n1 - 2;
@@ -135,7 +140,7 @@ JACO_TABLE_FUNC double jaco_table3d_eval(double x0, double x1, double x2, const 
           - ty*(1-tz)*D(0,1,0)      + ty*(1-tz)*D(1,1,0)
           - (1-ty)*tz*D(0,0,1)      + (1-ty)*tz*D(1,0,1)
           - ty*tz*D(0,1,1)          + ty*tz*D(1,1,1);
-        *grad_x0 = df_dtx / dx * (t->log0 ? 1.0 / x0 : 1.0);
+        *grad_x0 = cl0 ? 0.0 : df_dtx / dx * (t->log0 ? 1.0 / x0 : 1.0);
     }
     if (grad_x1) {
         double df_dty =
@@ -143,7 +148,7 @@ JACO_TABLE_FUNC double jaco_table3d_eval(double x0, double x1, double x2, const 
           + (1-tx)*(1-tz)*D(0,1,0)  + tx*(1-tz)*D(1,1,0)
           - (1-tx)*tz*D(0,0,1)      - tx*tz*D(1,0,1)
           + (1-tx)*tz*D(0,1,1)      + tx*tz*D(1,1,1);
-        *grad_x1 = df_dty / dy * (t->log1 ? 1.0 / x1 : 1.0);
+        *grad_x1 = cl1 ? 0.0 : df_dty / dy * (t->log1 ? 1.0 / x1 : 1.0);
     }
     if (grad_x2) {
         double df_dtz =
@@ -151,7 +156,7 @@ JACO_TABLE_FUNC double jaco_table3d_eval(double x0, double x1, double x2, const 
           - (1-tx)*ty*D(0,1,0)      - tx*ty*D(1,1,0)
           + (1-tx)*(1-ty)*D(0,0,1)  + tx*(1-ty)*D(1,0,1)
           + (1-tx)*ty*D(0,1,1)      + tx*ty*D(1,1,1);
-        *grad_x2 = df_dtz / dz * (t->log2 ? 1.0 / x2 : 1.0);
+        *grad_x2 = cl2 ? 0.0 : df_dtz / dz * (t->log2 ? 1.0 / x2 : 1.0);
     }
 
     #undef D
