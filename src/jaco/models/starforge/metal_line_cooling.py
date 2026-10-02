@@ -9,7 +9,8 @@ where X is each metal species. The table values are normalized such that
 multiplying by n_e * n_X yields the cooling rate density at solar abundance;
 the 3D (z, n_H, T) table is sliced to a 2D (n_Htot, T) grid at fixed redshift.
 
-The HDF5 file is shipped alongside this module.
+The HDF5 file lives alongside this module but is not tracked in git (8.7 MB); build it once with
+``python -m jaco.models.starforge.convert_spcool_tables``.
 """
 
 from importlib.resources import files
@@ -22,8 +23,13 @@ from .symbols import n_Htot
 
 
 def _hdf5_path():
-    """Locate the spcool_tables.hdf5 file shipped with the package."""
-    return files("jaco.models.starforge").joinpath("spcool_tables.hdf5")
+    """Locate spcool_tables.hdf5 in the package directory."""
+    path = files("jaco.models.starforge").joinpath("spcool_tables.hdf5")
+    if not path.is_file():
+        raise FileNotFoundError(
+            f"{path} not found. Generate it with: python -m jaco.models.starforge.convert_spcool_tables"
+        )
+    return path
 
 # (HDF5 dataset name, species symbol used in the chemical network)
 METAL_SPECIES = [
