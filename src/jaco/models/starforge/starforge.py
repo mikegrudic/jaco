@@ -58,7 +58,8 @@ def make_model():
         H2_cooling,
         CO_cooling,
         gas_dust_collisions,
-        *[cosmic_ray_ionization(s) for s in ("H", "C")],
+        # not H: GIZMO counts the electrons cosmic rays free as metal and molecular ions (metal_electrons.py)
+        cosmic_ray_ionization("C"),
         cosmic_ray_photoionization("C"),
         cosmic_ray_heating,
         photoelectric_heating,
