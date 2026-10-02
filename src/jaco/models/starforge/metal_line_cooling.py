@@ -10,7 +10,9 @@ network species carrying it (the tables already sum over ionization stages).
 The table values are normalized such that multiplying by n_e * n_X,tot yields
 the cooling rate density; the 3D (z, n_H, T) table is sliced to a 2D
 (n_Htot, T) grid at fixed redshift. As in GIZMO, the tables are tapered below
-their 100 K edge instead of being held at the edge value.
+their 100 K edge instead of being held at the edge value, and are applied at
+all T: negative entries (UV-background photoheating) heat the gas, and the
+CMB-bath factor multiplies the summed rate only where it is net cooling.
 
 The HDF5 file is shipped alongside this module.
 """
@@ -79,8 +81,9 @@ def _load_redshift_slice(dataset_name, z=0.0, hdf5_path=None):
     return table_2d, 10.0**log_nH, 10.0**log_T
 
 
-def metal_line_cooling_process(species, dataset, z=0.0):
-    """Build the cooling process for one metal element at fixed redshift.
+def metal_line_cooling_rate(species, dataset, z=0.0):
+    """Tabulated volumetric cooling rate of one element (erg cm^-3 s^-1; negative = net heating), without clumping
+    or CMB-bath factors: `k(n_Htot, T) * n_e * n_X,tot`, tapered below 100 K.
 
     Parameters
     ----------
@@ -90,12 +93,6 @@ def metal_line_cooling_process(species, dataset, z=0.0):
         HDF5 dataset name in spcool_tables.hdf5 (e.g. "Carbon_cooling").
     z : float
         Redshift slice to use.
-
-    Returns
-    -------
-    ThermalProcess
-        Cooling rate per volume `k(n_Htot, T) * n_e * n_X,tot * C_2`, tapered below 100 K and
-        multiplied by GIZMO's CMB-bath factor (T - T_cmb)/(T + T_cmb).
     """
     table_2d, nH_axis, T_axis = _load_redshift_slice(dataset, z=z)
     table_name = f"{dataset}_z{int(round(z))}"
@@ -103,14 +100,28 @@ def metal_line_cooling_process(species, dataset, z=0.0):
         table_name, table_2d, [nH_axis, T_axis], n_Htot, T,
         log_axes=[True, True],
     )
+    return k * low_T_taper * n_("e-") * element_number_density(species)
+
+
+def cmb_corrected(Lambda):
+    """GIZMO applies the CMB-bath factor to net metal-line cooling only, not to net photoheating."""
+    return sp.Max(Lambda, 0) * cmb_bath_factor + sp.Min(Lambda, 0)
+
+
+def metal_line_cooling_process(species, dataset, z=0.0):
+    """Cooling process for a single tabulated element (see metal_line_cooling_rate)."""
     return ThermalProcess(
-        -k * low_T_taper * cmb_bath_factor * n_("e-") * element_number_density(species) * sp.Symbol("C_2"),
+        -cmb_corrected(metal_line_cooling_rate(species, dataset, z)) * sp.Symbol("C_2"),
         name=f"{species} line cooling",
         bibliography=["2009MNRAS.393...99W"],  # Wiersma+ tables used in GIZMO
     )
 
 
 def metal_line_cooling(z=0.0):
-    """Build the combined metal-line cooling process for all tabulated species."""
-    return sum(metal_line_cooling_process(sp, ds, z=z)
-               for ds, sp in METAL_SPECIES)
+    """Combined metal-line cooling of all tabulated elements; the CMB-bath factor acts on the sum, as in GIZMO."""
+    Lambda = sum(metal_line_cooling_rate(sp_, ds, z=z) for ds, sp_ in METAL_SPECIES)
+    return ThermalProcess(
+        -cmb_corrected(Lambda) * sp.Symbol("C_2"),
+        name="Metal line cooling",
+        bibliography=["2009MNRAS.393...99W"],  # Wiersma+ tables used in GIZMO
+    )
