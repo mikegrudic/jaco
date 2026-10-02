@@ -22,7 +22,7 @@ import h5py
 import sympy as sp
 from jaco.processes import ThermalProcess
 from jaco.symbols import T, table_interp_2d, n_, x_
-from .symbols import n_Htot, log_T
+from .symbols import n_Htot, log_T, cmb_bath_factor
 
 
 def _hdf5_path():
@@ -94,7 +94,8 @@ def metal_line_cooling_process(species, dataset, z=0.0):
     Returns
     -------
     ThermalProcess
-        Cooling rate per volume `k(n_Htot, T) * n_e * n_X,tot * C_2`, tapered below 100 K.
+        Cooling rate per volume `k(n_Htot, T) * n_e * n_X,tot * C_2`, tapered below 100 K and
+        multiplied by GIZMO's CMB-bath factor (T - T_cmb)/(T + T_cmb).
     """
     table_2d, nH_axis, T_axis = _load_redshift_slice(dataset, z=z)
     table_name = f"{dataset}_z{int(round(z))}"
@@ -103,7 +104,7 @@ def metal_line_cooling_process(species, dataset, z=0.0):
         log_axes=[True, True],
     )
     return ThermalProcess(
-        -k * low_T_taper * n_("e-") * element_number_density(species) * sp.Symbol("C_2"),
+        -k * low_T_taper * cmb_bath_factor * n_("e-") * element_number_density(species) * sp.Symbol("C_2"),
         name=f"{species} line cooling",
         bibliography=["2009MNRAS.393...99W"],  # Wiersma+ tables used in GIZMO
     )

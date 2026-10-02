@@ -26,6 +26,14 @@ rho = sp.Symbol("rho")
 cs = sp.Symbol("c_s")
 T_CMB = sp.Symbol("T_CMB")
 A_V = 5.34e-22 * NH * Z_dust * f_dust
+z = sp.Symbol("z")  # cosmological redshift
+T_cmb = 2.73 * (1 + z)
+# GIZMO multiplies molecular, fine-structure and metal-line cooling by this to approximate the CMB bath
+cmb_bath_factor = (T - T_cmb) / (T + T_cmb)
+# GIZMO's low-temperature cooling block (H2/HD, C+, CO, gas-dust) is cut off where the CIE tables take over
+lowtemp_truncation = sp.Piecewise((1, T <= 10**4.5), (sp.exp(-(((log_T - 4.5) / 0.2) ** 2)), True))
+# gas-dust coupling additionally falls off where grains are sputtered
+dust_sputtering_truncation = sp.Piecewise((1, T <= 3.0e5), (sp.exp(-(((T - 3.0e5) / 2.0e5) ** 2)), True))
 cosmicray_attenuation_fac = sp.Min(1, 1e21 / NH * sp.exp(-NH / 1e24))
 cosmicray_ionization_rate_H = sp.sqrt(ISRF) * 1.6e-12 * 1e-5 * cosmicray_attenuation_fac
 psi_grain = G_0 * sqrt_T / (0.5 * (1.0e-12 + x_("e-")) * n_Htot)  # grain charging parameter

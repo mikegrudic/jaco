@@ -2,7 +2,7 @@
 
 # TODO: write test against their plots
 from jaco.processes import NBodyProcess
-from .symbols import T, grad_v, x_, n_Htot
+from .symbols import T, grad_v, x_, n_Htot, cmb_bath_factor, lowtemp_truncation
 
 # Eq. 37
 lam_CO_lo = 2.16e-27
@@ -20,5 +20,8 @@ beta = 1.23 * (0.5 * n_Htot) ** beta_nH2 * T**beta_T
 lambda_CO = (lambda_CO_lo ** (-1 / beta) + lambda_CO_hi ** (-1 / beta)) ** -beta
 
 CO_cooling = NBodyProcess(
-    ("CO", "H_2"), heat_rate_coefficient=-lambda_CO, name="CO Cooling", bibliography=["2018A&A...611A..20W"]
+    ("CO", "H_2"),
+    heat_rate_coefficient=-lambda_CO * cmb_bath_factor * lowtemp_truncation,
+    name="CO Cooling",
+    bibliography=["2018A&A...611A..20W"],
 )
