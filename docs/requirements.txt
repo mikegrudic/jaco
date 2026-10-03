@@ -8,3 +8,4 @@ jax
 sympy
 matplotlib
 periodictable
+h5py

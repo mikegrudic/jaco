@@ -16,11 +16,15 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-  "jax", "sympy", "numpy", "sphinx_rtd_theme", "astropy", "matplotlib", "periodictable"
+  "jax", "sympy", "numpy", "scipy", "h5py", "astropy", "periodictable"
 ]
 
 license = "MIT"
 license-files = ["LICEN[CS]E*"]
+
+[project.optional-dependencies]
+test = ["pytest", "matplotlib"]
+docs = ["sphinx", "sphinx_rtd_theme"]
 
 [project.urls]
 Homepage = "https://github.com/mikegrudic/jaco"
