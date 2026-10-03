@@ -38,7 +38,7 @@ static inline double jaco_interp1d(double x, const double *xp, const double *yp,
 
 static inline double jaco_interp1d_const(double x, const double *xp, const double *vp, int n, int extrap) {
     if (x <= xp[0]) return vp[0];
-    if (x >= xp[n - 1]) return vp[n - 1];
+    if (x >= xp[n - 1]) return vp[n - 2]; /* vp holds the n - 1 interval values */
     int lo = 0, hi = n - 1;
     while (hi - lo > 1) {
         int mid = (lo + hi) / 2;
@@ -369,7 +369,7 @@ __device__ __forceinline__ double jaco_interp1d_clamp(double x, const double *xp
 
 __device__ __forceinline__ double jaco_interp1d_const_extrap(double x, const double *xp, const double *vp, int n) {
     if (x <= xp[0]) return vp[0];
-    if (x >= xp[n - 1]) return vp[n - 1];
+    if (x >= xp[n - 1]) return vp[n - 2]; /* vp holds the n - 1 interval values */
     int lo = 0, hi = n - 1;
     while (hi - lo > 1) {
         int mid = (lo + hi) / 2;
