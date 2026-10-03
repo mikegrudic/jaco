@@ -852,6 +852,9 @@ class EquationSystem(dict):
             case "julia": printer = JacoJuliaCodePrinter()
             case _: printer = JacoCCodePrinter()
 
+        from .interpolation import tables_in
+        self._tables = tables_in([func_mat, jac_mat] + [W for _, W in prelude])  # 2D/3D tables the code reads
+
         if jac_mode == "autodiff":
             if lang == "c":
                 raise ValueError("autodiff jac_mode requires C++ or CUDA (not C)")
@@ -881,14 +884,8 @@ class EquationSystem(dict):
         if lang == "c":
             result["eos_code"] = self._gen_eos(var_names, printer)
 
-        # Collect 2D/3D tables from the registry that are referenced in the generated code
-        from .interpolation import _TABLE_REGISTRY
-        tables_used = {}
-        for name, table in _TABLE_REGISTRY.items():
-            if table["ndim"] >= 2:
-                tables_used[name] = table
-        if tables_used:
-            result["tables"] = tables_used
+        if self._tables:
+            result["tables"] = self._tables
 
         return result
 
@@ -1074,8 +1071,7 @@ end
             if lang == "c":
                 c_sig = f"void {func_name}(const SolveVars *vars, const Params *params, SolveVars *rhs, double jac[N_VARS][N_VARS])"
                 includes = f'#include <math.h>\n#include "{func_name}.h"\n#include "jaco_interp.h"\n'
-                from .interpolation import _TABLE_REGISTRY
-                if any(t["ndim"] >= 2 for t in _TABLE_REGISTRY.values()):
+                if self._tables:
                     includes += '#include "jaco_tables.h"\n'
                 return f'{includes}\n{c_sig} {{\n{body}\n}}\n'
             else:

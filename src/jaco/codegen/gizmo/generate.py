@@ -249,8 +249,7 @@ def generate_funcjac_code(
     if result.get("discarded"):
         print("jaco codegen: discarded equations: "
               + ", ".join(f"{k} ({why})" for k, why in result["discarded"].items()))
-    # Only the tables the generated code actually references (the registry is process-global)
-    tables = {name: t for name, t in result.get("tables", {}).items() if re.search(rf"&{re.escape(name)}\b", code)}
+    tables = result.get("tables", {})  # the 2D/3D tables the generated expressions read
 
     def out(name, text):
         _write_if_changed(os.path.join(output_dir, name), text)

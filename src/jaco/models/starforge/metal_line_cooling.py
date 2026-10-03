@@ -75,6 +75,8 @@ def _load_redshift_slice(dataset_name, z=0.0, hdf5_path=None):
         Rate coefficient values (erg cm^3 / s).
     nH_axis, T_axis : np.ndarray
         Linear-space axis values (the table is uniform in log space).
+    iz : int
+        Index of the redshift slice.
     """
     if hdf5_path is None:
         hdf5_path = _hdf5_path()
@@ -84,7 +86,7 @@ def _load_redshift_slice(dataset_name, z=0.0, hdf5_path=None):
         log_zp1 = f["log_one_plus_z"][:]
         iz = int(np.argmin(np.abs(log_zp1 - np.log10(1.0 + z))))
         table_2d = f[dataset_name][iz].astype(np.float64)
-    return table_2d, 10.0**log_nH, 10.0**log_T
+    return table_2d, 10.0**log_nH, 10.0**log_T, iz
 
 
 def metal_line_cooling_rate(species, dataset, z=0.0):
@@ -100,8 +102,8 @@ def metal_line_cooling_rate(species, dataset, z=0.0):
     z : float
         Redshift slice to use.
     """
-    table_2d, nH_axis, T_axis = _load_redshift_slice(dataset, z=z)
-    table_name = f"{dataset}_z{int(round(z))}"
+    table_2d, nH_axis, T_axis, iz = _load_redshift_slice(dataset, z=z)
+    table_name = f"{dataset}_z{iz}"  # by slice: distinct redshifts that share a slice share the table
     k = table_interp_2d(
         table_name, table_2d, [nH_axis, T_axis], n_Htot, T,
         log_axes=[True, True],

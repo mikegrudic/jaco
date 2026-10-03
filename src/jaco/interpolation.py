@@ -1,5 +1,8 @@
 """Custom sympy Function classes for piecewise interpolation that generate clean code."""
 
+import hashlib
+import itertools
+
 import sympy as sp
 from sympy.core.symbol import Str
 import numpy as np
@@ -7,80 +10,84 @@ from scipy.interpolate import RegularGridInterpolator
 
 
 # --------------------------------------------------------------------------- #
-# Table registry for large multi-dimensional tables
+# Tables for multi-dimensional interpolation
 # --------------------------------------------------------------------------- #
 
-_TABLE_REGISTRY = {}
+class Table(Str):
+    """A uniformly spaced N-d table as a sympy atom: its name is what the generated code calls it, and it carries its
+    data, so code generation finds a model's tables in its expressions (``expr.atoms(Table)``).
 
-
-def register_table(name, data, axes, log_axes=None):
-    """Register a multi-dimensional table for code generation.
+    Two tables are equal only if their names and contents are; tables are ordered by creation (``serial``).
 
     Parameters
     ----------
     name : str
-        Unique name for the table, used as identifier in generated code.
+        Identifier in the generated code.
     data : np.ndarray
-        N-dimensional array of table values (e.g. shape (ny, nx) for 2D).
+        N-dimensional array of table values (e.g. shape (n_axis0, n_axis1) for 2D).
     axes : list of np.ndarray
-        List of 1D arrays for each axis, in order. Must be uniformly spaced
-        (in linear or log space).
+        1D arrays for each axis, in order, uniformly spaced in linear or log space.
     log_axes : list of bool, optional
         Whether each axis is log-spaced. Defaults to False for all axes.
     """
-    ndim = data.ndim
-    if len(axes) != ndim:
-        raise ValueError(f"Expected {ndim} axes for {ndim}D data, got {len(axes)}")
-    if log_axes is None:
-        log_axes = [False] * ndim
 
-    table = {
-        "data": np.ascontiguousarray(data, dtype=np.float64),
-        "axes": [np.asarray(a, dtype=np.float64) for a in axes],
-        "log_axes": list(log_axes),
-        "ndim": ndim,
-        "shape": data.shape,
-    }
+    _serials = itertools.count()
 
-    # Validate uniform spacing per axis
-    for i, (ax, is_log) in enumerate(zip(axes, log_axes)):
-        vals = np.log(ax) if is_log else np.array(ax)
-        diffs = np.diff(vals)
-        if not np.allclose(diffs, diffs[0], rtol=1e-10):
-            raise ValueError(f"Axis {i} is not uniformly spaced (in {'log' if is_log else 'linear'} space)")
-        table[f"axis{i}_min"] = float(ax[0])
-        table[f"axis{i}_max"] = float(ax[-1])
+    def __new__(cls, name, data, axes, log_axes=None):
+        obj = super().__new__(cls, name)
+        data = np.ascontiguousarray(data, dtype=np.float64)
+        ndim = data.ndim
+        if len(axes) != ndim:
+            raise ValueError(f"Expected {ndim} axes for {ndim}D data, got {len(axes)}")
+        log_axes = [False] * ndim if log_axes is None else list(log_axes)
+        info = {"data": data, "axes": [np.asarray(a, dtype=np.float64) for a in axes], "log_axes": log_axes,
+                "ndim": ndim, "shape": data.shape}
+        for i, (ax, is_log) in enumerate(zip(axes, log_axes)):
+            vals = np.log(ax) if is_log else np.array(ax)
+            diffs = np.diff(vals)
+            if not np.allclose(diffs, diffs[0], rtol=1e-10):
+                raise ValueError(f"Axis {i} is not uniformly spaced (in {'log' if is_log else 'linear'} space)")
+            info[f"axis{i}_min"] = float(ax[0])
+            info[f"axis{i}_max"] = float(ax[-1])
+        h = hashlib.sha256(np.asarray(data.shape, dtype=np.int64).tobytes())
+        for a, is_log in zip(info["axes"], log_axes):
+            h.update(a.tobytes())
+            h.update(bytes([int(is_log)]))
+        h.update(data.tobytes())
+        obj.info = info
+        obj.digest = h.hexdigest()
+        obj.serial = next(cls._serials)
+        return obj
 
-    _TABLE_REGISTRY[name] = table
-    return name
+    def __getnewargs__(self):
+        return (self.name, self.info["data"], self.info["axes"], self.info["log_axes"])
+
+    def _hashable_content(self):
+        return (self.name, self.digest)
+
+    def save_hdf5(self, filename=None):
+        """Save the table to an HDF5 file (default '{name}.h5')."""
+        import h5py
+        with h5py.File(filename or f"{self.name}.h5", "w") as f:
+            f.create_dataset("data", data=self.info["data"])
+            for i, ax in enumerate(self.info["axes"]):
+                f.create_dataset(f"axis{i}", data=ax)
+            f.attrs["ndim"] = self.info["ndim"]
+            for i, is_log in enumerate(self.info["log_axes"]):
+                f.attrs[f"axis{i}_log"] = int(is_log)
 
 
-def get_table(name):
-    """Retrieve a registered table by name."""
-    return _TABLE_REGISTRY[name]
-
-
-def save_table_hdf5(name, filename=None):
-    """Save a registered table to an HDF5 file.
-
-    Parameters
-    ----------
-    name : str
-        Registered table name.
-    filename : str, optional
-        Output filename. Defaults to '{name}.h5'.
-    """
-    import h5py
-    table = _TABLE_REGISTRY[name]
-    if filename is None:
-        filename = f"{name}.h5"
-    with h5py.File(filename, "w") as f:
-        f.create_dataset("data", data=table["data"])
-        for i, ax in enumerate(table["axes"]):
-            f.create_dataset(f"axis{i}", data=ax)
-        f.attrs["ndim"] = table["ndim"]
-        for i, is_log in enumerate(table["log_axes"]):
-            f.attrs[f"axis{i}_log"] = int(is_log)
+def tables_in(exprs):
+    """name -> table info of every Table in exprs, in creation order; different tables of one name raise"""
+    found = set()
+    for e in exprs:
+        found |= sp.sympify(e).atoms(Table)
+    tables = {}
+    for t in sorted(found, key=lambda t: t.serial):
+        if t.name in tables:
+            raise ValueError(f"two different tables are named {t.name}")
+        tables[t.name] = t.info
+    return tables
 
 
 class PiecewiseLinearInterp(sp.Function):
@@ -260,23 +267,23 @@ class PiecewiseConstantInterp(sp.Function):
 # --------------------------------------------------------------------------- #
 
 class TableInterp2D(sp.Function):
-    """Bilinear interpolation on a 2D regular grid, referencing data in the table registry.
+    """Bilinear interpolation on a 2D regular grid.
 
-    Arguments: (x, y, table_name)
+    Arguments: (x, y, table)
         x, y: sympy expressions for the interpolation variables
-        table_name: Str identifying the registered table
+        table: the Table
     """
     is_commutative = True  # scalar-valued; the Str/Tuple arguments otherwise leave this undetermined
 
     @classmethod
-    def eval(cls, x, y, table_name):
+    def eval(cls, x, y, table):
         if x.is_Number and y.is_Number:
-            return cls._evaluate(float(x), float(y), str(table_name))
+            return cls._evaluate(float(x), float(y), table)
         return None
 
     @staticmethod
-    def _evaluate(xval, yval, name):
-        table = get_table(name)
+    def _evaluate(xval, yval, table):
+        table = table.info
         interp = RegularGridInterpolator(
             tuple(table["axes"]), table["data"],
             method="linear", bounds_error=False, fill_value=None,
@@ -289,18 +296,18 @@ class TableInterp2D(sp.Function):
 
     def _eval_derivative(self, s):
         x, y = self.args[0], self.args[1]
-        table_name = self.args[2]
+        table = self.args[2]
         result = sp.S.Zero
         if x.has(s):
-            result += TableInterp2D_dx(x, y, table_name) * x.diff(s)
+            result += TableInterp2D_dx(x, y, table) * x.diff(s)
         if y.has(s):
-            result += TableInterp2D_dy(x, y, table_name) * y.diff(s)
+            result += TableInterp2D_dy(x, y, table) * y.diff(s)
         return result
 
     def _eval_evalf(self, prec):
         x, y = self.args[0], self.args[1]
         if x.is_Number and y.is_Number:
-            return self._evaluate(float(x), float(y), str(self.args[2]))
+            return self._evaluate(float(x), float(y), self.args[2])
         return self
 
 
@@ -312,18 +319,18 @@ class TableInterp2D_dx(sp.Function):
     is_commutative = True  # scalar-valued; the Str/Tuple arguments otherwise leave this undetermined
 
     @classmethod
-    def eval(cls, x, y, table_name):
+    def eval(cls, x, y, table):
         if x.is_Number and y.is_Number:
-            return cls._evaluate(float(x), float(y), str(table_name))
+            return cls._evaluate(float(x), float(y), table)
         return None
 
     @staticmethod
-    def _evaluate(xval, yval, name):
+    def _evaluate(xval, yval, table):
         """Evaluate x-partial derivative via finite difference of the bilinear interp."""
-        table = get_table(name)
-        eps = (table["axis0_max"] - table["axis0_min"]) / (table["shape"][0] - 1) * 1e-6
-        f_plus = float(TableInterp2D._evaluate(xval + eps, yval, name))
-        f_minus = float(TableInterp2D._evaluate(xval - eps, yval, name))
+        info = table.info
+        eps = (info["axis0_max"] - info["axis0_min"]) / (info["shape"][0] - 1) * 1e-6
+        f_plus = float(TableInterp2D._evaluate(xval + eps, yval, table))
+        f_minus = float(TableInterp2D._evaluate(xval - eps, yval, table))
         return sp.Float((f_plus - f_minus) / (2 * eps))
 
     @property
@@ -339,17 +346,17 @@ class TableInterp2D_dy(sp.Function):
     is_commutative = True  # scalar-valued; the Str/Tuple arguments otherwise leave this undetermined
 
     @classmethod
-    def eval(cls, x, y, table_name):
+    def eval(cls, x, y, table):
         if x.is_Number and y.is_Number:
-            return cls._evaluate(float(x), float(y), str(table_name))
+            return cls._evaluate(float(x), float(y), table)
         return None
 
     @staticmethod
-    def _evaluate(xval, yval, name):
-        table = get_table(name)
-        eps = (table["axis1_max"] - table["axis1_min"]) / (table["shape"][1] - 1) * 1e-6
-        f_plus = float(TableInterp2D._evaluate(xval, yval + eps, name))
-        f_minus = float(TableInterp2D._evaluate(xval, yval - eps, name))
+    def _evaluate(xval, yval, table):
+        info = table.info
+        eps = (info["axis1_max"] - info["axis1_min"]) / (info["shape"][1] - 1) * 1e-6
+        f_plus = float(TableInterp2D._evaluate(xval, yval + eps, table))
+        f_minus = float(TableInterp2D._evaluate(xval, yval - eps, table))
         return sp.Float((f_plus - f_minus) / (2 * eps))
 
     @property
@@ -361,21 +368,21 @@ class TableInterp2D_dy(sp.Function):
 
 
 class TableInterp3D(sp.Function):
-    """Trilinear interpolation on a 3D regular grid, referencing data in the table registry.
+    """Trilinear interpolation on a 3D regular grid.
 
-    Arguments: (x, y, z, table_name)
+    Arguments: (x, y, z, table)
     """
     is_commutative = True  # scalar-valued; the Str/Tuple arguments otherwise leave this undetermined
 
     @classmethod
-    def eval(cls, x, y, z, table_name):
+    def eval(cls, x, y, z, table):
         if x.is_Number and y.is_Number and z.is_Number:
-            return cls._evaluate(float(x), float(y), float(z), str(table_name))
+            return cls._evaluate(float(x), float(y), float(z), table)
         return None
 
     @staticmethod
-    def _evaluate(xval, yval, zval, name):
-        table = get_table(name)
+    def _evaluate(xval, yval, zval, table):
+        table = table.info
         interp = RegularGridInterpolator(
             tuple(table["axes"]), table["data"],
             method="linear", bounds_error=False, fill_value=None,
@@ -388,20 +395,20 @@ class TableInterp3D(sp.Function):
 
     def _eval_derivative(self, s):
         x, y, z = self.args[0], self.args[1], self.args[2]
-        table_name = self.args[3]
+        table = self.args[3]
         result = sp.S.Zero
         if x.has(s):
-            result += TableInterp3D_dx(x, y, z, table_name) * x.diff(s)
+            result += TableInterp3D_dx(x, y, z, table) * x.diff(s)
         if y.has(s):
-            result += TableInterp3D_dy(x, y, z, table_name) * y.diff(s)
+            result += TableInterp3D_dy(x, y, z, table) * y.diff(s)
         if z.has(s):
-            result += TableInterp3D_dz(x, y, z, table_name) * z.diff(s)
+            result += TableInterp3D_dz(x, y, z, table) * z.diff(s)
         return result
 
     def _eval_evalf(self, prec):
         x, y, z = self.args[0], self.args[1], self.args[2]
         if x.is_Number and y.is_Number and z.is_Number:
-            return self._evaluate(float(x), float(y), float(z), str(self.args[3]))
+            return self._evaluate(float(x), float(y), float(z), self.args[3])
         return self
 
 
@@ -410,7 +417,7 @@ class TableInterp3D_dx(sp.Function):
     is_commutative = True  # scalar-valued; the Str/Tuple arguments otherwise leave this undetermined
 
     @classmethod
-    def eval(cls, x, y, z, table_name):
+    def eval(cls, x, y, z, table):
         return None
     @property
     def table_name(self):
@@ -424,7 +431,7 @@ class TableInterp3D_dy(sp.Function):
     is_commutative = True  # scalar-valued; the Str/Tuple arguments otherwise leave this undetermined
 
     @classmethod
-    def eval(cls, x, y, z, table_name):
+    def eval(cls, x, y, z, table):
         return None
     @property
     def table_name(self):
@@ -438,7 +445,7 @@ class TableInterp3D_dz(sp.Function):
     is_commutative = True  # scalar-valued; the Str/Tuple arguments otherwise leave this undetermined
 
     @classmethod
-    def eval(cls, x, y, z, table_name):
+    def eval(cls, x, y, z, table):
         return None
     @property
     def table_name(self):

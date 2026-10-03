@@ -6,7 +6,7 @@ from astropy.constants import k_B, m_p
 from astropy import units as u
 import numpy as np
 
-from jaco.interpolation import PiecewiseLinearInterp, TableInterp2D, TableInterp3D, register_table
+from jaco.interpolation import PiecewiseLinearInterp, TableInterp2D, TableInterp3D, Table
 from sympy.core.symbol import Str
 
 T = sp.Symbol("T")  # temperature
@@ -156,7 +156,7 @@ def table_interp_2d(name, data, axes, x, y, log_axes=None):
     Parameters
     ----------
     name : str
-        Unique name for the table.
+        Name of the table in the generated code; distinct tables of one model need distinct names.
     data : np.ndarray
         2D array of shape (n_axis0, n_axis1).
     axes : list of np.ndarray
@@ -166,8 +166,7 @@ def table_interp_2d(name, data, axes, x, y, log_axes=None):
     log_axes : list of bool, optional
         Whether each axis is log-spaced.
     """
-    register_table(name, data, axes, log_axes)
-    return TableInterp2D(x, y, Str(name))
+    return TableInterp2D(x, y, Table(name, data, axes, log_axes))
 
 
 def table_interp_3d(name, data, axes, x, y, z, log_axes=None):
@@ -176,7 +175,7 @@ def table_interp_3d(name, data, axes, x, y, z, log_axes=None):
     Parameters
     ----------
     name : str
-        Unique name for the table.
+        Name of the table in the generated code; distinct tables of one model need distinct names.
     data : np.ndarray
         3D array of shape (n_axis0, n_axis1, n_axis2).
     axes : list of np.ndarray
@@ -186,5 +185,4 @@ def table_interp_3d(name, data, axes, x, y, z, log_axes=None):
     log_axes : list of bool, optional
         Whether each axis is log-spaced.
     """
-    register_table(name, data, axes, log_axes)
-    return TableInterp3D(x, y, z, Str(name))
+    return TableInterp3D(x, y, z, Table(name, data, axes, log_axes))
