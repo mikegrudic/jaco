@@ -63,6 +63,11 @@ class EquationSystem(dict):
         :class:`jaco.declarations.Species`). Empty: species are inferred from the symbols by element parsing.
     parameters : dict
         Declared parameter name -> :class:`jaco.declarations.Parameter`, besides the core ones.
+    species_declarations : dict
+        Declared species name -> :class:`jaco.declarations.Species` (bounds and scale of the solve variables).
+    outputs : list of :class:`jaco.declarations.Output`
+        Declared outputs, their expressions resolved; evaluated at the converged state by the generated code along
+        with the rows of the radiation and energy species that are not solved for.
     """
 
     def copy(self):
@@ -75,7 +80,9 @@ class EquationSystem(dict):
         new.fixed_electrons = getattr(self, 'fixed_electrons', None)
         new.intermediates = list(getattr(self, 'intermediates', []))
         new.species_kinds = dict(getattr(self, 'species_kinds', {}))
+        new.species_declarations = dict(getattr(self, 'species_declarations', {}))
         new.parameters = dict(getattr(self, 'parameters', {}))
+        new.outputs = list(getattr(self, 'outputs', []))
         return new
 
     def __getitem__(self, __key: str):
@@ -109,12 +116,15 @@ class EquationSystem(dict):
         new.intermediates = list(getattr(self, 'intermediates', [])) + list(getattr(other, 'intermediates', []))
         if len({w for w, _ in new.intermediates}) != len(new.intermediates):
             raise ValueError("an intermediate is defined twice")
-        for attr in ("species_kinds", "parameters"):
+        for attr in ("species_kinds", "species_declarations", "parameters"):
             a, b = getattr(self, attr, {}), getattr(other, attr, {})
             clash = [k for k in set(a) & set(b) if a[k] != b[k]]
             if clash:
                 raise ValueError(f"conflicting {attr} for {clash}")
             setattr(new, attr, {**a, **b})
+        from .declarations import merge_declarations
+        new.outputs = list(merge_declarations("output", getattr(self, 'outputs', []), getattr(other, 'outputs', []))
+                           .values())
         return new
 
     def declared_parameters(self):
@@ -236,8 +246,10 @@ class EquationSystem(dict):
                     break
             if not found:
                 to_remove.append(key)
+        kinds = getattr(self, 'species_kinds', {})
         for key in to_remove:
-            self.discard(key, "decoupled: no equation depends on it")
+            self.discard(key, "output" if kinds.get(key) in ("radiation", "energy")
+                         else "decoupled: no equation depends on it")
 
     def reduced(self, knowns, time_dependent=[]):
         """Return a reduced copy of the system ready for solving.
@@ -666,6 +678,7 @@ class EquationSystem(dict):
         self._reduction_substitutions = getattr(subsystem, 'substitutions', [])
         self._intermediates = list(getattr(subsystem, 'intermediates', []))
         self._intermediate_prelude = []
+        self._outputs = self._reduced_outputs(system, solve_vars)
 
         rhs = {}
         for s in subsystem.symbols:
@@ -719,6 +732,38 @@ class EquationSystem(dict):
             return rhs
         else:
             return list(rhs.values()), {s: i for i, s in enumerate(rhs)}
+
+    def _reduced_outputs(self, system, solve_vars):
+        """[(C identifier, expression, units, doc)] of the outputs, reduced like the rate equations (derived parameters,
+        n -> x, conservation, fixed and steady-state species) so that they read the solve variables, the parameters
+        and the intermediates: the rows of the radiation and energy species not solved for, then the declared Outputs.
+        Uses the substitutions of the last reduction."""
+        from .declarations import output_identifier
+        kinds = getattr(system, 'species_kinds', {})
+        decls = getattr(system, 'species_declarations', {})
+        rows = []
+        for s, kind in kinds.items():
+            if kind in ("radiation", "energy") and s not in solve_vars and s in system:
+                units = "cm^-3 s^-1" if kind == "radiation" else "erg cm^-3 s^-1"
+                doc = decls[s].doc if s in decls else ""
+                rows.append((output_identifier(s), dict.__getitem__(system, s).rhs, units,
+                             f"net production of {s}" + (f": {doc}" if doc else "")))
+        rows += [(o.name, o.expr, o.units, o.doc) for o in getattr(system, 'outputs', [])]
+        names = [r[0] for r in rows]
+        if len(set(names)) != len(names):
+            raise ValueError(f"two outputs share a name: {names}")
+        derived = getattr(system, 'derived_params', {})
+        to_x = {n_(s): n_Htot * x_(s) for s, kind in kinds.items() if kind != "energy"}
+        out = []
+        for name, e, units, doc in rows:
+            e = sp.sympify(e)
+            for sym_name, expr in derived.items():
+                e = e.subs(sp.Symbol(sym_name), expr)
+            e = e.xreplace(to_x)
+            for sym, sub in self._reduction_substitutions:
+                e = e.subs(sym, sub)
+            out.append((name, e, units, doc))
+        return out
 
     def generate_code(self, solve_vars, time_dependent=[], language="c", jac=True, do_cse=True,
                       minimal=True, func_name="microphysics_func_jac", jac_mode="symbolic"):
@@ -865,20 +910,27 @@ class EquationSystem(dict):
 
         result = {"code": code, "func_name": func_name}
 
+        outputs, header_params = [], list(param_syms)
+        if lang == "c":  # printed with the same printer, so that jaco_interp.h declares the 1D tables they read
+            result["outputs_code"], out_params, out_tables, outputs = self._gen_outputs(var_names, printer, func_name)
+            header_params = sorted(set(param_syms) | out_params, key=str)
+            self._tables = {**self._tables, **out_tables}
+
         match lang:
             case "cuda": result["interp_header"] = printer.get_table_declarations_cuda()
             case "python" | "julia": pass
             case _: result["interp_header"] = printer.get_table_declarations_c()
 
         if lang not in ("python", "julia"):
-            result["header"] = self._gen_header(func_name, var_names, param_syms, n_vars, lang,
-                                                self._parameter_docs(param_syms, time_dependent))
+            result["header"] = self._gen_header(func_name, var_names, header_params, n_vars, lang,
+                                                self._parameter_docs(header_params, time_dependent), outputs)
 
         result["var_names"] = var_names
-        result["param_names"] = [str(p) for p in param_syms]
+        result["output_names"] = [o[0] for o in outputs]
+        result["param_names"] = [str(p) for p in header_params]
         result["discarded"] = dict(getattr(self, "_discarded", {}))
         result["n_vars"] = n_vars
-        result["n_params"] = len(param_syms)
+        result["n_params"] = len(header_params)
         result["language"] = language
 
         if lang == "c":
@@ -953,6 +1005,42 @@ class EquationSystem(dict):
 
         body = "\n".join(lines)
         return self._wrap_source(body, func_name, lang, var_names, param_syms, n_vars, printer)
+
+    def _gen_outputs(self, var_names, printer, func_name):
+        """C source of microphysics_outputs(): the outputs (see _reduced_outputs) at a state, without derivatives,
+        reading only the intermediates they need. Returns (code, parameter symbols read, 2D/3D tables read,
+        [(name, units, doc)])."""
+        from .interpolation import tables_in
+        outs = [(name, sanitize_symbols(sp.sympify(e)), units, doc) for name, e, units, doc in self._outputs]
+        need = set().union(*[e.free_symbols for _, e, _, _ in outs])
+        used = []
+        for w, W in reversed([(sanitize_symbols(w), sanitize_symbols(W)) for w, W in self._intermediates]):
+            if w in need:
+                used.append((w, W))
+                need |= W.free_symbols
+        used.reverse()
+        local = {str(w) for w, _ in used}
+        reads = {s for s in need if str(s) not in local}
+        params = sorted([s for s in reads if str(s) not in set(var_names)], key=str)
+        exprs = [e for _, e, _, _ in outs]
+        tables = tables_in(exprs + [W for _, W in used])
+
+        lines = [f"   const double {v} = vars->{v};" for v in var_names if sp.Symbol(v) in reads]
+        lines += [f"   const double {p} = params->{p};" for p in params]
+        if used:
+            lines += self._prelude_lines(used, printer, "const double ", ";", "   ")
+        if exprs:
+            tmps, exprs = sp.cse(exprs)
+            lines += [f"   const double {printer.doprint(t)} = {printer.doprint(e)};" for t, e in tmps]
+        lines += [f"   out->{name} = {printer.doprint(e)};" for (name, _, _, _), e in zip(outs, exprs)]
+        includes = f'#include <math.h>\n#include "{func_name}.h"\n#include "jaco_interp.h"\n'
+        if tables:
+            includes += '#include "jaco_tables.h"\n'
+        code = (f"/* Generated by jaco codegen. The outputs at a state, no derivatives: evaluated at the converged state,\n"
+                f"   Delta_t times each is its integral over the backward-Euler step. */\n{includes}\n"
+                f"void microphysics_outputs(const SolveVars *vars, const Params *params, Outputs *out) {{\n"
+                f"   (void)vars; (void)params; (void)out;\n" + "".join(l + "\n" for l in lines) + "}\n")
+        return code, set(params), tables, [(name, units, doc) for name, _, units, doc in outs]
 
     @staticmethod
     def _prelude_lines(prelude, printer, decl, semi, ind, cse=True):
@@ -1081,10 +1169,10 @@ end
                 else:
                     return f'#include <cmath>\n#include "{func_name}.h"\n#include "jaco_interp.h"\n\n{c_sig} {{\n{body}\n}}\n'
 
-    def _gen_header(self, func_name, var_names, param_syms, n_vars, lang, param_docs=None):
+    def _gen_header(self, func_name, var_names, param_syms, n_vars, lang, param_docs=None, outputs=()):
         """Generate C/C++/CUDA header content with enums, structs, and declarations. JACO_HAS_VAR_<name> and
         JACO_HAS_PARAM_<name> let host code fill each field under #ifdef; param_docs (name -> Parameter) annotate the
-        Params fields."""
+        Params fields. For C, outputs [(name, units, doc)] declare the Outputs union and microphysics_outputs()."""
         is_cuda = lang == "cuda"
         is_c = lang == "c"
         device = "__device__ " if is_cuda else ""
@@ -1147,6 +1235,9 @@ end
         lines.append(f"__device__ {ptr_sig};" if is_cuda else f"{ptr_sig};")
         lines.append("")
 
+        if is_c:
+            lines += self._outputs_header(outputs)
+
         if not is_c:
             lines.append("// Convenience overload: accepts SolveVars/Params structs directly")
             lines.append(f"{device}inline void {func_name}(const SolveVars& X, const Params& params, SolveVars& rhs, double jac[N_VARS][N_VARS]) {{")
@@ -1155,6 +1246,35 @@ end
             lines.append("")
 
         return "\n".join(lines)
+
+    @staticmethod
+    def _outputs_header(outputs):
+        """Header lines declaring the Outputs union (named fields + data[], like SolveVars), IDX_OUT_<name>, N_OUTPUTS,
+        JACO_HAS_OUTPUT_<name> and microphysics_outputs()"""
+        n = len(outputs)
+        lines = ["/* Outputs: quantities microphysics_outputs() evaluates at a state, without derivatives. At the converged",
+                 "   state Delta_t times each is its integral over the backward-Euler step, so the host applies it directly. */"]
+        if n:
+            lines.append("#define JACO_HAS_OUTPUTS")
+            lines += [f"#define JACO_HAS_OUTPUT_{name}" for name, _, _ in outputs]
+            lines.append("#define JACO_OUTPUT_NAMES {" + ", ".join(f'"{name}"' for name, _, _ in outputs) + "}")
+            lines.append("#define JACO_OUTPUT_UNITS {" + ", ".join(f'"{units}"' for _, units, _ in outputs) + "}")
+            entries = ", ".join(f"IDX_OUT_{name} = {i}" for i, (name, _, _) in enumerate(outputs))
+            lines.append(f"enum OutputIndex {{ {entries}, N_OUTPUTS = {n} }};")
+            lines.append("typedef union {")
+            lines.append("    struct {")
+            for name, units, doc in outputs:
+                text = " ".join(t for t in (doc, units and f"[{units}]") if t)
+                lines.append(f"        double {name};" + (f"  /* {text} */" if text else ""))
+            lines.append("    };")
+            lines.append(f"    double data[{n}];")
+            lines.append("} Outputs;")
+        else:
+            lines.append("enum OutputIndex { N_OUTPUTS = 0 };")
+            lines.append("typedef union { double data[1]; } Outputs; /* the model has no outputs */")
+        lines.append("void microphysics_outputs(const SolveVars *vars, const Params *params, Outputs *out);")
+        lines.append("")
+        return lines
 
     def _gen_eos(self, var_names, printer):
         """Generate C code for jaco EOS functions.

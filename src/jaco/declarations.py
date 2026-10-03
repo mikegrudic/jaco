@@ -1,5 +1,6 @@
-"""Declared parameters and species: the contract between a model and the code that hosts it."""
+"""Declared parameters, species and outputs: the contract between a model and the code that hosts it."""
 
+import re
 from dataclasses import dataclass
 
 import sympy as sp
@@ -49,7 +50,8 @@ class Species:
     - "radiation": photons of a band; number density per H nucleus like a species, no mass, no charge, no clumping.
     - "energy": an energy reservoir (e.g. "dust heat") whose row is an energy density.
 
-    All but "energy" are written as abundances per H nucleus, n_s = n_Htot x_s.
+    All but "energy" are written as abundances per H nucleus, n_s = n_Htot x_s. A radiation or energy species that is
+    not solved for is an output of the generated code: its row, evaluated at the converged state.
     """
 
     name: str
@@ -61,6 +63,49 @@ class Species:
             raise ValueError(f"species {self.name}: kind must be one of {SPECIES_KINDS}, not {self.kind!r}")
         if self.kind == "material" and self.name != "e-" and not species_counts(self.name):
             raise ValueError(f"material species {self.name} has no element composition")
+
+
+def output_identifier(name):
+    """C identifier of an output named name (a species such as "dust heat" or "photon_assoc,H")"""
+    return re.sub(r"\W", "_", sanitize_name(name))
+
+
+@dataclass(frozen=True)
+class Output:
+    """A quantity the generated code evaluates at the converged state, without derivatives, for the host to apply over
+    the step: under backward Euler, Delta_t times the value is its integral over the step.
+
+    The rows of the radiation and energy species the model does not solve for are outputs already (net production per
+    unit volume and time). An Output adds a quantity that is not a row, e.g. the emission into one radiation band as
+    the sum of named cooling terms.
+
+    Parameters
+    ----------
+    name: str
+        C identifier: the field Outputs.<name> and the index IDX_OUT_<name> of the generated code.
+    expr: expression, optional
+        In the model's symbols (solve variables, parameters, number densities n_X, abundances x_X); reduced like the
+        rate equations.
+    units: str
+    doc: str
+    heat_of: dict or sequence, optional
+        Process id -> weight (a sequence of ids: weight 1). Adds the sum of weight * heat of those processes as the model
+        assembles them, i.e. after its rules. Heat is energy given to the gas, so a cooling luminosity takes weight -1.
+    """
+
+    name: str
+    expr: object = 0
+    units: str = ""
+    doc: str = ""
+    heat_of: tuple = ()
+
+    def __post_init__(self):
+        if not re.fullmatch(r"[A-Za-z_]\w*", self.name):
+            raise ValueError(f"output name {self.name!r} is not a C identifier")
+        h = self.heat_of
+        items = h.items() if isinstance(h, dict) else [(i, 1) if isinstance(i, str) else tuple(i) for i in h]
+        object.__setattr__(self, "heat_of", tuple((str(i), sp.sympify(w)) for i, w in items))
+        object.__setattr__(self, "expr", sp.sympify(self.expr))
 
 
 CORE_PARAMETERS = (

@@ -6,7 +6,7 @@ from typing import Callable
 import sympy as sp
 
 from .process import Process
-from .declarations import Parameter, Species, merge_declarations
+from .declarations import Parameter, Species, Output, merge_declarations
 
 
 @dataclass(frozen=True)
@@ -78,11 +78,15 @@ class Model:
     species: sequence of Species
         Every species of the model with its kind. With species declared, every row of the network must be declared,
         the EOS and the conservation sums take exactly the material species, reactants declared as radiation do not
-        count towards the default clumping order, and code generation refuses any undeclared symbol.
+        count towards the default clumping order, and code generation refuses any undeclared symbol. The radiation and
+        energy species that are not solved for are outputs.
+    outputs: sequence of Output
+        Further quantities the generated code evaluates at the converged state, e.g. the emission into one radiation
+        band as a sum of named cooling terms.
     """
 
     def __init__(self, processes=(), *, solve_vars=(), time_dependent=(), steady_state=(), fixed=None, derived=None,
-                 intermediates=(), fixed_electrons=None, rules=(), parameters=(), species=()):
+                 intermediates=(), fixed_electrons=None, rules=(), parameters=(), species=(), outputs=()):
         atoms = {}
         for p in processes:
             if not isinstance(p, Process):
@@ -104,6 +108,7 @@ class Model:
         self.rules = tuple(rules)
         self.parameters = tuple(merge_declarations("parameter", parameters).values())
         self.species = tuple(merge_declarations("species", species).values())
+        self.outputs = tuple(merge_declarations("output", outputs).values())
         self._check()
         self._assembled = None
         self._frozen = True
@@ -124,6 +129,8 @@ class Model:
             raise TypeError("parameters must be Parameter declarations")
         if not all(isinstance(s, Species) for s in self.species):
             raise TypeError("species must be Species declarations")
+        if not all(isinstance(o, Output) for o in self.outputs):
+            raise TypeError("outputs must be Output declarations")
         declared = {s.name for s in self.species}
         if declared:
             undeclared = (set(self.solve_vars) - {"u", "T"} | set(self.steady_state) | set(self.fixed)) - declared
@@ -142,7 +149,7 @@ class Model:
         return dict(solve_vars=self.solve_vars, time_dependent=self.time_dependent, steady_state=self.steady_state,
                     fixed=self.fixed, derived=self.derived, intermediates=self.intermediates,
                     fixed_electrons=self.fixed_electrons, rules=self.rules, parameters=self.parameters,
-                    species=self.species)
+                    species=self.species, outputs=self.outputs)
 
     def evolve(self, processes=None, **declarations):
         """Copy with the processes and/or declarations replaced"""
@@ -193,7 +200,8 @@ class Model:
                      intermediates=list(inter.items()), fixed_electrons=fe[0] if fe else None,
                      rules=list(rules.values()),
                      parameters=merge_declarations("parameter", self.parameters, other.parameters).values(),
-                     species=merge_declarations("species", self.species, other.species).values())
+                     species=merge_declarations("species", self.species, other.species).values(),
+                     outputs=merge_declarations("output", self.outputs, other.outputs).values())
 
     def __radd__(self, other):
         if isinstance(other, (int, float)) and other == 0:
@@ -261,7 +269,9 @@ class Model:
             if undeclared:
                 raise ValueError(f"the processes have rows for undeclared species {sorted(undeclared)}")
         network.species_kinds = {s.name: s.kind for s in self.species}
+        network.species_declarations = {s.name: s for s in self.species}
         network.parameters = {p.name: p for p in self.parameters}
+        network.outputs = self._resolved_outputs(effective)
         closures = {s: network.steady_state_closure(s) for s in self.steady_state}
         network.fixed_species = {**self.fixed, **closures}
         network.steady_state = self.steady_state
@@ -270,6 +280,18 @@ class Model:
         network.fixed_electrons = self.fixed_electrons
         self._assembled = (effective, network)
         return self._assembled
+
+    def _resolved_outputs(self, effective):
+        """The declared outputs with heat_of resolved against the processes as assembled (rules applied)"""
+        heats = {i: p.heat for i, p in zip(self._processes, effective)}
+        resolved = []
+        for o in self.outputs:
+            missing = [i for i, _ in o.heat_of if i not in heats]
+            if missing:
+                raise ValueError(f"output {o.name} takes the heat of processes not in the model: {missing}")
+            expr = o.expr + sum((w * heats[i] for i, w in o.heat_of), sp.S.Zero)
+            resolved.append(Output(o.name, expr, o.units, o.doc))
+        return resolved
 
     # --- solving and code generation ---
 

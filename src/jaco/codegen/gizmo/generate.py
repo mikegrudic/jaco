@@ -3,7 +3,9 @@
 Artifact set (C, with source extension ``ext``):
 
 - ``microphysics_func_jac{ext}`` -- RHS + analytic Jacobian of the backward-Euler system
-- ``microphysics_func_jac.h``    -- SolveVars/Params unions, IDX_/PARAM_ enums, JACO_MODEL_<NAME>, JACO_FAMILY_<FAMILY>
+- ``microphysics_func_jac.h``    -- SolveVars/Params/Outputs unions, IDX_/PARAM_/IDX_OUT_ enums, JACO_HAS_* macros,
+                                    JACO_MODEL_<NAME>, JACO_FAMILY_<FAMILY>
+- ``microphysics_outputs{ext}``  -- microphysics_outputs(): the model's outputs at a state, no Jacobian (C only)
 - ``jaco_interp.h``              -- 1D interpolation helpers and static 1D table data
 - ``jaco_eos{ext}``              -- jaco_eos_pressure, jaco_T_to_u, jaco_u_to_T, jaco_electron_abundance,
                                     jaco_fixed_electron_abundance
@@ -249,6 +251,8 @@ def generate_funcjac_code(
     if result.get("discarded"):
         print("jaco codegen: discarded equations: "
               + ", ".join(f"{k} ({why})" for k, why in result["discarded"].items()))
+    if result.get("output_names"):
+        print("jaco codegen: outputs: " + ", ".join(result["output_names"]))
     tables = result.get("tables", {})  # the 2D/3D tables the generated expressions read
 
     def out(name, text):
@@ -266,6 +270,8 @@ def generate_funcjac_code(
         out("jaco_interp.h", "#pragma once\n" + result.get("interp_header", "") + "\n")
     if "eos_code" in result:
         out("jaco_eos" + source_ext, result["eos_code"])
+    if "outputs_code" in result:
+        out("microphysics_outputs" + source_ext, result["outputs_code"])
     if lang == "c":
         out("jaco_tables.h", _gen_tables_header(tables))
         out("jaco_util" + source_ext, _gen_util_source(tables))
