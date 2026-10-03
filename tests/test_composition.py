@@ -10,16 +10,12 @@ from jaco.processes import ChemicalReaction, CollisionalIonization, GasPhaseReco
 from jaco.symbols import d_dt, n_
 
 
-D1 = pytest.mark.xfail(strict=True, reason="EquationSystem.__add__ creates the missing keys in its operands")
-
-
 def snapshot(process):
     """Everything about a process's network that the reduction and code generation read"""
     net = process.network
     return {k: sp.srepr(net[k]) for k in sorted(net)}, sorted(net.chemical_species)
 
 
-@D1
 def test_equation_system_add_leaves_operands_unchanged():
     a = EquationSystem()
     a["heat"] = Equation(d_dt(n_("heat")), sp.Symbol("Q"))
@@ -30,7 +26,6 @@ def test_equation_system_add_leaves_operands_unchanged():
     assert set(a) == {"heat"} and set(b) == {"H"}
 
 
-@D1
 def test_process_add_leaves_operands_unchanged():
     heat = ThermalProcess(sp.Symbol("Q"), name="heating")
     recombination = GasPhaseRecombination("H+")
@@ -41,7 +36,6 @@ def test_process_add_leaves_operands_unchanged():
     assert set(heat.network) == {"heat"}
 
 
-@D1
 def test_build_A_then_B_equals_fresh_B():
     """A process shared by two models (e.g. a module-level object) must not carry model A's species into model B"""
     shared = ThermalProcess(sp.Symbol("Q"), name="shared heating")
@@ -54,7 +48,6 @@ def test_build_A_then_B_equals_fresh_B():
     assert snapshot(build_B()) == fresh
 
 
-@D1
 def test_model_build_leaves_its_processes_unchanged():
     """After a full model build every pure thermal term still has only the heat equation"""
     from jaco.models.starforge import make_model

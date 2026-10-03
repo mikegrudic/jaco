@@ -79,11 +79,15 @@ class EquationSystem(dict):
         return super().__getitem__(__key)
 
     def __add__(self, other):
-        """Return a dict whose values are the sum of the values of the operands"""
-        keys = self.keys() | other.keys()
+        """Return a dict whose values are the sum of the values of the operands. The operands are left unchanged:
+        keys are looked up without the creation done by __getitem__."""
+        get = dict.__getitem__
         new = EquationSystem()
-        for k in keys:
-            new[k] = self[k] + other[k]
+        for k in list(self) + [k for k in other if k not in self]:
+            if k in self and k in other:
+                new[k] = get(self, k) + get(other, k)
+            else:
+                new[k] = get(self, k) if k in self else get(other, k)
         new.equilibrium_overrides = {**getattr(self, 'equilibrium_overrides', {}),
                                      **getattr(other, 'equilibrium_overrides', {})}
         new.fixed_species = {**getattr(self, 'fixed_species', {}),
