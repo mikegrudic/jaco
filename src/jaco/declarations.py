@@ -10,6 +10,8 @@ from .species_strings import species_counts, total_atom_abundance
 from .symbols import sanitize_name
 
 SPECIES_KINDS = ("material", "trace", "radiation", "energy")
+DEFAULT_ABUNDANCE_FLOOR = 1e-20  # per H nucleus; the solver clamps abundances here
+NO_CEILING = 1e300  # finite, so that it survives -ffinite-math-only in the host
 
 
 @dataclass(frozen=True)
@@ -52,17 +54,43 @@ class Species:
 
     All but "energy" are written as abundances per H nucleus, n_s = n_Htot x_s. A radiation or energy species that is
     not solved for is an output of the generated code: its row, evaluated at the converged state.
+
+    Where the species is a solve variable, the solver bounds and scales its abundance (per H nucleus) by:
+
+    floor: float, optional
+        Smallest abundance the solver allows; DEFAULT_ABUNDANCE_FLOOR by default.
+    ceiling: float, optional
+        Largest; 1 by default for material and trace species, none (NO_CEILING) for radiation and energy, whose
+        abundance per H nucleus can exceed 1.
+    scale: float
+        Abundance at which the species starts to matter; the solver's absolute abundance tolerances are fractions of
+        it. 1 for anything that can make up a fair fraction of the gas.
     """
 
     name: str
     kind: str = "material"
     doc: str = ""
+    floor: float = None
+    ceiling: float = None
+    scale: float = 1.0
 
     def __post_init__(self):
         if self.kind not in SPECIES_KINDS:
             raise ValueError(f"species {self.name}: kind must be one of {SPECIES_KINDS}, not {self.kind!r}")
         if self.kind == "material" and self.name != "e-" and not species_counts(self.name):
             raise ValueError(f"material species {self.name} has no element composition")
+        if not (self.abundance_floor >= 0 and self.abundance_ceiling > self.abundance_floor and self.scale > 0):
+            raise ValueError(f"species {self.name}: need 0 <= floor < ceiling and scale > 0")
+
+    @property
+    def abundance_floor(self):
+        return DEFAULT_ABUNDANCE_FLOOR if self.floor is None else float(self.floor)
+
+    @property
+    def abundance_ceiling(self):
+        if self.ceiling is not None:
+            return float(self.ceiling)
+        return 1.0 if self.kind in ("material", "trace") else NO_CEILING
 
 
 def output_identifier(name):

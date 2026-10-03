@@ -337,6 +337,7 @@ class EquationSystem(dict):
     def do_conservation_reductions(self, time_dependent_vars):
         """Eliminate equations from the system using known conservation laws."""
         self.substitutions = []
+        self.eliminated_atoms = []  # atoms whose abundance is the total less that in the other species
 
         # since we have n_Htot let's convert all other n's to x's
         # convert n_ to x_ (abundances per H): n_s -> n_Htot * x_s, for declared species of every kind but energy
@@ -403,6 +404,7 @@ class EquationSystem(dict):
 
             xtot = total_atom_abundance(i)
             conservation_subs.append((x_(i), xtot - x_total))
+            self.eliminated_atoms.append(i)
             self.discard(i, f"{i} conservation")
 
         for expr, sub in conservation_subs:
@@ -678,6 +680,7 @@ class EquationSystem(dict):
         self._reduction_substitutions = getattr(subsystem, 'substitutions', [])
         self._intermediates = list(getattr(subsystem, 'intermediates', []))
         self._intermediate_prelude = []
+        self._eliminated_atoms = list(getattr(subsystem, 'eliminated_atoms', []))
         self._outputs = self._reduced_outputs(system, solve_vars)
 
         rhs = {}
@@ -764,6 +767,49 @@ class EquationSystem(dict):
                 e = e.subs(sym, sub)
             out.append((name, e, units, doc))
         return out
+
+    def _solver_metadata(self, indices, time_dependent):
+        """What the implicit solver needs to know about each solve variable beyond the equations: backward-Euler term
+        and the parameter holding its start-of-step value, floor, ceiling, scale and charge; and the budgets of the
+        eliminated abundances that are affine in the solve variables, total - sum w x >= 0 with the total a constant or a
+        parameter (added to the generated Params). Uses the reduction of the last solver_functions call."""
+        from .declarations import Species, NO_CEILING
+        decls = getattr(self, 'species_declarations', {})
+        td = set(time_dependent)
+        names = [sanitize_name(str(v)) for v in indices]
+        variables = []
+        for v in indices:
+            name = str(v)
+            if not name.startswith("x_"):  # u and T: their limits are the solver's settings
+                init = "u_initial" if name == "T" and "T" in td else None
+                variables.append(dict(name=name, td=name in td, floor=0.0, ceiling=NO_CEILING, scale=1.0, charge=0,
+                                      initial=init))
+                continue
+            species = name[2:]
+            d = decls.get(species) or Species(species, getattr(self, 'species_kinds', {}).get(species, "material"))
+            variables.append(dict(name=name, td=species in td, floor=d.abundance_floor, ceiling=d.abundance_ceiling,
+                                  scale=float(d.scale), charge=species_charge(species) if d.kind in ("material", "trace")
+                                  else 0, initial=sanitize_name(f"x_{species}_initial") if species in td else None))
+        subs = dict(self._reduction_substitutions)
+        species_vars = {v: i for v, i in indices.items() if str(v).startswith("x_")}
+        budgets, unbounded = [], []
+        for key in getattr(self, '_eliminated_atoms', []):
+            e = sp.sympify(subs[x_(key)])
+            present = [v for v in species_vars if v in e.free_symbols]
+            if not present:
+                continue  # bounded by the parameters alone
+            coeffs = {v: sp.diff(e, v) for v in present}
+            total = sp.expand(e - sum(c * v for v, c in coeffs.items())) if all(c.is_Number for c in coeffs.values()) \
+                else None
+            if total is None or not all(c < 0 for c in coeffs.values()) or \
+                    not (total.is_Number or (total.is_Symbol and sanitize_name(str(total)) not in names)):
+                unbounded.append(f"x_{key}")
+                continue
+            terms = sorted(((species_vars[v], -float(c)) for v, c in coeffs.items()))
+            budgets.append(dict(name=f"x_{key}", total=float(total) if total.is_Number else 0.0,
+                                total_param=None if total.is_Number else sanitize_name(str(total)),
+                                terms=[(names[i], w) for i, w in terms]))
+        return dict(variables=variables, budgets=budgets, unbounded=unbounded)
 
     def generate_code(self, solve_vars, time_dependent=[], language="c", jac=True, do_cse=True,
                       minimal=True, func_name="microphysics_func_jac", jac_mode="symbolic"):
@@ -910,11 +956,15 @@ class EquationSystem(dict):
 
         result = {"code": code, "func_name": func_name}
 
-        outputs, header_params = [], list(param_syms)
+        outputs, header_params, meta = [], list(param_syms), None
         if lang == "c":  # printed with the same printer, so that jaco_interp.h declares the 1D tables they read
             result["outputs_code"], out_params, out_tables, outputs = self._gen_outputs(var_names, printer, func_name)
-            header_params = sorted(set(param_syms) | out_params, key=str)
+            meta = self._solver_metadata(indices, time_dependent)
+            totals = {sp.Symbol(b["total_param"]) for b in meta["budgets"] if b["total_param"]}
+            header_params = sorted(set(param_syms) | out_params | totals, key=str)
             self._tables = {**self._tables, **out_tables}
+            result["budgets"] = [b["name"] for b in meta["budgets"]]
+            result["unbounded"] = meta["unbounded"]
 
         match lang:
             case "cuda": result["interp_header"] = printer.get_table_declarations_cuda()
@@ -923,7 +973,7 @@ class EquationSystem(dict):
 
         if lang not in ("python", "julia"):
             result["header"] = self._gen_header(func_name, var_names, header_params, n_vars, lang,
-                                                self._parameter_docs(header_params, time_dependent), outputs)
+                                                self._parameter_docs(header_params, time_dependent), outputs, meta)
 
         result["var_names"] = var_names
         result["output_names"] = [o[0] for o in outputs]
@@ -1169,10 +1219,11 @@ end
                 else:
                     return f'#include <cmath>\n#include "{func_name}.h"\n#include "jaco_interp.h"\n\n{c_sig} {{\n{body}\n}}\n'
 
-    def _gen_header(self, func_name, var_names, param_syms, n_vars, lang, param_docs=None, outputs=()):
+    def _gen_header(self, func_name, var_names, param_syms, n_vars, lang, param_docs=None, outputs=(), meta=None):
         """Generate C/C++/CUDA header content with enums, structs, and declarations. JACO_HAS_VAR_<name> and
         JACO_HAS_PARAM_<name> let host code fill each field under #ifdef; param_docs (name -> Parameter) annotate the
-        Params fields. For C, outputs [(name, units, doc)] declare the Outputs union and microphysics_outputs()."""
+        Params fields. For C, outputs [(name, units, doc)] declare the Outputs union and microphysics_outputs(), and
+        meta (see _solver_metadata) becomes the solver's metadata macros."""
         is_cuda = lang == "cuda"
         is_c = lang == "c"
         device = "__device__ " if is_cuda else ""
@@ -1237,6 +1288,8 @@ end
 
         if is_c:
             lines += self._outputs_header(outputs)
+            if meta is not None:
+                lines += self._metadata_header(meta)
 
         if not is_c:
             lines.append("// Convenience overload: accepts SolveVars/Params structs directly")
@@ -1273,6 +1326,55 @@ end
             lines.append("enum OutputIndex { N_OUTPUTS = 0 };")
             lines.append("typedef union { double data[1]; } Outputs; /* the model has no outputs */")
         lines.append("void microphysics_outputs(const SolveVars *vars, const Params *params, Outputs *out);")
+        lines.append("")
+        return lines
+
+    @staticmethod
+    def _metadata_header(meta):
+        """Header lines with the solver metadata as initializer macros, in the layout jaco_solver.cc declares its tables
+        with, so that the solver reads the model instead of assuming it"""
+        def num(x):
+            return repr(float(x))
+
+        def macro(name, entries, indent="    "):
+            return [f"#define {name} {{ \\"] + [f"{indent}{e}, \\" for e in entries] + ["}"]
+
+        var = meta["variables"]
+        names = [sanitize_name(v["name"]) for v in var]
+        lines = ["/* Solver metadata. Per solve variable, in IDX_ order: backward-Euler term (1) or steady state (0), the",
+                 "   floor, ceiling and scale of a species' abundance per H nucleus (u and T take their limits from the",
+                 "   solver settings), charge. */",
+                 "#define JACO_HAS_SOLVER_METADATA"]
+        lines += [f"#define JACO_VAR_TIME_DEPENDENT_{n}" for n, v in zip(names, var) if v["td"]]
+        lines.append("#define JACO_VAR_TIME_DEPENDENT_INIT {" + ", ".join(str(int(v["td"])) for v in var) + "}")
+        lines.append("#define JACO_VAR_FLOOR_INIT {" + ", ".join(num(v["floor"]) for v in var) + "}")
+        lines.append("#define JACO_VAR_CEILING_INIT {" + ", ".join(num(v["ceiling"]) for v in var) + "}")
+        lines.append("#define JACO_VAR_SCALE_INIT {" + ", ".join(num(v["scale"]) for v in var) + "}")
+        lines.append("#define JACO_VAR_CHARGE_INIT {" + ", ".join(str(v["charge"]) for v in var) + "}")
+        lines.append("/* PARAM_ index of each variable's start-of-step value (-1: none; T's is u_initial) */")
+        lines.append("#define JACO_VAR_INITIAL_PARAM_INIT {"
+                     + ", ".join(f"PARAM_{v['initial']}" if v["initial"] else "-1" for v in var) + "}")
+        td = [(n, v["initial"]) for n, v in zip(names, var) if v["td"] and v["name"].startswith("x_")]
+        lines.append("/* Time-dependent species: {IDX_ of the species, PARAM_ of its start-of-step value} */")
+        lines.append(f"#define JACO_N_TD_SPECIES {len(td)}")
+        lines += macro("JACO_TD_SPECIES_INIT", [f"{{IDX_{n}, PARAM_{p}}}" for n, p in td] or ["{-1, -1} /* none */"])
+        budgets = meta["budgets"]
+        maxterms = max([len(b["terms"]) for b in budgets] + [1])
+        lines.append("/* Budgets of the eliminated abundances that are affine in the solve variables:")
+        lines.append("   total - sum_t w[t] x[k[t]] >= 0, as {total, total PARAM_ index or -1 for the constant, nterm, {IDX_...},")
+        lines.append("   {w...}} */")
+        if meta["unbounded"]:
+            lines.append(f"/* Eliminated abundances not affine in the solve variables (no solver budget): "
+                         f"{', '.join(meta['unbounded'])} */")
+        lines.append(f"#define JACO_N_BUDGETS {len(budgets)}")
+        lines.append(f"#define JACO_BUDGET_MAX_TERMS {maxterms}")
+        entries = []
+        for b in budgets:
+            ks = ", ".join(f"IDX_{n}" for n, _ in b["terms"])
+            ws = ", ".join(num(w) for _, w in b["terms"])
+            tp = f"PARAM_{b['total_param']}" if b["total_param"] else "-1"
+            entries.append(f"{{{num(b['total'])}, {tp}, {len(b['terms'])}, {{{ks}}}, {{{ws}}}}} /* {b['name']} */")
+        lines += macro("JACO_BUDGETS_INIT", entries or ["{0.0, -1, 0, {0}, {0.0}} /* none */"])
         lines.append("")
         return lines
 
