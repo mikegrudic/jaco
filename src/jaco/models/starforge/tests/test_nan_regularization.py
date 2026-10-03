@@ -121,3 +121,26 @@ def test_selfshield_unchanged_in_regular_regime():
     f, _ = value_and_partials(f_selfshield_H2())
     for vals in REGULAR + [state(30.0, 1e3, 1e-5, 0.45, 1e23), state(1e4, 1.0, 0.99, 1e-4, 1e19)]:
         assert f(*vals) == pytest.approx(old_selfshield(*vals), rel=1e-10, abs=0)
+
+
+def test_legacy_HD_finite_without_H2():
+    """GIZMO's HD/H2 ratio carries f_molec + MIN_REAL_NUMBER, so the legacy H2/HD cooling stays finite at x_H2 = 0"""
+    from ..gizmo_lowtemp import gizmo_H2_cooling
+    e = gizmo_H2_cooling.heat
+    args = sorted(e.free_symbols, key=str)
+    vals = {s: 1.0 for s in args}
+    vals.update({T: 3.16, n_Htot: 1e3, x_("H+"): 1.0, x_("H_2"): 0.0, x_("e-"): 1.0, sp.Symbol("X"): 0.7155,
+                 sp.Symbol("y"): 0.094, sp.Symbol("z"): 0.0})
+    for f in (e, sp.diff(e, x_("H_2")), sp.diff(e, T)):
+        assert np.isfinite(c_lambdify(args, f)(*[vals[s] for s in args]))
+
+
+def test_ionization_balance_start_differentiable_without_H2():
+    """The Newton start of the C+/Mg+/molecular-ion fixed point has a finite derivative at x_H2 = 0"""
+    from ..ionization_balance import solved_electrons
+    s0 = dict(solved_electrons()[0])[sp.Symbol("IbS0")]
+    d = sp.diff(s0, x_("H_2"))
+    args = sorted(d.free_symbols, key=str)
+    vals = {s: 1.0 for s in args}
+    vals.update({T: 10.0, n_Htot: 1e3, x_("H_2"): 0.0})
+    assert np.isfinite(c_lambdify(args, d)(*[vals[s] for s in args]))
