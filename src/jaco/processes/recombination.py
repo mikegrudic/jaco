@@ -56,7 +56,7 @@ class Recombination(NBodyProcess):
     def __init__(self, ion: str):
         self.ion = ion
         self.recombined_species = add_electron(ion)
-        self.colliding_species = {ion, "e-"}
+        self.colliding_species = (ion, "e-")
         super().__init__(self.colliding_species)
         self.ionization_energy = ionization_energy(self.recombined_species)
         self.__rate_coefficient = 0
