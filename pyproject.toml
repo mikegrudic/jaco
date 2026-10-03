@@ -29,3 +29,8 @@ Issues = "https://github.com/mikegrudic/jaco/issues"
 [tool.setuptools.package-data]
 "jaco.models.starforge" = ["spcool_tables.hdf5"]
 "jaco.codegen" = ["*.h"]
+
+[tool.pytest.ini_options]
+markers = [
+  "slow: takes minutes (e.g. runs the code generator for every model); deselect with -m \"not slow\"",
+]
