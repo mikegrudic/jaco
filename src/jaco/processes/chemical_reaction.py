@@ -2,6 +2,8 @@ from .nbody_process import NBodyProcess
 import sympy as sp
 from warnings import warn
 
+_warned_unreferenced = set()  # equations already reported as lacking a bibliography
+
 
 class ChemicalReaction(NBodyProcess):
     """Process that implements a chemical reaction described by an equation and a rate coefficient"""
@@ -22,8 +24,10 @@ class ChemicalReaction(NBodyProcess):
             self.name = self.equation
         else:
             self.name = name
-        if not bibliography:
-            warn(f"Chemical reaction {equation} does not have a bibliographic reference. Be a lot cooler if it did.")
+        if not bibliography and equation not in _warned_unreferenced:
+            _warned_unreferenced.add(equation)
+            warn(f"Chemical reaction {equation} does not have a bibliographic reference. Be a lot cooler if it did.",
+                 stacklevel=2)
         self.bibliography = bibliography
         self.lhs_coeffs, self.rhs_coeffs = self.species_and_coeffs(equation)
         self.colliding_species = sum(

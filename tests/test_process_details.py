@@ -1,7 +1,10 @@
 """Small invariants of individual processes and helpers."""
 
+import warnings
+
 import sympy as sp
 
+from jaco.processes.chemical_reaction import ChemicalReaction
 from jaco.processes.recombination import Recombination
 from jaco.symbols import n_, sanitize_symbols
 
@@ -20,3 +23,11 @@ def test_sanitize_symbols_renames_in_one_pass():
     assert sanitize_symbols(expr) == expr.subs({sp.Symbol(k): v for k, v in clean.items()})
     assert sanitize_symbols(sp.Matrix([[xHp, ne]])) == sp.Matrix([[clean["x_H+"], clean["n_e-"]]])
     assert sanitize_symbols([xHp, (ne, dt)]) == [clean["x_H+"], [clean["n_e-"], clean["Δt"]]]
+
+
+def test_missing_bibliography_warns_once_per_reaction():
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        for k in (1.0, 2.0):
+            ChemicalReaction("Uu + Vv -> UuVv", k)
+    assert len([w for w in caught if "bibliographic reference" in str(w.message)]) == 1
