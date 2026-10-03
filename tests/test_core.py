@@ -290,3 +290,12 @@ class TestProcessComposition:
         combined = p1 + p2
         assert "H" in combined.network
         assert "He" in combined.network
+
+
+def test_reduction_keeps_a_species_only_its_own_row_depends_on():
+    """H <-> H+ with T known: x_H+ appears in no other row once the electrons and H are eliminated, yet its row is the
+    system to solve"""
+    from jaco.processes import CollisionalIonization, GasPhaseRecombination
+
+    red = (CollisionalIonization("H") + GasPhaseRecombination("H+")).network.reduced({"T", "n_Htot"}, [])
+    assert list(red) == ["H+"]

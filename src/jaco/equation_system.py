@@ -172,7 +172,7 @@ class EquationSystem(dict):
             self.pop(species, None)
 
     def prune_decoupled(self):
-        """Remove equations whose LHS variable doesn't appear in any other equation.
+        """Remove equations whose variable no equation (its own included) depends on.
 
         This cleans up equations like 'dust heat' or 'photon_assoc,H' that are
         decoupled from the main system after fix_species() has been applied.
@@ -182,13 +182,10 @@ class EquationSystem(dict):
         for key in list(self.keys()):
             if key in ("heat", "u"):
                 continue  # always keep energy equations
-            # Check if x_{key} appears in any OTHER equation's RHS
             xs = x_(key)
             ns = n_(key)
             found = xs in used_by_intermediates or ns in used_by_intermediates
-            for other_key, eq in self.items():
-                if other_key == key:
-                    continue
+            for eq in self.values():
                 if xs in eq.rhs.free_symbols or ns in eq.rhs.free_symbols:
                     found = True
                     break
