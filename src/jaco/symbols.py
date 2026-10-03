@@ -94,14 +94,9 @@ def sanitize_symbols(expr):
     C/C++/Fortran identifiers to avoid syntax errors in code generation.
     """
     if hasattr(expr, "__iter__"):  # if iterable call recursively until we get down to actual expressions
-        expr = [sanitize_symbols(e) for e in expr]
-    else:
-        for s in expr.free_symbols:
-            name = str(s)
-            new_name = sanitize_name(name)
-            if new_name != name:
-                expr = expr.subs(s, sp.Symbol(new_name))
-    return expr
+        return [sanitize_symbols(e) for e in expr]
+    renames = {s: sp.Symbol(sanitize_name(str(s))) for s in expr.free_symbols if sanitize_name(str(s)) != str(s)}
+    return expr.xreplace(renames) if renames else expr
 
 
 def piecewise_linear(X, Y, x, extrapolate=False, name=None):
