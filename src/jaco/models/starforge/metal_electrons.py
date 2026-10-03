@@ -1,9 +1,12 @@
 """Free electrons from metals, as GIZMO's cooling module counts them in neutral gas (COOL_LOW_TEMPERATURES +
-SIMPLE_STEADYSTATE_CHEMISTRY): find_abundances_and_rates adds C+, CR-ionized heavy ions, thermally ionized alkalis,
-O+ and molecular ions to the H and He electrons. GIZMO iterates n_e to convergence because the C+ fraction depends
-on it; here that fixed point is two Newton steps in ln x_C+ from fully ionized carbon (within GIZMO's own 1%
-tolerance on n_e), and its discontinuous heavy-ion regimes are blended (_switch). GIZMO's units: its n_H (nHcgs) is
-n_Htot, its MolecularMassFraction is 2 x_H2, and its column in g cm^-2 is m_p N_H."""
+SIMPLE_STEADYSTATE_CHEMISTRY): find_abundances_and_rates adds C+, heavy ions, thermally ionized alkalis, O+ and
+molecular ions to the H and He electrons. The heavy-ion term is GIZMO's cosmic-ray ionization of the neutral gas,
+balanced against recombination and grain capture with the charge assumed to end up on Mg+ by charge transfer (hence
+its cap at the Mg abundance); its H/He network has no CR term. GIZMO iterates n_e to convergence because the C+
+fraction depends on it; here that fixed point is two Newton steps in ln x_C+ from fully ionized carbon (within GIZMO's
+own 1% tolerance on n_e), and its discontinuous heavy-ion regimes are blended (_switch). GIZMO's units: n_H is its
+nHcgs (an argument here, n_Htot by default), its MolecularMassFraction is 2 x_H2, its gas density is m_p n_Htot / X
+and its column in g cm^-2 is m_p N_H."""
 
 import numpy as np
 import sympy as sp
@@ -28,27 +31,28 @@ def G0_carbon():
     return G_0 * sp.exp(-tau_C) * sp.exp(-r_H2) / (1 + r_H2)
 
 
-def f_Cplus(x_e):
+def f_Cplus(x_e, n_H=n_Htot, clumping=1):
     """Fraction of gas-phase C in C+ (f_Cplus): photo- and CR ionization against radiative, dielectronic, grain-assisted
-    and H2 recombination"""
+    and H2 recombination, the two-body rates times clumping"""
     ionization = 3.43e-10 * G0_carbon() + 520 * 2 * x_H2 * zeta + 3.85 * zeta
     a, b = sp.sqrt(T / 6.67e-3), sp.sqrt(T / 1.943e6)
     g = 0.7849 + 0.1597 * sp.exp(-49550 / T)
     k_rr = 2.995e-9 / (a * (1 + a) ** (1 - g) * (1 + b) ** (1 + g))
     k_dr = T**-1.5 * (6.346e-9 * sp.exp(-12.17 / T) + 9.793e-9 * sp.exp(-73.8 / T) + 1.634e-6 * sp.exp(-15230 / T))
     k_H2 = 2.31e-13 * T**-1.3 * sp.exp(-23 / T)
-    return ionization / (ionization + alpha_grain("C+", x_e) * n_Htot + (k_rr + k_dr) * n_Htot * x_e + k_H2 * n_Htot * x_H2)
+    recombination = alpha_grain("C+", x_e, n_H) * n_H + (k_rr + k_dr) * n_H * x_e + k_H2 * n_H * x_H2
+    return ionization / (ionization + clumping * recombination)
 
 
 # gas-phase carbon assumed by return_electron_fraction_from_Cplus (Sofia 2004)
 x_C_gas = 1.6e-4 * x_C_tot / x_solar("C")
 
 
-def Cplus_newton_step(x_e_other, y):
+def Cplus_newton_step(x_e_other, y, n_H=n_Htot):
     """(g, h) of a Newton step in ln x_C+ at x_C+ = y: g = ln f_Cplus(x_e_other + y), h = 1 - y d g/d x_e, so that
     ln x_C+ moves by (g - ln(y / x_C_gas)) / h"""
     xe = sp.Dummy("x_e")
-    g = sp.log(f_Cplus(xe))
+    g = sp.log(f_Cplus(xe, n_H))
     return g.subs(xe, x_e_other + y), 1 - sp.diff(g, xe).subs(xe, x_e_other + y) * y
 
 
@@ -95,11 +99,11 @@ def heavy_ion_electrons():
     return sp.Min(n_ion_max, x)
 
 
-def alkali_electrons():
+def alkali_electrons(n_H=n_Htot):
     """return_electron_fraction_from_alkali: Saha-limited K, capped at its abundance"""
     x_K = 1e-7 * Z_dust
     K_over_xe = (x_K * 1.15e-11 * sp.exp(25188 / T)
-                 / (6.47e-13 * sp.sqrt(x_K / 1e-7) * (T**3 / 1e9) ** 0.25 * sp.sqrt(2.4e15 / n_Htot)))
+                 / (6.47e-13 * sp.sqrt(x_K / 1e-7) * (T**3 / 1e9) ** 0.25 * sp.sqrt(2.4e15 / n_H)))
     return sp.Piecewise((0, T < 100), (x_K / (1 + K_over_xe), True))
 
 
@@ -108,20 +112,20 @@ def Oplus_electrons():
     return 3.2e-4 * x_O_tot / x_solar("O") * x_("H+")
 
 
-def molecular_ion_electrons():
+def molecular_ion_electrons(n_H=n_Htot):
     """return_electron_fraction_from_molecular_ions (Fromang+2002 recombination, Armitage 2010); GIZMO's floor
     max(MinGasTemp, T) is left to the solver's temperature floor"""
-    return sp.sqrt(zeta / (3e-6 / sp.sqrt(T) * sp.Max(1e2, n_Htot)))
+    return sp.sqrt(zeta / (3e-6 / sp.sqrt(T) * sp.Max(1e2, n_H)))
 
 
-def metal_electrons():
+def metal_electrons(n_H=n_Htot):
     """(intermediates, x_e): free electrons per H nucleus on metals (everything but H and He ions), as an expression of
-    the model's intermediates, which are evaluated in order"""
+    the model's intermediates, which are evaluated in order; n_H is GIZMO's nHcgs"""
     e_other, g0, h0, y1, g1, h1, e_Cplus = sp.symbols("eMetalOther CpG0 CpH0 CpY1 CpG1 CpH1 eCplus")
     x_e_other = x_e_ions + e_other
-    inter = [(e_other, heavy_ion_electrons() + alkali_electrons() + Oplus_electrons() + molecular_ion_electrons())]
-    inter += list(zip((g0, h0), Cplus_newton_step(x_e_other, x_C_gas)))
+    inter = [(e_other, heavy_ion_electrons() + alkali_electrons(n_H) + Oplus_electrons() + molecular_ion_electrons(n_H))]
+    inter += list(zip((g0, h0), Cplus_newton_step(x_e_other, x_C_gas, n_H)))
     inter += [(y1, x_C_gas * sp.exp(g0 / h0))]
-    inter += list(zip((g1, h1), Cplus_newton_step(x_e_other, y1)))
+    inter += list(zip((g1, h1), Cplus_newton_step(x_e_other, y1, n_H)))
     inter += [(e_Cplus, sp.Min(y1 * sp.exp((g1 - g0 / h0) / h1), x_C_gas))]
     return inter, e_Cplus + e_other

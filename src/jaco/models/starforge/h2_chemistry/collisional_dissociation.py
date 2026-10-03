@@ -5,14 +5,15 @@ the generated code evaluates them in double precision, where k_0 and k_LTE under
 d(k_0^f_0)/dT = k_0^f_0 (f_0' ln k_0 + ...) then becomes 0 * inf = nan.
 """
 
-from ..symbols import T, log_T, x_, n_Htot, H2_chemical_heat_cgs
+from ..symbols import T, log_T, x_, n_Htot
+from .chemical_heat import dissociation_heat
 from jaco.processes import ChemicalReaction
 import sympy as sp
 
 LN10 = sp.log(10.0)
 
 
-def H2_collisional_dissociation(collider, isotopologue="H_2"):
+def H2_collisional_dissociation(collider, isotopologue="H_2", chemical_heat=True):
     """Symbolic implementation of the rate coefficient for collisional dissociation of H_2, HD, or D_2
 
     This implements reactions 9, 10, 11, 108, 109, 110, 112, 113, and 114 from Glover & Abel 2008
@@ -98,7 +99,7 @@ def H2_collisional_dissociation(collider, isotopologue="H_2"):
     return ChemicalReaction(
         f"H_2 + {collider} -> 2H + {collider}",
         rate_coefficient=k,
-        heat_per_reaction=-H2_chemical_heat_cgs,
+        heat_per_reaction=dissociation_heat(chemical_heat),
         name=f"Collisional dissociation of {isotopologue} by {collider}",
         bibliography=bib,
     )

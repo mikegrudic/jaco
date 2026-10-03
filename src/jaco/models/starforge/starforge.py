@@ -1,168 +1,135 @@
-"""STARFORGE ISM thermochemistry model.
+"""STARFORGE ISM thermochemistry: one process library, two models.
 
-Full network including collisional ionization/recombination of H and He,
-H2 formation/destruction, CO cooling, dust-gas collisions, cosmic ray
-ionization, photoelectric heating, inverse Compton cooling, metal-line
-cooling from tabulated rates, and nebular
-forbidden-line cooling of photoionized gas (switched by the ``f_neb`` parameter).
+``make_model(STARFORGE)`` is the physically preferred model; ``make_model(STARFORGE_LEGACY)`` (the
+``starforge_legacy`` package) reproduces GIZMO's legacy cooling module term for term. The switches that separate
+them, with their GIZMO references, are in switches.py. Both solve u, T, x_H+, x_He+, x_He++ and x_H2 (T and H2 in
+time, the ions in steady state) and share the KWH H/He ionization balance and its cooling, gas-dust coupling,
+cosmic-ray and photoelectric heating, CMB Compton cooling, tabulated metal lines (switched by f_metal), Kim+23 nebular
+lines (f_neb) and the PdV term.
 
-The model declares:
-
-- **Fixed species** (``fixed_species``): C+, H-, H_2+, CO, HD — computed
-  by the host code and passed as parameters, not solved by the Newton system.
-- **Equilibrium overrides**: H_2+ = 0, HD = 2.527e-5 × x_H2 (deuterium locked in HD).
-- **Free electrons** (``fixed_electrons``): the solved H and He ions plus GIZMO's metal electrons
-  (metal_electrons.py), which stand in for the charge of the fixed species.
-- **PdV work**: included as a ``pdv_work`` parameter in the heating term.
+STARFORGE in addition: the H2/H- reaction network with the heat of H2 formation and dissociation; cosmic-ray
+ionization of H with radiative, grain-assisted and charge-transfer sinks, and the C+, Mg+ and molecular-ion balances
+for the other free electrons (ionization_balance.py); C+ (on the Tielens C+/CO interpolation), [CI] 609 um on neutral
+carbon and Whitworth & Jaffa CO cooling; H2/HD cooling with number-weighted colliders; clumping on every two-body rate.
 """
 
-from jaco.processes import CollisionalIonization, GasPhaseRecombination, FreeFreeEmission, ThermalProcess
-from .line_cooling import LineCoolingSimple
-from ..model import Model
 import sympy as sp
+from jaco.processes import CollisionalIonization, GasPhaseRecombination, FreeFreeEmission, ThermalProcess
+from jaco.process import Process
+from jaco.equation import Equation
+from jaco.symbols import x_
+from .switches import Switches, STARFORGE, STARFORGE_LEGACY
+from .line_cooling import LineCoolingSimple, CI_cooling
 from .h2_chemistry import H2_chemistry
+from .h2_chemistry.gizmo_network import GizmoH2Network
 from .H2_cooling import H2_cooling
 from .CO_cooling import CO_cooling
+from .gizmo_lowtemp import gizmo_carbon_cooling, gizmo_H2_cooling
 from .gas_dust_collisions import gas_dust_collisions
-from .cosmic_ray_ionization import cosmic_ray_ionization, cosmic_ray_photoionization, cosmic_ray_heating
+from .cosmic_ray_ionization import cosmic_ray_heating
 from .photoelectric_heating import photoelectric_heating
 from .metal_line_cooling import metal_line_cooling
 from .metal_electrons import metal_electrons
+from .ionization_balance import ionization_processes
 from .nebular_cooling import nebular_cooling
 from .compton import compton_cooling
+from .symbols import T, n_Htot, G_0, clumping_factor, nH_gizmo_cooling
 
 # Solve variables in index order (GIZMO's jaco.cc assumes u, T first, abundances after) and the
 # subset that gets a backward-Euler term; the ions are solved in steady state.
 SOLVE_VARS = ["u", "T", "H+", "He+", "He++", "H_2"]
 TIME_DEPENDENT = ["T", "H_2"]
+GIZMO_FAMILY = "starforge"  # host-code family macro JACO_FAMILY_STARFORGE, shared by both models
+DEUTERIUM_PER_H = 2.527e-5  # Cooke, Pettini & Steidel 2018
 
 
-def make_model():
-    """Build the STARFORGE thermochemistry model.
+def _transformed(process, rule):
+    """Copy of process with rule (a function of an expression) applied to every rate and heat expression"""
+    out = Process(name=process.name, bibliography=process.bibliography)
+    for key, eq in process.network.items():
+        if key == "heat":
+            out.heat = rule(eq.rhs)
+        else:
+            out.network[key] = Equation(eq.lhs, rule(eq.rhs))
+    return out
 
-    Returns a :class:`Process` whose network contains all rate equations for
-    the ISM species, with ``fixed_species`` and ``equilibrium_overrides``
-    configured for use with GIZMO's ``gizmo_to_jaco`` interface.
 
-    Returns
-    -------
-    Process
-        Composite process with the full STARFORGE network.
-    """
+def scaled_densities(process, factor):
+    """process with every number density in its rates (n_X, n_Htot) multiplied by factor"""
+    def rule(e):
+        e = sp.sympify(e)
+        return e.xreplace({s: factor * s for s in e.free_symbols if str(s).startswith("n_")})
+    return _transformed(process, rule)
+
+
+def unclumped(process):
+    """process with the clumping factors C_2 and C_3 set to 1"""
+    return _transformed(process, lambda e: sp.sympify(e).xreplace({sp.Symbol("C_2"): 1, sp.Symbol("C_3"): 1}))
+
+
+def make_model(switches: Switches = STARFORGE):
+    """Build the model selected by switches (STARFORGE or STARFORGE_LEGACY)."""
+    s = switches
+    if s.h2_network == "gizmo" and s.h2_chemical_heat:
+        raise ValueError("GIZMO's H2 network carries no chemical heat")
+    C2 = sp.Symbol("C_2")
+
     processes = [
-        H2_chemistry,
-        *[LineCoolingSimple(s) for s in ("H", "He+", "C+")],
-        *[CollisionalIonization(s) for s in ("H", "He", "He+")],
+        *[LineCoolingSimple(sp_) for sp_ in ("H", "He+")],
+        *[CollisionalIonization(sp_, clumping=C2) for sp_ in ("H", "He", "He+")],
         *[GasPhaseRecombination(i) for i in ("H+", "He+", "He++")],
         *[FreeFreeEmission(i) for i in ("H+", "He+", "He++")],
-        H2_cooling,
-        CO_cooling,
         gas_dust_collisions,
-        # not H: GIZMO counts the electrons cosmic rays free as metal and molecular ions (metal_electrons.py)
-        cosmic_ray_ionization("C"),
-        cosmic_ray_photoionization("C"),
         cosmic_ray_heating,
         photoelectric_heating,
         compton_cooling,
         metal_line_cooling(z=0.0),
         nebular_cooling,
-        ThermalProcess(sp.Symbol("pdv_work"), name="PdV work"),
     ]
+    processes += [H2_cooling] if s.h2_cooling == "network" else [gizmo_H2_cooling]
+    processes += [LineCoolingSimple("C+"), CO_cooling, CI_cooling] if s.carbon_cooling == "network" else [gizmo_carbon_cooling]
+    if s.electrons == "solved":
+        ion_processes, intermediates, fixed_electrons = ionization_processes()
+        processes += ion_processes
+    else:
+        n_H = nH_gizmo_cooling if s.rate_density == "gizmo" else n_Htot
+        intermediates, fixed_electrons = metal_electrons(n_H)
 
-    model = sum(processes)
+    if s.rate_density == "gizmo":
+        processes = [scaled_densities(p, nH_gizmo_cooling / n_Htot) for p in processes]
+    if s.clumping == "h2_chemistry":
+        processes = [unclumped(p) for p in processes]
+    # the H2 network takes its densities and clumping as written (GIZMO's own, for the gizmo network)
+    h2 = H2_chemistry(s.h2_chemical_heat) if s.h2_network == "per_molecule" else GizmoH2Network()
+    model = sum(processes + [h2, ThermalProcess(sp.Symbol("pdv_work"), name="PdV work")])
 
-    # Equilibrium overrides for species that can't be auto-linearized.
-    from jaco.symbols import x_
-    model.network.equilibrium_overrides = {
-        "H_2+": sp.S.Zero,                     # negligible in ISM conditions
-        "HD": 2.527e-5 * x_("H_2"),            # all deuterium locked in HD (D/H = 2.527e-5, Cooke+ 2018)
-    }
+    fixed = {}
+    if s.h2_network == "per_molecule":
+        fixed["H_2+"] = sp.S.Zero  # negligible in ISM conditions
+        # H-: equilibrium of its rate equation, linear in n_H-: source + sink_coeff * n_H- = 0
+        nHm = sp.Symbol("n_H-")
+        source, sink_coeff = sp.S.Zero, sp.S.Zero
+        for term in sp.Add.make_args(model.network["H-"].rhs):
+            if nHm not in term.free_symbols:
+                source += term
+            else:
+                sink_coeff += sp.simplify(term / nHm)
+        fixed["H-"] = sp.Max(0, -source / sink_coeff / n_Htot)
+    if s.h2_cooling == "network":
+        fixed["HD"] = 2 * DEUTERIUM_PER_H * x_("H_2")  # all D in HD in proportion to the molecular fraction 2 x_H2
+    if s.carbon_cooling == "network":
+        # C+ and CO from GIZMO's cooling-curve interpolation, fco/(1 - fco) ~ (n / 340 G0)^2 / sqrt(T) (Tielens)
+        x_C_tot = sp.Symbol("x_C,tot")
+        f_Cp = 1 / (1 + (n_Htot / (340 * sp.Max(sp.Rational(1, 10), G_0)))**2 / sp.sqrt(sp.Max(T, 10)))
+        fixed["C+"] = x_C_tot * f_Cp
+        fixed["CO"] = sp.Max(1e-30, x_C_tot * (1 - f_Cp) * x_("H_2"))
+    else:
+        fixed.update({"C+": sp.S.Zero, "CO": sp.S.Zero})  # carbon counted as atoms in the EOS and metal-line tables
+    model.network.fixed_species = fixed
+    model.network.equilibrium_overrides = {k: v for k, v in fixed.items() if k in ("H_2+", "HD")}
 
-    # Fixed species: H_2+ negligible, HD locked in deuterium ratio.
-    # C+, H-, CO are derived_params (functions of solve variables) — see below.
-    model.network.fixed_species = {
-        "H_2+": sp.S.Zero,
-        "HD": 2.527e-5 * x_("H_2"),
-    }
-
-    # Derived parameters: expressions of solve variables that must be re-evaluated
-    # each Newton iteration. Substituted into the equations before codegen so their
-    # T-derivatives appear correctly in the Jacobian.
-    from .symbols import T, grad_v, dx, n_Htot, G_0
-
-    k_B = 1.380649e-16  # Boltzmann constant in CGS
-    m_H = 1.6726e-24    # proton mass in CGS
-    cs_sq = k_B * T / (2 * m_H)                    # sound speed squared for molecular H
-    dv_sq = (grad_v * dx)**2                         # velocity dispersion squared across cell
-    Mach_sq = dv_sq / cs_sq                          # Mach number squared
-    C_2_expr = 1 + sp.Rational(1, 4) * Mach_sq      # <n^2>/<n>^2 for lognormal with b=0.5
-
-    # --- C+ and CO: simple analytic estimate from GIZMO cooling.cc ---
-    x_C_tot = sp.Symbol("x_C,tot")
-    f_Cp = 1 / (1 + (n_Htot / (340 * sp.Max(sp.Rational(1, 10), G_0)))**2 / sp.sqrt(sp.Max(T, 10)))
-    x_Cplus_expr = x_C_tot * f_Cp
-    x_CO_expr = sp.Max(1e-30, x_C_tot * (1 - f_Cp) * x_("H_2"))
-
-    # --- H-: equilibrium from rate equation d(n_Hm)/dt = 0 ---
-    # The H- equation is linear in n_Hm: source + sink_coeff * n_Hm = 0
-    # => x_Hm = -source / (sink_coeff * n_Htot)
-    # Divide each term individually to ensure n_Hm cancels cleanly.
-    nHm = sp.Symbol("n_H-")
-    eq_rhs = model.network["H-"].rhs
-    source = sp.S.Zero
-    sink_coeff = sp.S.Zero
-    for term in sp.Add.make_args(eq_rhs):
-        if nHm not in term.free_symbols:
-            source += term
-        else:
-            sink_coeff += sp.simplify(term / nHm)
-    x_Hminus_expr = sp.Max(0, -source / sink_coeff / n_Htot)
-
-    model.network.fixed_species.update({
-        "C+": x_Cplus_expr,
-        "H-": x_Hminus_expr,
-        "CO": x_CO_expr,
-    })
-
-    model.network.derived_params = {
-        "C_2": C_2_expr,
-        "C_3": C_2_expr**3,                          # <n^3>/<n>^3 = C_2^3 for lognormal
-    }
-
-    # Free electrons beyond the solved H and He ions: GIZMO's neutral-gas budget (C+ by its own ionization balance,
-    # not the cooling-curve fraction above, plus CR-ionized metals and molecular ions)
-    model.network.intermediates, model.network.fixed_electrons = metal_electrons()
-
+    # Expressions of the solve variables, substituted before code generation so their derivatives enter the Jacobian
+    model.network.derived_params = {"C_2": clumping_factor, "C_3": clumping_factor**3}  # <n^3>/<n>^3 = C_2^3, lognormal
+    # Free electrons beyond the solved H and He ions
+    model.network.intermediates, model.network.fixed_electrons = intermediates, fixed_electrons
     return model
-
-    # processes += sum([cosmic_ray_ionization(s) for s in ("H", "C")])
-    # processes += sum([grain_assisted_recombination(s) for s in ("C+",)])
-    # processes += photon_absorption
-    # processes += dust_emission
-    # processes += photoelectric_heating
-
-    #    process = sum(processes)
-
-    # assumption: H- in equilibrium
-    #    collected = sp.collect(process.network"H-".rhs, n_("H-"))
-    #    x_Hminus = collected.coeff(n_("H-"), 0) / collected.coeff(n_("H-"), 1)
-
-    # assumption: C- in equilibrium
-
-    # f_CO given by formula dependent on G0
-
-    # assumption: dust energy in steady state
-
-    # UV background with shieldfac
-
-
-#    return sum(processes)
-
-
-#     processes += sum(h2_chemistry.reactions)
-# #    processes += CO_cooling(prescription="Whitworth+2018")
-
-#     processes += photon_absorption(band) for band in "EUV", "FUV", "NUV", "OPT", "FIR"
-#     processes += dust_emission(band) for band in "EUV", "FUV", "NUV", "OPT", "FIR"
-
-# assumptions: x_D = 2.527e-5 x_H, x_D+ = 2.527e-5 x_H+, zero out associated collisional dissociation rates

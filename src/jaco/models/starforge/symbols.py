@@ -33,9 +33,8 @@ grad_v = sp.Symbol("∇v")  # velocity gradient Frobenius norm in CGS (s^-1)
 NH = sp.Symbol("N_H")  # column density in nucleons, Sigma/m_p (as GIZMO passes it)
 dx = sp.Symbol("Δx")  # effective cell size in cm
 ISRF = sp.Symbol("ISRF")  # scaling factor for ISRF and cosmic ray background
-H2_formation_heat_cgs = 7.2e-12  # 4.48 eV binding energy
-# heat given to (taken from) the gas per H2 formed (collisionally dissociated): none, as in GIZMO's cooling module
-H2_chemical_heat_cgs = 0.0
+EV_CGS = 1.602176634e-12
+H2_BINDING_ENERGY = 4.48 * EV_CGS
 rho = sp.Symbol("rho")
 cs = sp.Symbol("c_s")
 T_CMB = sp.Symbol("T_CMB")
@@ -57,3 +56,14 @@ cosmicray_energy_density = sp.sqrt(ISRF) * 1.6e-12 * cosmicray_attenuation_fac
 # 1.6e-17 s^-1 per eV cm^-3 of CRs, plus GIZMO's radioactive-decay floor (K-40 ~ Z; short-lived radionuclides ~ Fe)
 cosmicray_ionization_rate_H = 1e-5 * cosmicray_energy_density + 1e-21 * Z_dust + 1e-19 * x_("Fe") / x_solar("Fe")
 psi_grain = G_0 * sqrt_T / (0.5 * (1.0e-12 + x_("e-")) * n_Htot)  # grain charging parameter
+
+# GIZMO's clumping estimator (update_explicit_molecular_fraction): <n^2>/<n>^2 = 1 + b^2 M^2 of a lognormal density PDF
+# with b = 0.5, M = dv / c_s from the velocity-gradient norm across the cell and the thermal speed of molecular gas,
+# c_s = v_th,rms / sqrt(3) with v_th,rms = 0.111 sqrt(T) km/s
+clumping_factor = 1 + (0.5 * grad_v * dx / (1.11e4 * sqrt_T / sp.sqrt(3))) ** 2
+
+# GIZMO's density conventions (STARFORGE_LEGACY): CoolingRate and simple_chemistry.cc take nHcgs = 0.76 rho/m_p as the
+# H density; update_explicit_molecular_fraction takes rho/m_p. jaco's n_Htot is the H density, X rho/m_H.
+GIZMO_HYDROGEN_MASSFRAC = 0.76
+nH_gizmo_cooling = GIZMO_HYDROGEN_MASSFRAC * n_Htot / X_H
+nH_gizmo_molecular = n_Htot / X_H

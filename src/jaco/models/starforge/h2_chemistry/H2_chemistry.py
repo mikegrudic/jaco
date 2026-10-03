@@ -19,18 +19,25 @@ r16 = ChemicalReaction(
     "H+ + H- -> H_2+ + e-", sp.Min(6.9e-9 * T**-0.35, 9.6e-7 * T**-0.9), bibliography=["1978JPhB...11L.671P"]
 )  # reaction 16 in Glover & Abel 2008
 
-h2_chemistry_processes = [
-    grain_formation.grain_formation,
-    three_body.H2_3body_formation,
-    collisional_detachment.Hminus_collisional_detachment("H"),
-    collisional_detachment.Hminus_collisional_detachment("e-"),
-    associative_detachment.associative_detachment("H", "H-"),
-    *[collisional_dissociation.H2_collisional_dissociation(c) for c in ("H+", "e-", "H_2", "H", "He")],
-    mutual_neutralization.mutual_neutralization("H+", "H-"),
-    radiative_association.radiative_association("H"),
-    photochemistry.photodissociation("H_2"),
-    photochemistry.photodetachment("H-"),
-    cosmic_ray_dissociation.cosmic_ray_dissociation("H_2"),
-    r16,
-]
-H2_chemistry = sum(h2_chemistry_processes)
+
+def h2_chemistry_processes(chemical_heat=True):
+    """The H2/H- reactions; chemical_heat gives the gas the heat of H2 formation and takes that of dissociation"""
+    return [
+        grain_formation.grain_formation(chemical_heat),
+        three_body.H2_3body_formation(chemical_heat),
+        collisional_detachment.Hminus_collisional_detachment("H"),
+        collisional_detachment.Hminus_collisional_detachment("e-"),
+        associative_detachment.associative_detachment("H", "H-", chemical_heat),
+        *[collisional_dissociation.H2_collisional_dissociation(c, chemical_heat=chemical_heat)
+          for c in ("H+", "e-", "H_2", "H", "He")],
+        mutual_neutralization.mutual_neutralization("H+", "H-"),
+        radiative_association.radiative_association("H"),
+        photochemistry.photodissociation("H_2"),
+        photochemistry.photodetachment("H-"),
+        cosmic_ray_dissociation.cosmic_ray_dissociation("H_2"),
+        r16,
+    ]
+
+
+def H2_chemistry(chemical_heat=True):
+    return sum(h2_chemistry_processes(chemical_heat))

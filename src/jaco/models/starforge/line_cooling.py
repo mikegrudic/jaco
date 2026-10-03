@@ -1,6 +1,6 @@
 import sympy as sp
-from jaco.processes import NBodyProcess
-from jaco.symbols import T, T5, n_
+from jaco.processes import NBodyProcess, ThermalProcess
+from jaco.symbols import T, T5, n_, x_, n_Htot
 from .symbols import x_solar, cmb_bath_factor, lowtemp_truncation
 
 # put analytic fits for cooling efficiencies
@@ -53,3 +53,14 @@ def LineCoolingSimple(emitter: str, collider=None) -> NBodyProcess:
         process.name = f"{emitter} Line Cooling"
 
     return process
+
+
+# [CI] 609 um fine-structure cooling by collisions with neutral H nuclei (Hocuk+16 rate per H nucleus at solar C, as GIZMO
+# carries it), on the neutral carbon the model's C+ and CO leave. GIZMO weights the same rate by the C+ fraction instead.
+x_C_neutral = sp.Symbol("x_C,tot") - x_("C+") - x_("CO")
+CI_cooling = ThermalProcess(
+    -2.08e-29 * sp.exp(-23.6 / T) / x_solar("C") * x_C_neutral * n_Htot**2 * (1 - x_("H+")) * sp.Symbol("C_2")
+    * cmb_bath_factor * lowtemp_truncation,
+    name="[CI] 609 um cooling",
+    bibliography=["2016MNRAS.456.2586H"],
+)

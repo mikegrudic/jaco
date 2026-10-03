@@ -8,6 +8,12 @@ def __getattr__(name):
         model = make_model()
         globals()["starforge"] = model  # cache so it's only built once
         return model
+    if name == "starforge_legacy":
+        from .starforge_legacy import make_model
+
+        model = make_model()
+        globals()["starforge_legacy"] = model  # cache so it's only built once
+        return model
     if name == "wind_comparison":
         from .wind_comparison.cooling import make_model
 

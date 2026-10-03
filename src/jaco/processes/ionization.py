@@ -66,13 +66,15 @@ collisional_ionization_rates = {
 }
 
 
-def CollisionalIonization(species=None) -> Ionization:
+def CollisionalIonization(species=None, clumping=1) -> Ionization:
     """Return an ionization process representing collisional ionization of the input species.
 
     Parameters
     ----------
     species: str, optional
         Species being collisionally ionized. If None, we compose all collisional ionization processes for all ions rates are known.
+    clumping: optional
+        Factor <n^2>/<n>^2 multiplying the two-body rate (e.g. the symbol C_2); 1 by default.
 
     Returns
     -------
@@ -81,11 +83,11 @@ def CollisionalIonization(species=None) -> Ionization:
     """
 
     if species is None:
-        return sum([CollisionalIonization(s) for s in collisional_ionization_rates], Process())
+        return sum([CollisionalIonization(s, clumping) for s in collisional_ionization_rates], Process())
 
     process = Ionization(species)
     process.name = f"Collisional Ionization of {species}"
-    nprod = n_(species) * n_e
+    nprod = n_(species) * n_e * clumping
 
     if species not in collisional_ionization_rates:
         raise NotImplementedError(f"{species} does not have an available collisional ionization coefficient.")

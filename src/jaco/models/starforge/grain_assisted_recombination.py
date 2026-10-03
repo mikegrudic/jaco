@@ -1,7 +1,14 @@
-"""Grain-assisted recombination (Weingartner & Draine 2001), as GIZMO's alpha_recomb_grain (simple_chemistry.cc)"""
+"""Grain-assisted recombination (Weingartner & Draine 2001), as GIZMO's alpha_recomb_grain (simple_chemistry.cc).
+
+WD01 Eq. 5 defines the coefficient per ion and H nucleus (dn_i/dt = -alpha_g n_i n_H) and Eq. 8 fits it with ln T, in
+terms of psi = G sqrt(T) / n_e with G the FUV field in Habing units; the fit holds to 20% for 10 <= T <= 1e3 K and
+1e2 <= psi <= 1e6. GIZMO (after Kim+23) adds 50 to psi to keep it inside that range in shielded gas.
+"""
 
 import sympy as sp
-from .symbols import T, G_0, Z_dust, f_dust, n_Htot
+from jaco.process import Process
+from jaco.symbols import n_
+from .symbols import T, G_0, Z_dust, f_dust, n_Htot, x_, dust_sputtering_truncation
 
 coeffs = {  # fit parameters from 2001ApJ...563..842W
     "H+": [12.25, 8.074e-6, 1.378, 5.087e2, 1.586e-2, 0.4723, 1.102e-5],  #  H+
@@ -19,16 +26,27 @@ coeffs = {  # fit parameters from 2001ApJ...563..842W
 }
 
 
-def grain_charge_psi(x_e):
+def grain_charge_psi(x_e, n_H=n_Htot):
     """GIZMO's grain_charge_psi: G0 sqrt(T) / n_e, plus 50 to keep it finite in shielded gas (Kim+2023)"""
-    return G_0 * sp.sqrt(T) / (n_Htot * x_e) + 50
+    return G_0 * sp.sqrt(T) / (n_H * x_e) + 50
 
 
-def alpha_grain(ion, x_e):
+def alpha_grain(ion, x_e, n_H=n_Htot):
     """Rate coefficient (cm^3 s^-1) per ion and H nucleus: the recombination rate per volume is alpha n_ion n_H"""
     if ion not in coeffs:
         raise NotImplementedError(f"idk the grain-assisted recombination coefficient for {ion}.")
     C = coeffs[ion]
-    psi = grain_charge_psi(x_e)
+    psi = grain_charge_psi(x_e, n_H)
     return (Z_dust * f_dust * 1e-14 * C[0]
             / (1 + C[1] * psi ** C[2] * (1 + C[3] * T ** C[4] * psi ** (-C[5] - C[6] * sp.log(T)))))
+
+
+class GrainAssistedRecombination(Process):
+    """ion + grain -> neutral at alpha n_ion n_H C_2 per volume. The released energy goes to the grain, so the gas loses
+    no heat. Grains are taken to be sputtered away above 3e5 K, as in the gas-dust coupling."""
+
+    def __init__(self, ion):
+        super().__init__(name=f"Grain-assisted recombination of {ion}", bibliography=["2001ApJ...563..842W"])
+        rate = alpha_grain(ion, x_("e-")) * n_(ion) * n_Htot * sp.Symbol("C_2") * dust_sputtering_truncation
+        self.network[ion] -= rate
+        self.network[ion.rstrip("+")] += rate

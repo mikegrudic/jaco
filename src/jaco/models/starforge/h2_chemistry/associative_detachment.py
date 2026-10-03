@@ -1,6 +1,7 @@
 """Implementation of associative detachment of H and D species"""
 
-from ..symbols import T, H2_chemical_heat_cgs
+from ..symbols import T
+from .chemical_heat import formation_heat
 from jaco.processes import ChemicalReaction
 import sympy as sp
 
@@ -21,7 +22,7 @@ k2_new = (
 )  # 2010Sci...329...69K
 
 
-def associative_detachment(species1, species2):
+def associative_detachment(species1, species2, chemical_heat=True):
     species = (species1, species2)
     rate = k2
     product = "H_2"
@@ -37,7 +38,7 @@ def associative_detachment(species1, species2):
     return ChemicalReaction(
         f"{species1} + {species2} -> {product} + e-",
         rate,
-        heat_per_reaction=H2_chemical_heat_cgs,
+        heat_per_reaction=formation_heat("H-", chemical_heat) if product == "H_2" else 0,
         name=f"Associative detachment of {species1} with {species2}",
         bibliography=bib,
     )
