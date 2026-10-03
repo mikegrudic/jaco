@@ -4,7 +4,6 @@ import sympy as sp
 from .species_strings import species_mass, species_charge, species_counts, total_atom_abundance
 from .symbols import d_dt, dt, n_, x_, t, BDF, n_Htot, sanitize_symbols, sanitize_name
 from .eos import EOS
-from .data import SolarAbundances
 from .data.atoms import atoms
 from jax import numpy as jnp
 
@@ -59,6 +58,11 @@ class EquationSystem(dict):
         charge neutrality, atom conservation, and fixed species.
     discarded : dict
         Equations the reduction removed, mapped to the reason.
+    species_kinds : dict
+        Declared species name -> kind ("material", "trace", "radiation", "energy"; see
+        :class:`jaco.declarations.Species`). Empty: species are inferred from the symbols by element parsing.
+    parameters : dict
+        Declared parameter name -> :class:`jaco.declarations.Parameter`, besides the core ones.
     """
 
     def copy(self):
@@ -70,6 +74,8 @@ class EquationSystem(dict):
         new.derived_params = dict(getattr(self, 'derived_params', {}))
         new.fixed_electrons = getattr(self, 'fixed_electrons', None)
         new.intermediates = list(getattr(self, 'intermediates', []))
+        new.species_kinds = dict(getattr(self, 'species_kinds', {}))
+        new.parameters = dict(getattr(self, 'parameters', {}))
         return new
 
     def __getitem__(self, __key: str):
@@ -103,7 +109,19 @@ class EquationSystem(dict):
         new.intermediates = list(getattr(self, 'intermediates', [])) + list(getattr(other, 'intermediates', []))
         if len({w for w, _ in new.intermediates}) != len(new.intermediates):
             raise ValueError("an intermediate is defined twice")
+        for attr in ("species_kinds", "parameters"):
+            a, b = getattr(self, attr, {}), getattr(other, attr, {})
+            clash = [k for k in set(a) & set(b) if a[k] != b[k]]
+            if clash:
+                raise ValueError(f"conflicting {attr} for {clash}")
+            setattr(new, attr, {**a, **b})
         return new
+
+    def declared_parameters(self):
+        """name -> Parameter: the core parameters and the network's own"""
+        from .declarations import CORE_PARAMETERS, merge_declarations
+        return merge_declarations("parameter", CORE_PARAMETERS, getattr(self, 'parameters', {}).values())
+
 
     @property
     def symbols(self):
@@ -309,10 +327,14 @@ class EquationSystem(dict):
         self.substitutions = []
 
         # since we have n_Htot let's convert all other n's to x's
-        # convert n_ to x_ (abundances per H): n_s -> n_Htot * x_s
+        # convert n_ to x_ (abundances per H): n_s -> n_Htot * x_s, for declared species of every kind but energy
+        kinds = getattr(self, 'species_kinds', {})
         for s in self.symbols:
             if str(s)[:2] == "n_" and "Htot" not in str(s):
-                self.substitutions.append((s, n_Htot * sp.Symbol("x_" + str(s)[2:])))
+                name = str(s)[2:]
+                if kinds and kinds.get(name.removesuffix("_initial")) in (None, "energy"):
+                    continue
+                self.substitutions.append((s, n_Htot * sp.Symbol("x_" + name)))
         for expr, sub in self.substitutions:
             self.subs(expr, sub)
 
@@ -392,7 +414,10 @@ class EquationSystem(dict):
 
     @property
     def chemical_species(self):
-        """Returns a tuple of all chemical species detected within the network"""
+        """The material species: the declared ones, or, with no declarations, those detected in the network"""
+        kinds = getattr(self, 'species_kinds', {})
+        if kinds:
+            return tuple(s for s, kind in kinds.items() if kind == "material")
         # strategy: look for things with n_ or x_, but not photons
         species = set()
         for s in self.symbols:
@@ -467,7 +492,7 @@ class EquationSystem(dict):
 
         # are there any symbols for which we can make a reasonable assumption or directly solve the steady-state approximation?
         # TODO: need to reject symbols in knowns that are not found in the network
-        prescriptions = {"y": SolarAbundances.x("He"), "Y": SolarAbundances.mass_fraction["He"], "Z": 1.0, "C_2": 1.0}
+        prescriptions = {name: p.default for name, p in self.declared_parameters().items() if p.default is not None}
         assumed_values = {}
         if len(symbols) > num_equations + len(knowns):
             undetermined_symbols = symbols.difference(set(sp.Symbol(g) for g in guesses))
@@ -524,7 +549,8 @@ class EquationSystem(dict):
         func = lambdify(subsystem.rhs_scaled)
         #        maxfunc = lambdify(bounds)
 
-        tolerance_vars = [x_(s) for s in subsystem.chemical_species]  # default: converge on all abundances
+        # default: converge on all abundances left in the reduced system
+        tolerance_vars = [x_(s) for s in subsystem.chemical_species if x_(s) in symbols]
         if "T" in guesses:
             tolerance_vars += [sp.Symbol("T")]
         if "u" in guesses:
@@ -715,7 +741,7 @@ class EquationSystem(dict):
         if minimal:
             return self._generate_minimal(func, jac_expr, indices, language, jac, do_cse)
         else:
-            return self._generate_full(func, jac_expr, indices, language, do_cse, func_name, jac_mode)
+            return self._generate_full(func, jac_expr, indices, language, do_cse, func_name, jac_mode, time_dependent)
 
     def _generate_minimal(self, func, jac, indices, language, has_jac, do_cse):
         """Original generate_code behavior: return a bare code string."""
@@ -784,7 +810,21 @@ class EquationSystem(dict):
 
         return code
 
-    def _generate_full(self, func, jac, indices, language, do_cse, func_name, jac_mode):
+    def _parameter_docs(self, param_syms, time_dependent):
+        """sanitized name -> Parameter for each parameter of the generated code. With species declared, a parameter
+        that is not declared (by the core, the network, or implied by the species and the time-dependent variables)
+        raises."""
+        from .declarations import implied_parameters, declared_parameter_names, Species
+        kinds = getattr(self, 'species_kinds', {})
+        species = {s: Species(s, k) for s, k in kinds.items()}
+        implied = {p.name: p for p in implied_parameters(species, time_dependent)}
+        declared = declared_parameter_names({**implied, **self.declared_parameters()})  # explicit declarations win
+        undeclared = [str(p) for p in param_syms if str(p) not in declared]
+        if kinds and undeclared:
+            raise ValueError(f"undeclared symbols {undeclared}: declare them as Parameters or species of the model")
+        return {str(p): declared[str(p)] for p in param_syms if str(p) in declared}
+
+    def _generate_full(self, func, jac, indices, language, do_cse, func_name, jac_mode, time_dependent=()):
         """Generate self-documenting code with named variables, split rhs/jac, enums, and headers."""
         from jaco.codegen.printers import (
             JacoCCodePrinter, JacoCudaCodePrinter,
@@ -828,7 +868,8 @@ class EquationSystem(dict):
             case _: result["interp_header"] = printer.get_table_declarations_c()
 
         if lang not in ("python", "julia"):
-            result["header"] = self._gen_header(func_name, var_names, param_syms, n_vars, lang)
+            result["header"] = self._gen_header(func_name, var_names, param_syms, n_vars, lang,
+                                                self._parameter_docs(param_syms, time_dependent))
 
         result["var_names"] = var_names
         result["param_names"] = [str(p) for p in param_syms]
@@ -1044,14 +1085,28 @@ end
                 else:
                     return f'#include <cmath>\n#include "{func_name}.h"\n#include "jaco_interp.h"\n\n{c_sig} {{\n{body}\n}}\n'
 
-    def _gen_header(self, func_name, var_names, param_syms, n_vars, lang):
-        """Generate C/C++/CUDA header content with enums, structs, and declarations."""
+    def _gen_header(self, func_name, var_names, param_syms, n_vars, lang, param_docs=None):
+        """Generate C/C++/CUDA header content with enums, structs, and declarations. JACO_HAS_VAR_<name> and
+        JACO_HAS_PARAM_<name> let host code fill each field under #ifdef; param_docs (name -> Parameter) annotate the
+        Params fields."""
         is_cuda = lang == "cuda"
         is_c = lang == "c"
         device = "__device__ " if is_cuda else ""
         param_names = [str(p) for p in param_syms]
+        param_docs = param_docs or {}
+
+        def field_comment(p):
+            d = param_docs.get(p)
+            if d is None:
+                return ""
+            text = " ".join(t for t in (d.doc, d.units and f"[{d.units}]") if t)
+            return f"  /* {text} */" if text else ""
 
         lines = ["#pragma once", ""]
+        lines += [f"#define JACO_HAS_VAR_{v}" for v in var_names]
+        lines += [f"#define JACO_HAS_PARAM_{p}" for p in param_names]
+        lines.append("#define JACO_PARAM_NAMES {" + ", ".join(f'"{p}"' for p in param_names) + "}")
+        lines.append("")
         var_entries = ", ".join(f"IDX_{v} = {i}" for i, v in enumerate(var_names))
         lines.append(f"enum SolveVarIndex {{ {var_entries}, N_VARS = {n_vars} }};")
         param_entries = ", ".join(f"PARAM_{p} = {i}" for i, p in enumerate(param_names))
@@ -1070,7 +1125,7 @@ end
             lines.append("typedef union {")
             lines.append("    struct {")
             for p in param_names:
-                lines.append(f"        double {p};")
+                lines.append(f"        double {p};{field_comment(p)}")
             lines.append("    };")
             lines.append(f"    double data[{len(param_names)}];")
             lines.append("} Params;")
@@ -1084,7 +1139,7 @@ end
             lines.append("")
             lines.append(f"struct Params {{")
             for p in param_names:
-                lines.append(f"    double {p};")
+                lines.append(f"    double {p};{field_comment(p)}")
             lines.append(f"    {device}const double* data() const {{ return &{param_names[0]}; }}")
             lines.append("};")
         lines.append("")

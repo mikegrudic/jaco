@@ -193,16 +193,16 @@ def generate_funcjac_code(
 ):
     """Generate the RHS + Jacobian sources for ``system`` and write them to ``output_dir``.
 
-    Prints every equation the reduction discards, with the reason.
+    Prints every equation the reduction discards, with the reason. Refuses any symbol the model does not declare.
 
     Parameters
     ----------
-    system : Model or Process
+    system : Model
         The model to generate code for. Must already include any PdV-work term it needs.
     solve_vars : list of str, optional
-        Solve variables in index order; a Model's own by default, required for a Process.
+        Solve variables in index order; the model's own by default.
     time_dependent : list of str, optional
-        Variables that get a backward-Euler term; a Model's own by default, required for a Process.
+        Variables that get a backward-Euler term; the model's own by default.
     cse : bool
         Apply common subexpression elimination.
     language : str
@@ -224,11 +224,12 @@ def generate_funcjac_code(
     """
     from ...model import Model
 
-    if isinstance(system, Model):
-        solve_vars = system.solve_vars if solve_vars is None else solve_vars
-        time_dependent = system.time_dependent if time_dependent is None else time_dependent
-    elif solve_vars is None or time_dependent is None:
-        raise ValueError("give solve_vars and time_dependent, or a Model that declares them")
+    if not isinstance(system, Model):
+        raise TypeError("generate code for a Model, which declares the solve variables, parameters and species")
+    if not system.species:
+        raise ValueError("the model declares no species; code generation needs them to check its symbols")
+    solve_vars = system.solve_vars if solve_vars is None else solve_vars
+    time_dependent = system.time_dependent if time_dependent is None else time_dependent
     if not solve_vars:
         raise ValueError("no solve variables")
     solve_vars, time_dependent = list(solve_vars), list(time_dependent)

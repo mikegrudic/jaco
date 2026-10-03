@@ -101,6 +101,12 @@ class Process:
             return sum(p.unclumped() for p in self._subprocesses)
         return self
 
+    def with_radiation(self, radiation):
+        """Copy whose default clumping leaves out reactants in radiation (the species a model declares radiation)"""
+        if len(self._subprocesses) > 1:
+            return sum(p.with_radiation(radiation) for p in self._subprocesses)
+        return self
+
     def solve(self, known_quantities, guess, time_dependent=[], dt=None, verbose=False, tol=1e-3, careful_steps=10):
         """Solve the network for the guessed quantities given the known ones; see :meth:`EquationSystem.solve`"""
         return self.network.solve(known_quantities, guess, time_dependent=time_dependent, tol=tol,

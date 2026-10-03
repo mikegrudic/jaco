@@ -15,6 +15,7 @@ two-body rate.
 
 import sympy as sp
 from jaco.model import Model
+from jaco.declarations import Species
 from jaco.processes import CollisionalIonization, GasPhaseRecombination, FreeFreeEmission, ThermalTerm
 from jaco.symbols import x_
 from .line_cooling import LineCoolingSimple, CI_cooling
@@ -28,7 +29,7 @@ from .metal_line_cooling import metal_line_cooling
 from .ionization_balance import ionization_processes
 from .nebular_cooling import nebular_cooling
 from .compton import compton_cooling
-from .symbols import T, n_Htot, G_0, clumping_factor
+from .symbols import T, n_Htot, G_0, clumping_factor, PARAMETERS
 
 # Solve variables in index order (GIZMO's jaco.cc assumes u, T first, abundances after) and the subset that gets a
 # backward-Euler term; the ions are solved in steady state
@@ -40,6 +41,17 @@ DEUTERIUM_PER_H = 2.527e-5  # Cooke, Pettini & Steidel 2018
 DERIVED = {"C_2": clumping_factor, "C_3": clumping_factor**3}  # <n^3>/<n>^3 = C_2^3, lognormal
 
 pdv_work = ThermalTerm(sp.Symbol("pdv_work"), name="PdV work")
+
+# Species of both models. C+ and CO are fixed; the other metals enter the EOS and the metal-line tables with their
+# total abundances
+SHARED_SPECIES = [Species(s) for s in ("H", "H+", "H_2", "He", "He+", "He++", "e-", "C", "C+", "CO", "O")]
+SHARED_SPECIES += [Species(el, doc=f"{el} nuclei per H nucleus, all of them") for el in ("N", "Ne", "Mg", "Si", "S", "Ca", "Fe")]
+SHARED_SPECIES.append(Species("dust heat", "energy", "energy the gas gives the dust"))
+STARFORGE_SPECIES = SHARED_SPECIES + [
+    Species("H-"), Species("H_2+"),
+    Species("HD", "trace", "HD per H nucleus; outside the EOS and the H budget"),
+    Species("photon_assoc,H", "radiation", "photons of the radiative association of H-"),
+]
 
 
 def shared_processes():
@@ -85,4 +97,6 @@ def make_model():
         derived=DERIVED,
         intermediates=intermediates,
         fixed_electrons=fixed_electrons,  # free electrons beyond the solved H and He ions
+        parameters=PARAMETERS,
+        species=STARFORGE_SPECIES,
     )

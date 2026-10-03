@@ -25,11 +25,12 @@ truncation factors and the PdV term.
 
 import sympy as sp
 from jaco.model import Model, Rule
-from ..starforge.starforge import (SOLVE_VARS, TIME_DEPENDENT, GIZMO_FAMILY, DERIVED, shared_processes, pdv_work)
+from ..starforge.starforge import (SOLVE_VARS, TIME_DEPENDENT, GIZMO_FAMILY, DERIVED, SHARED_SPECIES, shared_processes,
+                                   pdv_work)
 from ..starforge.gizmo_lowtemp import gizmo_carbon_cooling, gizmo_H2_cooling
 from ..starforge.h2_chemistry.gizmo_network import GizmoH2Network
 from ..starforge.metal_electrons import metal_electrons
-from ..starforge.symbols import n_Htot, nH_gizmo_cooling
+from ..starforge.symbols import n_Htot, nH_gizmo_cooling, PARAMETERS
 
 
 def scaled_densities(factor):
@@ -56,4 +57,6 @@ def make_model():
         intermediates=intermediates,
         fixed_electrons=fixed_electrons,
         rules=[GIZMO_CLUMPING, GIZMO_DENSITY],
+        parameters=PARAMETERS,
+        species=SHARED_SPECIES,
     )

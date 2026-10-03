@@ -35,6 +35,12 @@ process in every respect.
 
 .. autoclass:: jaco.model.Rule
 
+Declarations: every species with its kind, and every parameter besides the core ones and those the species imply.
+Code generation refuses undeclared symbols, and the header defines ``JACO_HAS_VAR_<name>``/``JACO_HAS_PARAM_<name>``.
+
+.. automodule:: jaco.declarations
+   :members: Parameter, Species, CORE_PARAMETERS
+
 EquationSystem
 --------------
 

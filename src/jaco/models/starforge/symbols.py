@@ -6,6 +6,7 @@ NOTE: all quantites are assumed to be in cgs units!
 import sympy as sp
 from ...symbols import x_, n_
 from ...data import SolarAbundances
+from ...declarations import Parameter
 
 # Integer mass numbers and solar H mass fraction with which GIZMO's interface packs the x_X parameters
 # (x_X = Z_X / (A_X X_H)), so that x_X / x_solar(X) reproduces GIZMO's Z_X / Z_X,sun scalings.
@@ -67,3 +68,20 @@ clumping_factor = 1 + (0.5 * grad_v * dx / (1.11e4 * sqrt_T / sp.sqrt(3))) ** 2
 GIZMO_HYDROGEN_MASSFRAC = 0.76
 nH_gizmo_cooling = GIZMO_HYDROGEN_MASSFRAC * n_Htot / X_H
 nH_gizmo_molecular = n_Htot / X_H
+
+# The inputs of both starforge models besides the core ones (n_Htot, pdv_work, y) and those the species imply
+PARAMETERS = [
+    Parameter("Δx", "cm", 3e18, "cell size, for the clumping factor and the turbulent line width"),
+    Parameter("G_0", "Habing", 1.0, "FUV field, for photoelectric heating, grain charging and the C+ fraction"),
+    Parameter("G_LW", "Habing", 1.0, "Lyman-Werner field seen by H2 before its self-shielding"),
+    Parameter("ISRF", "", 1.0, "scale of the interstellar radiation field and the cosmic-ray background"),
+    Parameter("N_H", "cm^-2", 1e20, "shielding column in nucleons, Sigma/m_p"),
+    Parameter("Td", "K", 15.0, "dust temperature"),
+    Parameter("X", "", X_H_SOLAR, "H mass fraction"),
+    Parameter("Z_d", "", 1.0, "dust abundance relative to the solar neighbourhood"),
+    Parameter("f_d", "", 1.0, "dust survival fraction (sublimation)"),
+    Parameter("f_metal", "", 1.0, "tabulated metal-line cooling switch, 1 on, 0 off"),
+    Parameter("f_neb", "", 0.0, "Kim+23 nebular forbidden-line cooling switch, 1 on, 0 off"),
+    Parameter("∇v", "s^-1", 1e-14, "Frobenius norm of the velocity gradient"),
+    Parameter("z", "", 0.0, "cosmological redshift"),
+]

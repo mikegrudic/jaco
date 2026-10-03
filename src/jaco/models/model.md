@@ -32,4 +32,15 @@ equation when the network is assembled; `fixed={species: expression}` prescribes
 expression}` substitutes an expression of the solve variables for a parameter before differentiation; `rules=[Rule(...)]`
 rewrite the processes (e.g. a different density in the rates) at assembly, so processes added later get them too.
 
+## Step 4: Declare the contract
+
+`species=[Species("H"), ..., Species("photon_EUV", "radiation"), Species("dust heat", "energy")]` lists every species
+with its kind: material species (composition parsed from the name) make up the EOS and the conservation sums, trace
+species stay out of both, radiation is not a collider for the default clumping. `parameters=[Parameter("G_0", "Habing",
+1.0, "FUV field"), ...]` declares every input besides the core ones (`n_Htot`, `pdv_work`, `y`, ...) and those the
+species imply (abundances, element totals, start-of-step values). Code generation refuses any undeclared symbol, so a
+typo or a stray `C_4` fails at codegen instead of becoming a struct field the host zero-fills. The generated header
+defines `JACO_HAS_VAR_<name>` and `JACO_HAS_PARAM_<name>` for each field, so host code fills what the model has under
+`#ifdef`.
+
 ### Style guidelines

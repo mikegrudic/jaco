@@ -6,6 +6,7 @@ from typing import Callable
 import sympy as sp
 
 from .process import Process
+from .declarations import Parameter, Species, merge_declarations
 
 
 @dataclass(frozen=True)
@@ -72,10 +73,16 @@ class Model:
         Free electrons per H nucleus on species outside the network.
     rules: sequence of Rule
         Rewrites of the processes, applied in order when the network is assembled.
+    parameters: sequence of Parameter
+        The model's inputs besides the core ones (jaco.declarations.CORE_PARAMETERS) and those its species imply.
+    species: sequence of Species
+        Every species of the model with its kind. With species declared, every row of the network must be declared,
+        the EOS and the conservation sums take exactly the material species, reactants declared as radiation do not
+        count towards the default clumping order, and code generation refuses any undeclared symbol.
     """
 
     def __init__(self, processes=(), *, solve_vars=(), time_dependent=(), steady_state=(), fixed=None, derived=None,
-                 intermediates=(), fixed_electrons=None, rules=()):
+                 intermediates=(), fixed_electrons=None, rules=(), parameters=(), species=()):
         atoms = {}
         for p in processes:
             if not isinstance(p, Process):
@@ -95,6 +102,8 @@ class Model:
         self.intermediates = tuple((sp.Symbol(w) if isinstance(w, str) else w, W) for w, W in intermediates)
         self.fixed_electrons = fixed_electrons
         self.rules = tuple(rules)
+        self.parameters = tuple(merge_declarations("parameter", parameters).values())
+        self.species = tuple(merge_declarations("species", species).values())
         self._check()
         self._assembled = None
         self._frozen = True
@@ -111,6 +120,15 @@ class Model:
             raise ValueError("an intermediate is defined twice")
         if len({r.name for r in self.rules}) != len(self.rules):
             raise ValueError("two rules share a name")
+        if not all(isinstance(p, Parameter) for p in self.parameters):
+            raise TypeError("parameters must be Parameter declarations")
+        if not all(isinstance(s, Species) for s in self.species):
+            raise TypeError("species must be Species declarations")
+        declared = {s.name for s in self.species}
+        if declared:
+            undeclared = (set(self.solve_vars) - {"u", "T"} | set(self.steady_state) | set(self.fixed)) - declared
+            if undeclared:
+                raise ValueError(f"species {sorted(undeclared)} are not declared")
 
     def __setattr__(self, attr, value):
         if getattr(self, "_frozen", False) and attr != "_assembled":
@@ -123,7 +141,8 @@ class Model:
     def _declarations(self):
         return dict(solve_vars=self.solve_vars, time_dependent=self.time_dependent, steady_state=self.steady_state,
                     fixed=self.fixed, derived=self.derived, intermediates=self.intermediates,
-                    fixed_electrons=self.fixed_electrons, rules=self.rules)
+                    fixed_electrons=self.fixed_electrons, rules=self.rules, parameters=self.parameters,
+                    species=self.species)
 
     def evolve(self, processes=None, **declarations):
         """Copy with the processes and/or declarations replaced"""
@@ -172,7 +191,9 @@ class Model:
                      fixed=_merge_dicts("fixed abundances", self.fixed, other.fixed),
                      derived=_merge_dicts("derived parameters", self.derived, other.derived),
                      intermediates=list(inter.items()), fixed_electrons=fe[0] if fe else None,
-                     rules=list(rules.values()))
+                     rules=list(rules.values()),
+                     parameters=merge_declarations("parameter", self.parameters, other.parameters).values(),
+                     species=merge_declarations("species", self.species, other.species).values())
 
     def __radd__(self, other):
         if isinstance(other, (int, float)) and other == 0:
@@ -226,13 +247,21 @@ class Model:
             unknown = rule.exempt - set(self._processes)
             if unknown:
                 raise ValueError(f"rule '{rule.name}' exempts processes not in the model: {sorted(unknown)}")
+        radiation = {s.name for s in self.species if s.kind == "radiation"}
         effective = []
         for i, p in self._processes.items():
+            p = p.with_radiation(radiation) if radiation else p
             for rule in self.rules:
                 if i not in rule.exempt:
                     p = rule.apply(p)
             effective.append(p)
         network = sum(effective).network if effective else Process().network
+        if self.species:
+            undeclared = set(network) - {"heat"} - {s.name for s in self.species}
+            if undeclared:
+                raise ValueError(f"the processes have rows for undeclared species {sorted(undeclared)}")
+        network.species_kinds = {s.name: s.kind for s in self.species}
+        network.parameters = {p.name: p for p in self.parameters}
         closures = {s: network.steady_state_closure(s) for s in self.steady_state}
         network.fixed_species = {**self.fixed, **closures}
         network.steady_state = self.steady_state

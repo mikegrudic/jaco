@@ -2,6 +2,7 @@ import numpy as np
 from jaco.symbols import piecewise_powerlaw, T, n_
 from jaco.processes import ThermalTerm
 from jaco.model import Model
+from jaco.declarations import Species
 import sympy as sp
 from jaco.math import logistic
 
@@ -62,4 +63,5 @@ def make_model():
     -------
     Model
     """
-    return Model([cooling, heating, pdv_work], solve_vars=["u", "T"], time_dependent=["T"])
+    return Model([cooling, heating, pdv_work], solve_vars=["u", "T"], time_dependent=["T"],
+                 species=[Species("H", doc="H atoms per H nucleus (all H is atomic)")])
