@@ -53,7 +53,8 @@ def solved_electrons(n_steps=N_NEWTON):
     dlnF = sp.diff(lnF, xe)
     inter = [(e_other, alkali_electrons() + Oplus_electrons())]
     s = sp.Symbol("IbS0")
-    inter.append((s, sp.log(x_C_gas + x_Mg + sp.sqrt(2 * zeta * x_("H_2") / (C2 * n_Htot * beta_molion)))))
+    # (the 1e-40 keeps the derivative of the start finite at x_H2 = 0)
+    inter.append((s, sp.log(x_C_gas + x_Mg + sp.sqrt(2 * zeta * x_("H_2") / (C2 * n_Htot * beta_molion) + 1e-40))))
     for k in range(n_steps):
         g, h, s_next = sp.symbols(f"IbG{k} IbH{k} IbS{k + 1}")
         y = sp.exp(s)

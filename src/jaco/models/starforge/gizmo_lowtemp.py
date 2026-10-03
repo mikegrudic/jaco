@@ -15,6 +15,7 @@ from .H2_cooling import lambda_H2_thin, Lambda_HD_thin, Lambda_H2_LTE_per_molecu
 xH0 = 1 - x_("H+")
 x_e = x_("e-")
 KMS_PER_PC = 1e5 / 3.085678e18  # 1 km/s/pc in s^-1
+MIN_REAL_NUMBER = 1e-56  # GIZMO constants.h
 
 
 def f_Cplus_CCO(n=n_Htot):
@@ -54,7 +55,7 @@ def gizmo_H2_cooling_coefficient():
             + x_H2 * X_H * lambda_H2_thin("H_2") + x_("H+") * X_H * lambda_H2_thin("H+") + x_e * X_H * lambda_H2_thin("e-"))
     n_over_ncrit = thin * n_Htot / Lambda_H2_LTE_per_molecule()
     f_HD = sp.Min(0.00126 * x_H2, 4.0e-5 * xH0)
-    return x_H2 * thin / (1 + n_over_ncrit) + f_HD * Lambda_HD_thin() / (1 + f_HD / x_H2 * n_over_ncrit)
+    return x_H2 * thin / (1 + n_over_ncrit) + f_HD * Lambda_HD_thin() / (1 + f_HD / (x_H2 + MIN_REAL_NUMBER) * n_over_ncrit)
 
 
 gizmo_H2_cooling = ThermalProcess(

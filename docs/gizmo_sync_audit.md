@@ -4,6 +4,9 @@ Date: 2026-10-02. GIZMO: `gizmo_jaco_dev` = `origin/starforge_dev` at `8da21be3`
 `f6d0c76` (`origin/slop_experiments`). The scope is the physics compiled into GIZMO's non-RT cooling tests
 (`test/gmc_cooling`, `test/two_temperature`). The Kim+23 nebular term is RT-only but was added anyway.
 
+Since the split into two models (section 10), the rows marked FIXED 30ab8f0, 5fafaec and 759b9bf describe
+`starforge_legacy`; `starforge` puts that physics back.
+
 Units: GIZMO's `CoolingRate()` returns rates per n_H^2. Every comparison below is of volumetric rates
 (erg cm^-3 s^-1), i.e. GIZMO's value times n_H^2.
 
@@ -244,3 +247,58 @@ The rest is three deliberate differences, attributed by evaluating the model at 
 
 With all three replaced by GIZMO's versions, the equilibrium temperature at the legacy state is within 13% of the legacy
 temperature in every bin (1.09, 1.09, 1.06, 1.01, 0.89, 0.88, 0.87, 0.92, 0.93).
+
+## 10. Two models: `starforge` and `starforge_legacy`
+
+Both are built by `make_model(switches)` in `starforge/starforge.py` from the same processes; `starforge_legacy`
+is a thin package that passes `STARFORGE_LEGACY`. Both solve u, T, x_H+, x_He+, x_He++, x_H2, pack the same 28
+Params and generate the host macro `JACO_FAMILY_STARFORGE` (GIZMO branches on it; `JACO_MODEL_<NAME>` stays).
+
+### 10.1 Switches (`starforge/switches.py`)
+
+| switch | `starforge` | `starforge_legacy` | GIZMO reference (cooling.cc, e5865f97) |
+|---|---|---|---|
+| `clumping` | C_2 on every two-body rate, C_3 on three-body ones | only the H2 terms GIZMO clumps (collisional dissociation, dust and H- formation, C_3 on 3-body) | `update_explicit_molecular_fraction` 2025-2075 |
+| `rate_density` | n_Htot | nHcgs = 0.76 rho/m_p; rho/m_p in the H2 update | `CoolingRate` 1046, `simple_chemistry.cc`, 1985 |
+| `h2_network` | reaction network, H- coupled to the ions, grain formation R n_H n_HI | transcription: half-speed rates in f = 2 n_H2/n_H0, n_crit weights from XH = 0.76, own H- estimate, no D channels | 1969-2148 |
+| `h2_chemical_heat` | formation (0.2 + 4.2 f, 3.53 f, 4.48 f eV, f = 1/(1 + n_cr/n), HM79/Omukai via Nickerson+18) and -4.48 eV per dissociation | none | none in GIZMO |
+| `electrons` | CR ionization of H into H+, sinks: radiative, WD01 grain, charge transfer to Mg; C+ (Gong+17), Mg+ and molecular ions solved together | `find_abundances_and_rates` budget (heavy ions = its CR ionization of the neutrals, K, C+, O+, molecular ions) at nHcgs | 937-948, `simple_chemistry.cc` |
+| `carbon_cooling` | C+ (e-, H), [CI] 609 um on neutral C, Whitworth & Jaffa CO | `Lambda_Metals_Neutral`: [CI] weighted by f_C+, HM79 CO with LVG cap, x_H0 collider | 1158-1176 |
+| `h2_cooling` | number-weighted colliders, HD = 2 D/H x_H2 | colliders weighted by X_H, Y_He; HD/H2 = min(0.00126, 4e-5 x_H0/x_H2) | 1177-1192 |
+
+Shared and unchanged by the switches: KWH ionization balance and its cooling, gas-dust coupling, CR heating,
+photoelectric heating, CMB Compton, metal-line tables (`f_metal`), nebular lines (`f_neb`), CMB-bath and truncation
+factors, PdV. Both use GIZMO's clumping estimator, 1 + (0.5 |grad v| dx / c_s)^2 with c_s = 0.111 sqrt(T)/sqrt(3) km/s.
+
+### 10.2 Physics back in `starforge`, and fixes in both
+
+- Restored: heat of H2 formation and dissociation (30ab8f0 undone, with the critical-density partition; 4.48 eV per
+  formation at all densities was ~n_cr/n too large in GMC gas); CR ionization of atomic H (5fafaec undone) at
+  GIZMO's attenuated zeta, now with the sinks that keep x_H+ sensible; solved electrons in place of the heavy-ion and
+  molecular-ion prescriptions (759b9bf kept only in `starforge_legacy`). C+ (Gong+17 balance), thermal K and O+ are
+  kept as physics in both.
+- WD01 (Eqs. 4, 5, 8) confirms GIZMO's grain-assisted recombination form (per H nucleus, ln T, psi = G sqrt(T)/n_e);
+  228e4cf stays in both, with GIZMO's psi + 50.
+- Both: [CI] 609 um added; H2 n/n_crit was n_Htot times too large; HD cooling lacked its collider density; the legacy
+  HD ratio and the electron fixed point's start are finite at x_H2 = 0.
+
+### 10.3 Test variants (GIZMO)
+
+`test/gmc_cooling`: `baseline` (standard module, benchmark), `jaco_legacy` (`JACO=starforge_legacy`, held to the
+benchmark at rel 0.1) and `jaco` (`JACO=starforge`, runs to completion). `test/isodisk_thermalfb` and the feedback
+tests' jaco variants use `starforge`.
+
+gmc_cooling, median T per bin (n_H = 13-774 cm^-3), JACO / benchmark:
+
+- `starforge_legacy`: 0.956 0.990 1.000 1.008 1.015 1.012 1.006 1.000 1.003 (pass). At the legacy run's final cell
+  states its heating, cooling and x_e are 0.99-1.00, 1.000-1.006 and 0.98-1.00 of GIZMO's stored values.
+- `starforge`: 0.48 0.52 0.63 0.84 1.18 1.42 1.37 1.17 1.07. Colder below n_H ~ 60 (C_2 = 1.8-2 on the C+ cooling),
+  warmer above (x_e 2e-5 against 1.6e-6 at n_H ~ 100, which raises the photoelectric efficiency ~2x, and H2
+  formation heat at ~40% of it).
+
+### 10.4 Not active in the non-RT tests, left as they were
+
+UVB photoionization, photoheating and Rahmati shielding (missing in both); nebular lines (`f_neb` = 0); the
+optically-thick cap (missing); metal-line tables (`f_metal` = `J_UV != 0` = 0); Compton off the UVB/ISRF and
+synchrotron (missing); H2-He+ dissociation (legacy only); Lyman-alpha and collisional ionization on atomic H rather
+than GIZMO's x_H0 (> 5000 K only); free-free 1.42e-27 against 1.43e-27.
