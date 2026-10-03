@@ -13,6 +13,7 @@ from ...starforge_legacy_RT import (make_model, slab_average, GIZMO_ABUNDANCES, 
                                     sigma_HI, eps_HI, c_tilde, T_bg)
 
 STATE = {T: 8.0e3, n_Htot: 100.0, X_H: 0.7, z: 0.0}
+F_IR = sp.Symbol("f_IR_selfabs")
 
 
 @pytest.fixture(scope="module")
@@ -28,7 +29,7 @@ def per_H(expr, xs):
     """expr with number densities n_s = n_Htot x_s, at STATE"""
     rep = {n_(s): n_Htot * x for s, x in xs.items()}
     return float(expr.xreplace(rep).subs({**STATE, Gamma_HI: 1e-9, sigma_HI: 3e-18, eps_HI: 4.8e-12,
-                                          c_tilde: 0.0, T_bg: 2.73, dt: 1e11}))
+                                          c_tilde: 0.0, T_bg: 2.73, dt: 1e11, F_IR: 1.0}))
 
 
 def gizmo_dxHp_dt(Tv, xHp, xe, nHcgs, Gamma):
@@ -91,11 +92,11 @@ def test_emission_corrections_take_T_bg(models):
     molecular and fine-structure cooling; Compton keeps the CMB"""
     rt, legacy = models
     for name in ("Metal line cooling", "GIZMO H2 + HD cooling", "GIZMO C+, [CI] and CO cooling"):
-        h_rt, h_lg = process(rt, name).heat, process(legacy, name).heat
+        h_rt, h_lg = process(rt, name).heat.subs(F_IR, 1), process(legacy, name).heat
         assert z not in h_rt.free_symbols and T_bg in h_rt.free_symbols
         assert sp.simplify(h_rt.subs(T_bg, 2.73 * (1 + z)) - h_lg) == 0
     compton = process(rt, "Inverse Compton cooling (CMB)").heat
-    assert T_bg not in compton.free_symbols and compton == process(legacy, "Inverse Compton cooling (CMB)").heat
+    assert T_bg not in compton.free_symbols and compton.subs(F_IR, 1) == process(legacy, "Inverse Compton cooling (CMB)").heat
 
 
 def test_species_rows_per_nHcgs_heat_unchanged(models):
@@ -104,7 +105,7 @@ def test_species_rows_per_nHcgs_heat_unchanged(models):
     lam = 0.76 / X_H
     rec_rt, rec_lg = process(rt, "Gas-phase recombination of H+"), process(legacy, "Gas-phase recombination of H+")
     assert sp.simplify(rec_rt.network["H+"].rhs - rec_lg.network["H+"].rhs / lam) == 0
-    assert sp.simplify(rec_rt.heat - rec_lg.heat) == 0
+    assert sp.simplify(rec_rt.heat.subs(F_IR, 1) - rec_lg.heat) == 0
     h2_rt, h2_lg = process(rt, "GIZMO H2 network"), process(legacy, "GIZMO H2 network")
     assert sp.simplify(h2_rt.network["H_2"].rhs - h2_lg.network["H_2"].rhs) == 0
     assert "GIZMO H2 network" in GIZMO_ABUNDANCES.exempt
@@ -125,6 +126,81 @@ def test_check_with_an_ionizing_field():
     import jaco
     from jaco.model_check import CheckGrid
     grid = CheckGrid(np.logspace(np.log10(3.0), 9, 6), np.logspace(-3, 9, 3), n_random=2)
-    field = dict(Gamma_HI=1e-8, sigma_HI=3e-18, eps_HI=4.8e-12, c_tilde=3e6, T_bg=20.0)
+    field = dict(Gamma_HI=1e-8, sigma_HI=3e-18, eps_HI=4.8e-12, c_tilde=3e6, T_bg=20.0, f_IR_selfabs=0.7, f_recNUV=0.5)
     report = jaco.check(make_model(), grid, params=field, name="starforge_legacy_RT")
     assert report.ok, report.summary()
+
+
+# --- B2: the outputs GIZMO's cooling-radiation return reads (CoolingRate 1317-1348) ---
+
+NUV_TERMS = ["Metal line cooling", "Nebular forbidden-line cooling", "H-e- Line Cooling", "He+-e- Line Cooling"]
+IR_TERMS = ["GIZMO C+, [CI] and CO cooling", "GIZMO H2 + HD cooling", "Inverse Compton cooling (CMB)"]
+RECOMBINATION = [f"Gas-phase recombination of {i}" for i in ("H+", "He+", "He++")]
+FREE_FREE = [f"Free-free emission from {i}" for i in ("H+", "He+", "He++")]
+
+
+def _state(Tv):
+    """A partly ionized, partly molecular state with metals, at Tv"""
+    from ..symbols import G_0, NH, grad_v, Z_dust
+    vals = {T: Tv, n_Htot: 50.0, X_H: 0.7, z: 0.0, sp.Symbol("y"): 0.0994, G_0: 2.0, NH: 1e21, grad_v: 1e-13,
+            Z_dust: 1.0, sp.Symbol("f_metal"): 1.0, sp.Symbol("f_neb"): 1.0, sp.Symbol("Td"): 20.0, T_bg: 12.0,
+            sp.Symbol("f_IR_selfabs"): 0.8, sp.Symbol("f_recNUV"): 0.6, sp.Symbol("x_C,tot"): 2.4e-4,
+            sp.Symbol("f_d"): 1.0, sp.Symbol("C_2"): 1.0}
+    xs = {"H+": 0.3, "He+": 0.02, "He++": 1e-3, "H_2": 0.1, "e-": 0.33}
+    xs["H"] = 1 - xs["H+"] - 2 * xs["H_2"]
+    for el, x in (("C", 2.4e-4), ("N", 6.8e-5), ("O", 4.9e-4), ("Ne", 8.5e-5), ("Mg", 3.2e-5), ("Si", 3.2e-5),
+                  ("S", 1.3e-5), ("Ca", 2.2e-6), ("Fe", 2.5e-5)):
+        xs[el] = x
+    xs["C+"], xs["CO"] = 0.0, 0.0
+    vals.update({x_(s): v for s, v in xs.items()})
+    vals.update({n_(s): v * vals[n_Htot] for s, v in xs.items()})
+    return vals
+
+
+def _value(expr, vals):
+    return float(expr.xreplace(vals).subs(vals))
+
+
+@pytest.mark.parametrize("Tv", [80.0, 8.0e3, 3.0e5])
+def test_band_outputs_are_gizmos_routing(models, Tv):
+    """L_NUV = -fcorr (metal + nebular + H/He+ excitation + f_recNUV recombination + free-free above 1e5 K) and
+    L_IR_gas = -fcorr (molecular/fine-structure + Compton + free-free below 1e5 K), from the legacy terms with T_bg in
+    the bath factor; photoelectric heating, collisional ionization, cosmic rays and the dust coupling are in neither"""
+    rt, legacy = models
+    vals = _state(Tv)
+    out = {o.name: _value(o.expr, vals) for o in rt.network.outputs if o.name != "photoionization_rate"}
+    heat = {p.name: (p.heat if "Compton" in p.name else p.heat.subs(z, T_bg / 2.73 - 1))  # bath factor at T_bg
+            for p in legacy.subprocesses}
+
+    def h(names, w=1):
+        return sum(_value(heat[n], vals) for n in names) * w
+
+    fcorr, frec, hot = 0.8, 0.6, 1.0 if Tv >= 1e5 else 0.0
+    expect_nuv = -fcorr * (h(NUV_TERMS) + frec * h(RECOMBINATION) + hot * h(FREE_FREE))
+    expect_ir = -fcorr * (h(IR_TERMS) + (1 - hot) * h(FREE_FREE))
+    assert out["L_NUV"] == pytest.approx(expect_nuv, rel=1e-6)
+    assert out["L_IR_gas"] == pytest.approx(expect_ir, rel=1e-6)
+    dust_row = process(rt, "Gas-dust collisions").network["dust heat"].rhs  # the dust_heat output, not self-absorbed
+    assert _value(dust_row, vals) == pytest.approx(-h(["Gas-dust collisions"]), rel=1e-9)
+
+
+def test_ir_self_absorption_scales_all_heat_but_dust_and_pdv(models):
+    """fcorr multiplies Heat and Lambda (photoheating included), not the gas-dust coupling nor the hydro work; the
+    chemistry is unscaled"""
+    rt, _ = models
+    f = sp.Symbol("f_IR_selfabs")
+    for p in rt.subprocesses:
+        has_f = f in sp.sympify(p.heat).free_symbols
+        assert has_f == (p.name not in ("Gas-dust collisions", "PdV work") and p.heat != 0), p.name
+        for k, e in p.network.items():
+            if k != "heat":
+                assert f not in sp.sympify(e.rhs).free_symbols, (p.name, k)
+
+
+def test_photoionization_rate_output(models):
+    """photoionization_rate = Gamma_eff n_H0 at nHcgs: eps_HI times it is the photoheating"""
+    rt, _ = models
+    vals = {**_state(8e3), Gamma_HI: 2e-9, sigma_HI: 3e-18, eps_HI: 4.8e-12, c_tilde: 3e6, dt: 1e11}
+    out = {o.name: o.expr for o in rt.network.outputs}
+    heat = process(rt, "Photoionization of H by the RT band").heat
+    assert 4.8e-12 * _value(out["photoionization_rate"], vals) == pytest.approx(_value(heat, vals) / 0.8, rel=1e-12)

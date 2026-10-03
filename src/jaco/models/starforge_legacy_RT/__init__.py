@@ -19,16 +19,28 @@ refer to cooling/cooling.cc and radiation/rt_chem.cc at gizmo_jaco_dev bd3500d7.
   background radiation temperature T_bg (get_background_radiation_temperature_for_emission_corrections, 2467-2482): the
   energy-weighted IR + CMB temperature under RT_INFRARED. Compton cooling keeps the CMB alone; GIZMO adds the RT bands
   to it, a term negligible against photoheating and the dust coupling.
+- Under RT_INFRARED every heating and cooling rate but the gas-dust coupling is multiplied by the IR self-absorption
+  factor fcorr = 1/(1 + tau_self^2) (1308-1313), a parameter (f_IR_selfabs) the host evaluates at the cached
+  temperature.
+
+Outputs, for the host to return to the RT bands (CoolingRate's routing, 1317-1348, and rt_ir_lambdadust):
+
+- L_NUV: metal lines, nebular lines, H and He+ collisional excitation, the recombination radiation not taken as UVB
+  reprocessing (f_recNUV, the share GIZMO credits, 1322) and free-free emission above 1e5 K;
+- L_IR_gas: the GIZMO molecular, fine-structure and atomic carbon cooling, Compton cooling and free-free emission below
+  1e5 K;
+- dust_heat (the energy reservoir's row): the energy the gas gives the dust, which the dust re-emits in the IR;
+- photoionization_rate: photoionizations per unit volume, at GIZMO's nHcgs, for the ionizing band's photon sink.
 """
 
 import sympy as sp
 from jaco.model import Rule
-from jaco.declarations import Parameter
+from jaco.declarations import Parameter, Output
 from jaco.process import Process
 from jaco.processes import Reaction
 from jaco.symbols import n_, dt
 from ..starforge.starforge import GIZMO_FAMILY, SHARED_SPECIES  # noqa: F401  (GIZMO_FAMILY: the host-code family)
-from ..starforge.symbols import z, nH_gizmo_cooling, n_Htot
+from ..starforge.symbols import z, nH_gizmo_cooling, n_Htot, T
 from ..starforge_legacy import make_model as make_legacy
 
 T_CMB_Z0 = 2.73  # GIZMO's CMB temperature at z = 0, as jaco's starforge symbols write it: 2.73 (1 + z)
@@ -47,7 +59,12 @@ RT_PARAMETERS = [
     Parameter("c_tilde", "cm s^-1", 0.0, "speed of light of the band's absorption in the rate law; 0: Gamma frozen "
                                          "over the step, as where the RT solver absorbs the band"),
     Parameter("T_bg", "K", T_CMB_Z0, "background radiation temperature of the emission corrections"),
+    Parameter("f_IR_selfabs", "", 1.0, "IR self-absorption factor 1/(1 + tau_self^2) of the heating and cooling rates "
+                                       "(1 without RT_INFRARED)"),
+    Parameter("f_recNUV", "", 0.0, "share of the recombination cooling GIZMO returns to the NUV band"),
 ]
+f_IR_selfabs = sp.Symbol("f_IR_selfabs")
+f_recNUV = sp.Symbol("f_recNUV")
 
 
 def slab_average(x):
@@ -90,6 +107,16 @@ def _cmb_to_background(expr):
     return expr.replace(lambda a: a.is_Add, fix)
 
 
+def _heat_scaled(factor):
+    """Rule: the heat row multiplied by factor, the species rows kept"""
+    def rule(p):
+        rows = {k: e.rhs for k, e in p.network.items()}
+        if rows.get("heat", 0) == 0:
+            return p
+        return Process(p.name, p.bibliography, {k: (v * factor if k == "heat" else v) for k, v in rows.items()})
+    return rule
+
+
 GIZMO_ABUNDANCES = Rule("GIZMO integrates abundances per nHcgs",
                         _material_rows_scaled({s.name for s in SHARED_SPECIES if s.kind in ("material", "trace")},
                                               nH_gizmo_cooling / n_Htot),
@@ -99,12 +126,32 @@ GIZMO_EMISSION_BACKGROUND = Rule("GIZMO's background temperature in the emission
                                  exempt={"Inverse Compton cooling (CMB)"})
 
 
+GIZMO_IR_SELF_ABSORPTION = Rule("GIZMO's IR self-absorption of the heating and cooling rates", _heat_scaled(f_IR_selfabs),
+                                exempt={"Gas-dust collisions", "PdV work"})
+
+ABOVE_1E5K = sp.Piecewise((1, T >= 1e5), (0, True))  # GIZMO's free-free routing (logT >= 5)
+RECOMBINATION = [f"Gas-phase recombination of {i}" for i in ("H+", "He+", "He++")]
+FREE_FREE = [f"Free-free emission from {i}" for i in ("H+", "He+", "He++")]
+OUTPUTS = [
+    Output("L_NUV", units="erg cm^-3 s^-1", doc="cooling radiation GIZMO returns to the NUV band",
+           heat_of={"Metal line cooling": -1, "Nebular forbidden-line cooling": -1, "H-e- Line Cooling": -1,
+                    "He+-e- Line Cooling": -1, **{r: -f_recNUV for r in RECOMBINATION},
+                    **{f: -ABOVE_1E5K for f in FREE_FREE}}),
+    Output("L_IR_gas", units="erg cm^-3 s^-1", doc="cooling radiation of the gas GIZMO returns to the IR band",
+           heat_of={"GIZMO C+, [CI] and CO cooling": -1, "GIZMO H2 + HD cooling": -1,
+                    "Inverse Compton cooling (CMB)": -1, **{f: ABOVE_1E5K - 1 for f in FREE_FREE}}),
+    Output("photoionization_rate", photoionization.network["H+"].rhs.xreplace({n_("H"): nH_gizmo_cooling / n_Htot * n_("H")}),
+           units="cm^-3 s^-1", doc="photoionizations of H by the ionizing band per unit volume, at GIZMO's nHcgs"),
+]
+
+
 def make_model():
     """The STARFORGE_LEGACY_RT model"""
     base = make_legacy()
     return base.evolve(
         list(base.processes.values()) + [photoionization],
         time_dependent=("T", "H+", "H_2"),
-        rules=[*base.rules, GIZMO_ABUNDANCES, GIZMO_EMISSION_BACKGROUND],
+        rules=[*base.rules, GIZMO_ABUNDANCES, GIZMO_EMISSION_BACKGROUND, GIZMO_IR_SELF_ABSORPTION],
         parameters=[*base.parameters, *RT_PARAMETERS],
+        outputs=OUTPUTS,
     )
