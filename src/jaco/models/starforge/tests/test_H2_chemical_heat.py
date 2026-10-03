@@ -48,3 +48,20 @@ def test_dissociation_takes_binding_energy(collider):
 def test_no_chemical_heat_in_legacy():
     assert all(p.heat == 0 for p in h2_chemistry_processes(False))
     assert GizmoH2Network().network["heat"].rhs == 0
+
+
+def test_three_body_rate_fit_is_a_keyword():
+    from ..h2_chemistry.three_body import H2_3body_formation, threebody_rate
+    for fit in (0, 4, 5):
+        p = H2_3body_formation(False, fit=fit)
+        assert sp.simplify(p.rate_coefficient - threebody_rate(fit)[0]) == 0
+        assert p.bibliography == [threebody_rate(fit)[1]]
+
+
+def test_one_reaction_can_be_left_out():
+    """The H2 chemistry is a list of reactions with unique names, not a pre-summed bundle"""
+    processes = h2_chemistry_processes(True)
+    names = [p.name for p in processes]
+    assert len(set(names)) == len(names)
+    rest = sum(p for p in processes if p.name != "H+ + H- -> H_2+ + e-")
+    assert "H_2+" not in rest.network

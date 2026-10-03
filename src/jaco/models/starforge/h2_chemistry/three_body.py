@@ -1,6 +1,6 @@
 """Implementation of the 3-body H_2 formation channel"""
 
-from jaco.processes import ChemicalReaction
+from jaco.processes import Reaction
 from ..symbols import sp, T
 from .chemical_heat import formation_heat
 
@@ -30,14 +30,12 @@ def threebody_rate(number: int):
             raise NotImplementedError(f"3-body rate not implemented for n={number}")
 
 
-rate, bibcode = threebody_rate(5)  # take Forrey 2013 by default
-
-
-
-def H2_3body_formation(chemical_heat=True):
-    return ChemicalReaction(
+def H2_3body_formation(chemical_heat=True, fit=5):
+    """3H -> H_2 + H with the Grackle-numbered rate fit (default 5, Forrey 2013)"""
+    rate, bibcode = threebody_rate(fit)
+    return Reaction(
         "H + H + H -> H_2 + H",
-        rate,  # Forrey 2013 rate
+        rate,
         heat_per_reaction=formation_heat("3-body", chemical_heat),
         name="3-body formation of H_2",
         bibliography=[bibcode],

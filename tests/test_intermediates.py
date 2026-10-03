@@ -12,7 +12,7 @@ w1, w2 = sp.symbols("wA wB")
 
 
 def toy_network():
-    system = GasPhaseRecombination("H+") + Ionization(species="H", rate_per_volume=1e-16 * n_Htot * x_("H") * T**0.1)
+    system = GasPhaseRecombination("H+") + Ionization("H", rate=1e-16 * n_Htot * x_("H") * T**0.1)
     net = system.network
     net.fixed_species = {"C+": sp.Float(3e-4)}
     net.intermediates = [(w1, sp.sqrt(T) * x_("H+") + n_Htot * 1e-6), (w2, sp.exp(-w1) * w1 + 1e-5 * T * x_("H+"))]

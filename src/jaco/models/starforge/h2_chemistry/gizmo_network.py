@@ -9,8 +9,7 @@ legacy model.
 """
 
 import sympy as sp
-from jaco.process import Process
-from jaco.symbols import n_
+from jaco.processes import Reaction
 from ..symbols import (T, log_T, x_, n_Htot, T_dust, Z_dust, f_dust, G_LW, cosmicray_ionization_rate_H,
                        nH_gizmo_molecular, GIZMO_HYDROGEN_MASSFRAC)
 from .photochemistry import f_selfshield_H2
@@ -83,20 +82,17 @@ def formation_rates():
     return a_Z + a_GP, b_3B_over_xH0
 
 
-class GizmoH2Network(Process):
-    """d n_H2/dt = n_Htot x_H0/2 (x_c - x_b f + x_a f^2), f = 2 x_H2 / x_H0, written without dividing by x_H0"""
-
-    def __init__(self):
-        super().__init__(name="GIZMO H2 network", bibliography=["2008MNRAS.388.1627G", "2007ApJ...666....1G",
-                                                                 "2013ApJ...773L..25F", "2014ApJ...795...37G"])
-        b_H2HI, b_H2H2, b_H2ext = dissociation_rates()
-        a_form, b_3B_over_xH0 = formation_rates()
-        b_3B = b_3B_over_xH0 * xH0
-        G_LW_half, xi_half = 3.3e-11 * G_LW / 2, cosmicray_ionization_rate_H / 2
-        x_H2 = x_("H_2")
-        x_c = a_form + b_3B
-        x_b = a_form + 2 * b_3B + b_H2HI + b_H2ext + xi_half + f_selfshield_H2() * G_LW_half
-        x_a_over_xH0 = b_3B_over_xH0 + b_H2HI / xH0 - b_H2H2 / xH0  # both carry a factor x_H0, which cancels
-        rate = n_Htot * (xH0 / 2 * x_c - x_b * x_H2 + 2 * x_a_over_xH0 * x_H2**2)
-        self.network["H_2"] += rate
-        self.network["H"] -= 2 * rate
+def GizmoH2Network():
+    """2H -> H_2 at net rate d n_H2/dt = n_Htot x_H0/2 (x_c - x_b f + x_a f^2), f = 2 x_H2 / x_H0, written without
+    dividing by x_H0. Its clumping is GIZMO's, written into the rates."""
+    b_H2HI, b_H2H2, b_H2ext = dissociation_rates()
+    a_form, b_3B_over_xH0 = formation_rates()
+    b_3B = b_3B_over_xH0 * xH0
+    G_LW_half, xi_half = 3.3e-11 * G_LW / 2, cosmicray_ionization_rate_H / 2
+    x_H2 = x_("H_2")
+    x_c = a_form + b_3B
+    x_b = a_form + 2 * b_3B + b_H2HI + b_H2ext + xi_half + f_selfshield_H2() * G_LW_half
+    x_a_over_xH0 = b_3B_over_xH0 + b_H2HI / xH0 - b_H2H2 / xH0  # both carry a factor x_H0, which cancels
+    return Reaction("2H -> H_2", rate=n_Htot * (xH0 / 2 * x_c - x_b * x_H2 + 2 * x_a_over_xH0 * x_H2**2), clumping=1,
+                    name="GIZMO H2 network", bibliography=["2008MNRAS.388.1627G", "2007ApJ...666....1G",
+                                                           "2013ApJ...773L..25F", "2014ApJ...795...37G"])

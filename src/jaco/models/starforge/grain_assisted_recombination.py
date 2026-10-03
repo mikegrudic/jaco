@@ -6,7 +6,7 @@ terms of psi = G sqrt(T) / n_e with G the FUV field in Habing units; the fit hol
 """
 
 import sympy as sp
-from jaco.process import Process
+from jaco.processes import Reaction
 from jaco.symbols import n_
 from .symbols import T, G_0, Z_dust, f_dust, n_Htot, x_, dust_sputtering_truncation
 
@@ -41,12 +41,11 @@ def alpha_grain(ion, x_e, n_H=n_Htot):
             / (1 + C[1] * psi ** C[2] * (1 + C[3] * T ** C[4] * psi ** (-C[5] - C[6] * sp.log(T)))))
 
 
-class GrainAssistedRecombination(Process):
-    """ion + grain -> neutral at alpha n_ion n_H C_2 per volume. The released energy goes to the grain, so the gas loses
-    no heat. Grains are taken to be sputtered away above 3e5 K, as in the gas-dust coupling."""
-
-    def __init__(self, ion):
-        super().__init__(name=f"Grain-assisted recombination of {ion}", bibliography=["2001ApJ...563..842W"])
-        rate = alpha_grain(ion, x_("e-")) * n_(ion) * n_Htot * sp.Symbol("C_2") * dust_sputtering_truncation
-        self.network[ion] -= rate
-        self.network[ion.rstrip("+")] += rate
+def GrainAssistedRecombination(ion):
+    """ion + grain -> neutral at alpha n_ion n_H C_2 per volume, the grain supplying the electron. The released energy
+    goes to the grain, so the gas loses no heat. Grains are taken to be sputtered away above 3e5 K, as in the gas-dust
+    coupling."""
+    return Reaction(f"{ion} -> {ion.rstrip('+')}",
+                    rate=alpha_grain(ion, x_("e-")) * n_(ion) * n_Htot * dust_sputtering_truncation,
+                    clumping=sp.Symbol("C_2"), name=f"Grain-assisted recombination of {ion}",
+                    bibliography=["2001ApJ...563..842W"])

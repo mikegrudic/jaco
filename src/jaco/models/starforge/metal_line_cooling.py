@@ -23,7 +23,7 @@ import numpy as np
 import h5py
 
 import sympy as sp
-from jaco.processes import ThermalProcess
+from jaco.processes import ThermalTerm
 from jaco.symbols import T, table_interp_2d, n_, x_
 from .symbols import n_Htot, log_T, cmb_bath_factor
 
@@ -116,10 +116,11 @@ def cmb_corrected(Lambda):
 
 def metal_line_cooling_process(species, dataset, z=0.0):
     """Cooling process for a single tabulated element (see metal_line_cooling_rate)."""
-    return ThermalProcess(
-        -cmb_corrected(metal_line_cooling_rate(species, dataset, z)) * sp.Symbol("C_2"),
+    return ThermalTerm(
+        -cmb_corrected(metal_line_cooling_rate(species, dataset, z)),
         name=f"{species} line cooling",
         bibliography=["2009MNRAS.393...99W"],  # Wiersma+ tables used in GIZMO
+        clumping=sp.Symbol("C_2"),
     )
 
 
@@ -129,8 +130,9 @@ def metal_line_cooling(z=0.0):
     Scaled by the switch parameter f_metal: GIZMO applies these tables only when its UV background is loaded (J_UV != 0).
     """
     Lambda = sum(metal_line_cooling_rate(sp_, ds, z=z) for ds, sp_ in METAL_SPECIES)
-    return ThermalProcess(
-        -sp.Symbol("f_metal") * cmb_corrected(Lambda) * sp.Symbol("C_2"),
+    return ThermalTerm(
+        -sp.Symbol("f_metal") * cmb_corrected(Lambda),
         name="Metal line cooling",
         bibliography=["2009MNRAS.393...99W"],  # Wiersma+ tables used in GIZMO
+        clumping=sp.Symbol("C_2"),
     )

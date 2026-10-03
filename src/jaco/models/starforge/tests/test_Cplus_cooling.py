@@ -9,7 +9,7 @@ from ..symbols import T, z
 
 SOLAR = {"Z": 0.0142, "He": 0.2703, "C": 2.53e-3}  # GIZMO FIRE-3 SolarAbundances[0, 1, 2]
 
-process = LineCoolingSimple("C+")
+process = sum(LineCoolingSimple("C+"))
 heat = sp.lambdify((T, n_("e-"), n_("H"), n_("C+"), sp.Symbol("C_2"), z), process.heat, modules="numpy")
 
 

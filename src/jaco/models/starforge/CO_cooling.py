@@ -1,7 +1,7 @@
 """Implementation of CO cooling following Whitworth & Jaffa 2018A&A...611A..20W"""
 
 # TODO: write test against their plots
-from jaco.processes import NBodyProcess
+from jaco.processes import collisional_thermal_term
 from .symbols import T, grad_v, x_, n_Htot, cmb_bath_factor, lowtemp_truncation
 
 # Eq. 37
@@ -19,9 +19,9 @@ lambda_CO_hi = lam_CO_hi * (x_("CO") * 3.241e-14 / grad_v) ** -1 * T**4 / (0.5 *
 beta = 1.23 * (0.5 * n_Htot) ** beta_nH2 * T**beta_T
 lambda_CO = (lambda_CO_lo ** (-1 / beta) + lambda_CO_hi ** (-1 / beta)) ** -beta
 
-CO_cooling = NBodyProcess(
+CO_cooling = collisional_thermal_term(
     ("CO", "H_2"),
-    heat_rate_coefficient=-lambda_CO * cmb_bath_factor * lowtemp_truncation,
+    -lambda_CO * cmb_bath_factor * lowtemp_truncation,
     name="CO Cooling",
     bibliography=["2018A&A...611A..20W"],
 )

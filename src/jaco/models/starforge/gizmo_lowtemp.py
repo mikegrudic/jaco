@@ -7,7 +7,7 @@ as neutral H, as GIZMO's nH0 does, and GIZMO's f_molec is x_H2.
 """
 
 import sympy as sp
-from jaco.processes import ThermalProcess
+from jaco.processes import ThermalTerm
 from .symbols import (T, log_T, sqrt_T, x_, n_Htot, G_0, NH, grad_v, X_H, x_solar, cmb_bath_factor,
                       lowtemp_truncation, PROTONMASS_CGS)
 from .H2_cooling import lambda_H2_thin, Lambda_HD_thin, Lambda_H2_LTE_per_molecule
@@ -38,7 +38,7 @@ def gizmo_carbon_cooling_coefficient():
     return f * Lambda_Cplus + sp.Min(Lambda_CO_HI, (1 - f) * Lambda_CCO)
 
 
-gizmo_carbon_cooling = ThermalProcess(
+gizmo_carbon_cooling = ThermalTerm(
     -n_Htot**2 * xH0 * gizmo_carbon_cooling_coefficient() * cmb_bath_factor * lowtemp_truncation,
     name="GIZMO C+, [CI] and CO cooling",
     bibliography=["2005ApJ...620..537B", "2002MNRAS.337.1027W", "2016MNRAS.456.2586H", "1979ApJS...41..555H",
@@ -58,7 +58,7 @@ def gizmo_H2_cooling_coefficient():
     return x_H2 * thin / (1 + n_over_ncrit) + f_HD * Lambda_HD_thin() / (1 + f_HD / (x_H2 + MIN_REAL_NUMBER) * n_over_ncrit)
 
 
-gizmo_H2_cooling = ThermalProcess(
+gizmo_H2_cooling = ThermalTerm(
     -n_Htot**2 * gizmo_H2_cooling_coefficient() * cmb_bath_factor * lowtemp_truncation,
     name="GIZMO H2 + HD cooling",
     bibliography=["2008MNRAS.388.1627G", "1998A&A...335..403G", "1979ApJS...41..555H"],

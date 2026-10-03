@@ -218,12 +218,8 @@ class TestEquationSystem:
 class TestProcessComposition:
     def test_add_two_processes(self):
         """Adding two processes merges their networks"""
-        p1 = Process(name="proc1")
-        p1.heat = sp.Symbol("Q1")
-
-        p2 = Process(name="proc2")
-        p2.heat = sp.Symbol("Q2")
-
+        p1 = Process(name="proc1", rows={"heat": sp.Symbol("Q1")})
+        p2 = Process(name="proc2", rows={"heat": sp.Symbol("Q2")})
         combined = p1 + p2
         assert combined.network["heat"].rhs == sp.Symbol("Q1") + sp.Symbol("Q2")
 
@@ -244,27 +240,24 @@ class TestProcessComposition:
 
     def test_add_zero(self):
         """0 + process returns the process (needed for sum())"""
-        p = Process(name="test")
-        p.heat = sp.Symbol("Q")
+        p = ThermalProcess(sp.Symbol("Q"), name="test")
         result = 0 + p
         assert result.network["heat"].rhs == sp.Symbol("Q")
 
     def test_sum_processes(self):
         """sum() over a list of processes works"""
-        processes = [Process(name=f"p{i}") for i in range(3)]
-        for i, p in enumerate(processes):
-            p.heat = sp.Symbol(f"Q{i}")
+        processes = [ThermalProcess(sp.Symbol(f"Q{i}"), name=f"p{i}") for i in range(3)]
         combined = sum(processes)
         assert combined.network["heat"].rhs == sp.Symbol("Q0") + sp.Symbol("Q1") + sp.Symbol("Q2")
 
-    def test_heat_setter_updates_network(self):
-        """Setting heat automatically updates network['heat']"""
-        p = Process(name="test")
-        p.heat = sp.Symbol("Q")
+    def test_processes_are_immutable(self):
+        """Rates are fixed at construction; the network a process returns is a copy"""
+        p = ThermalProcess(sp.Symbol("Q"), name="test")
+        with pytest.raises(AttributeError):
+            p.heat = sp.Symbol("Q2")
+        net = p.network
+        net["heat"] = Equation(d_dt(n_("heat")), sp.Symbol("Q2"))
         assert p.network["heat"].rhs == sp.Symbol("Q")
-
-        p.heat = sp.Symbol("Q2")
-        assert p.network["heat"].rhs == sp.Symbol("Q2")
 
     def test_combined_name(self):
         """Combined process name reflects composition"""
@@ -283,26 +276,17 @@ class TestProcessComposition:
 
     def test_network_equations_merge(self):
         """Networks with overlapping species equations sum correctly"""
-        p1 = Process(name="ionization")
-        k1 = sp.Symbol("k1")
-        p1.network["H"] = Equation(d_dt(n_("H")), -k1 * n_("H"))
-
-        p2 = Process(name="recombination")
-        k2 = sp.Symbol("k2")
-        p2.network["H"] = Equation(d_dt(n_("H")), k2 * n_("H+") * n_("e-"))
-
+        k1, k2 = sp.Symbol("k1"), sp.Symbol("k2")
+        p1 = Process(name="ionization", rows={"H": -k1 * n_("H")})
+        p2 = Process(name="recombination", rows={"H": k2 * n_("H+") * n_("e-")})
         combined = p1 + p2
         expected_rhs = -k1 * n_("H") + k2 * n_("H+") * n_("e-")
         assert sp.simplify(combined.network["H"].rhs - expected_rhs) == 0
 
     def test_network_disjoint_species(self):
         """Networks with disjoint species both appear in combined network"""
-        p1 = Process(name="p1")
-        p1.network["H"] = Equation(d_dt(n_("H")), sp.Symbol("a"))
-
-        p2 = Process(name="p2")
-        p2.network["He"] = Equation(d_dt(n_("He")), sp.Symbol("b"))
-
+        p1 = Process(name="p1", rows={"H": sp.Symbol("a")})
+        p2 = Process(name="p2", rows={"He": sp.Symbol("b")})
         combined = p1 + p2
         assert "H" in combined.network
         assert "He" in combined.network

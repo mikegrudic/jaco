@@ -1,6 +1,6 @@
 """Implementation of line cooling for various species"""
 
-from jaco.processes.thermal_process import ThermalProcess
+from jaco.processes import ThermalTerm
 import sympy as sp
 from .symbols import T, n_Htot, n_, log_T, x_, cmb_bath_factor, lowtemp_truncation
 
@@ -110,7 +110,7 @@ def H2_cooling_rate():
     return total_cooling
 
 
-H2_cooling = ThermalProcess(
+H2_cooling = ThermalTerm(
     -H2_cooling_rate() * cmb_bath_factor * lowtemp_truncation,
     name="H2 + HD Line Cooling",
     bibliography=["2008MNRAS.388.1627G", "1998A&A...335..403G", "1979ApJS...41..555H"],

@@ -1,7 +1,7 @@
 """Implementation of radiative association"""
 
 from ..symbols import T, log_T
-from jaco.processes import ChemicalReaction
+from jaco.processes import Reaction
 import sympy as sp
 
 
@@ -28,7 +28,7 @@ def radiative_association(species):
         case _:
             raise NotImplementedError(f"Radiative association rate not implemented for species {species}.")
 
-    return ChemicalReaction(
+    return Reaction(
         f"{species} + e- -> " + species + "-" + f" + photon_assoc,{species}",
         rate_coefficient=k,
         name=f"Radiative association of {species} with e-",

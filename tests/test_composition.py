@@ -6,7 +6,7 @@ import sympy as sp
 
 from jaco.equation import Equation
 from jaco.equation_system import EquationSystem
-from jaco.processes import ChemicalReaction, CollisionalIonization, GasPhaseRecombination, ThermalProcess
+from jaco.processes import Reaction, CollisionalIonization, GasPhaseRecombination, ThermalTerm
 from jaco.symbols import d_dt, n_
 
 
@@ -27,7 +27,7 @@ def test_equation_system_add_leaves_operands_unchanged():
 
 
 def test_process_add_leaves_operands_unchanged():
-    heat = ThermalProcess(sp.Symbol("Q"), name="heating")
+    heat = ThermalTerm(sp.Symbol("Q"), name="heating")
     recombination = GasPhaseRecombination("H+")
     before = snapshot(heat), snapshot(recombination)
     recombination + heat
@@ -38,10 +38,10 @@ def test_process_add_leaves_operands_unchanged():
 
 def test_build_A_then_B_equals_fresh_B():
     """A process shared by two models (e.g. a module-level object) must not carry model A's species into model B"""
-    shared = ThermalProcess(sp.Symbol("Q"), name="shared heating")
+    shared = ThermalTerm(sp.Symbol("Q"), name="shared heating")
 
     def build_B():
-        return shared + ThermalProcess(sp.Symbol("pdv_work"), name="PdV work")
+        return shared + ThermalTerm(sp.Symbol("pdv_work"), name="PdV work")
 
     fresh = snapshot(build_B())
     GasPhaseRecombination("H+") + CollisionalIonization("H") + shared  # model A
@@ -49,13 +49,14 @@ def test_build_A_then_B_equals_fresh_B():
 
 
 def test_model_build_leaves_its_processes_unchanged():
-    """After a full model build every pure thermal term still has only the heat equation"""
+    """After a full model build every thermal term still has only its own rows"""
     from jaco.models.starforge import make_model
 
     model = make_model()
-    thermal = [p for p in model.subprocesses if type(p) is ThermalProcess]
+    thermal = [p for p in model.subprocesses if type(p) is ThermalTerm]
     assert thermal
-    assert {p.name: sorted(p.network) for p in thermal} == {p.name: ["heat"] for p in thermal}
+    assert {p.name: sorted(p.network) for p in thermal} == {p.name: sorted(["heat"] + [p.reservoir] * bool(p.reservoir))
+                                                            for p in thermal}
 
 
 def _reassign(process, attr, value):
@@ -67,10 +68,6 @@ def _reassign(process, attr, value):
     return True
 
 
-D2_REASON = "rate setters resync the network incrementally; fixed by immutable processes (R3)"
-
-
-@pytest.mark.xfail(strict=True, reason=D2_REASON)
 def test_reassigning_recombination_rate_does_not_double_it():
     process = GasPhaseRecombination("H+")
     before = snapshot(process)
@@ -78,7 +75,6 @@ def test_reassigning_recombination_rate_does_not_double_it():
         assert snapshot(process) == before
 
 
-@pytest.mark.xfail(strict=True, reason=D2_REASON)
 def test_reassigning_ionization_rate_does_not_double_it():
     process = CollisionalIonization("H")
     before = snapshot(process)
@@ -86,10 +82,18 @@ def test_reassigning_ionization_rate_does_not_double_it():
         assert snapshot(process) == before
 
 
-@pytest.mark.xfail(strict=True, reason=D2_REASON)
+def test_processes_are_immutable():
+    reaction = Reaction("H + H -> H_2", sp.Symbol("k"), bibliography=["test"])
+    for attr, value in [("rate_coefficient", 1.0), ("rate", 1.0), ("clumping", 1), ("name", "x"), ("_network", None)]:
+        with pytest.raises(AttributeError):
+            setattr(reaction, attr, value)
+    reaction.network["H_2"] = None  # a copy
+    assert reaction.network["H_2"].rhs == reaction.rate
+
+
 def test_chemical_reaction_network_follows_its_rate():
     k1, k2 = sp.symbols("k1 k2")
-    reaction = ChemicalReaction("H + H -> H_2", k1, bibliography=["test"])
+    reaction = Reaction("H + H -> H_2", k1, bibliography=["test"])
     if _reassign(reaction, "rate_coefficient", k2):
         assert reaction.network["H_2"].rhs == reaction.rate
 
@@ -101,6 +105,6 @@ def test_added_Hminus_reaction_reaches_reduced_system():
     from jaco.models.starforge import make_model, SOLVE_VARS, TIME_DEPENDENT
 
     k = sp.Symbol("k_test")
-    model = make_model() + ChemicalReaction("H + e- -> H-", k, bibliography=["test"])
+    model = make_model() + Reaction("H + e- -> H-", k, bibliography=["test"])
     rhs, _ = model.network.solver_functions(SOLVE_VARS, TIME_DEPENDENT)
     assert any(k in sp.sympify(r).free_symbols for r in rhs)

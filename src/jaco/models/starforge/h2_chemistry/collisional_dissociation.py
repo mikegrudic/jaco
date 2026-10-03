@@ -7,7 +7,7 @@ d(k_0^f_0)/dT = k_0^f_0 (f_0' ln k_0 + ...) then becomes 0 * inf = nan.
 
 from ..symbols import T, log_T, x_, n_Htot
 from .chemical_heat import dissociation_heat
-from jaco.processes import ChemicalReaction
+from jaco.processes import Reaction
 import sympy as sp
 
 LN10 = sp.log(10.0)
@@ -96,7 +96,7 @@ def H2_collisional_dissociation(collider, isotopologue="H_2", chemical_heat=True
     if k is None:
         # interpolating between v=0 and LTE in log space: k = k_0^f_0 * k_LTE^(1 - f_0)
         k = sp.exp(f_0 * ln_k_0 + (1 - f_0) * ln_k_LTE)
-    return ChemicalReaction(
+    return Reaction(
         f"H_2 + {collider} -> 2H + {collider}",
         rate_coefficient=k,
         heat_per_reaction=dissociation_heat(chemical_heat),
@@ -104,6 +104,3 @@ def H2_collisional_dissociation(collider, isotopologue="H_2", chemical_heat=True
         bibliography=bib,
     )
 
-
-colliders = "H+", "e-", "H_2", "H", "He"
-model_process = sum([H2_collisional_dissociation(c) for c in colliders])

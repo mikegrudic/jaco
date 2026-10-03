@@ -1,49 +1,28 @@
 """Implementation of ionization process"""
 
-from ..process import Process
+from .chemical_reaction import Reaction
 from ..species_strings import remove_electron
-from ..symbols import T, T5, T3, T6, n_e, n_
+from ..symbols import T, T5
 import sympy as sp
 from astropy import units as u
 
 
-class Ionization(Process):
+def Ionization(species: str, rate=None, *, rate_coefficient=None, collider=None, heat_per_reaction=0, clumping=None,
+               name="", bibliography=()) -> Reaction:
+    """An ionization: species -> species+ + e-, or species + collider -> species+ + e- + collider.
+
+    Collisional, photo- or cosmic-ray ionization alike; rate is the events per unit volume and time (before clumping),
+    or rate_coefficient the mass-action k. See :class:`Reaction` for the other arguments.
     """
-    Class describing an ionization process. Could be collisional, photo, or cosmic ray-induced.
-
-    Implements method for setting the chemistry network terms
-    """
-
-    def __init__(self, species: str, rate_per_volume=0):
-        self.species = species
-        self.ionized_species = remove_electron(species)
-        self.__ionization_energy = None
-        super().__init__()
-        self.__rate_per_volume = rate_per_volume
-        self.update_network()
-
-    @property
-    def rate(self):
-        return self.__rate_per_volume
-
-    @rate.setter
-    def rate(self, value):
-        self.__rate_per_volume = value
-        self.update_network()
-
-    @property
-    def ionization_energy(self):
-        if self.__ionization_energy is None:
-            self.__ionization_energy = ionization_energy(self.species)
-        return self.__ionization_energy
-
-    def update_network(self):
-        """Sets up rate terms in the associated chemistry network for each species involved"""
-        if self.rate is None:
-            return
-        self.network[self.species] -= self.rate
-        self.network[self.ionized_species] += self.rate
-        self.network["e-"] += self.rate
+    ion = remove_electron(species)
+    if collider is None:
+        equation = f"{species} -> {ion} + e-"
+    elif collider == "e-":
+        equation = f"{species} + e- -> {ion} + 2e-"
+    else:
+        equation = f"{species} + {collider} -> {ion} + e- + {collider}"
+    return Reaction(equation, rate_coefficient, heat_per_reaction, rate=rate, clumping=clumping,
+                    name=name or f"Ionization of {species}", bibliography=bibliography)
 
 
 def ionization_energy(species, unit=u.erg):
@@ -66,32 +45,24 @@ collisional_ionization_rates = {
 }
 
 
-def CollisionalIonization(species=None, clumping=1) -> Ionization:
-    """Return an ionization process representing collisional ionization of the input species.
+def CollisionalIonization(species=None, clumping=None):
+    """Collisional ionization of species by electrons, species + e- -> species+ + 2e-.
 
     Parameters
     ----------
     species: str, optional
-        Species being collisionally ionized. If None, we compose all collisional ionization processes for all ions rates are known.
+        Species being collisionally ionized. If None, a list of the processes for every species with a known rate.
     clumping: optional
-        Factor <n^2>/<n>^2 multiplying the two-body rate (e.g. the symbol C_2); 1 by default.
+        Factor <n^2>/<n>^2 multiplying the two-body rate; C_2 by default.
 
     Returns
     -------
-    process: Ionization
-        `Ionization` instance describing the collisional ionization process
+    process: Reaction
     """
-
     if species is None:
-        return sum([CollisionalIonization(s, clumping) for s in collisional_ionization_rates], Process())
-
-    process = Ionization(species)
-    process.name = f"Collisional Ionization of {species}"
-    nprod = n_(species) * n_e * clumping
-
+        return [CollisionalIonization(s, clumping) for s in collisional_ionization_rates]
     if species not in collisional_ionization_rates:
         raise NotImplementedError(f"{species} does not have an available collisional ionization coefficient.")
-    process.rate = collisional_ionization_rates[species] * nprod
-    process.heat = -process.ionization_energy * process.rate
-
-    return process
+    return Ionization(species, rate_coefficient=collisional_ionization_rates[species], collider="e-",
+                      heat_per_reaction=-ionization_energy(species), clumping=clumping,
+                      name=f"Collisional Ionization of {species}", bibliography=["1996ApJS..105...19K"])

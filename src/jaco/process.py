@@ -1,157 +1,111 @@
-"""Implementation of base Process class with methods for managing and solving systems of equations"""
+"""Process: the immutable atom of a microphysics model. Processes compose with + into composites."""
 
+import sympy as sp
 from .symbols import n_, d_dt
 from .equation import Equation
 from .equation_system import EquationSystem
 
 
+def _row_lhs(key):
+    """d/dt of the conserved quantity of a row"""
+    return d_dt(n_(key))
+
+
 class Process:
+    """A set of rate equations: one row per species (number density per unit time) and the gas heat row (energy per
+    unit volume and time), immutable after construction.
+
+    Physics is built from :class:`~jaco.processes.Reaction` and :class:`~jaco.processes.ThermalTerm`; ``a + b`` is a
+    composite process whose rows are the sums and whose ``subprocesses`` are the atoms of both.
+
+    Parameters
+    ----------
+    name: str, optional
+        Name of the process; a model uses it as the process's id.
+    bibliography: sequence of str, optional
+        Bibcodes (or notes) for the rates.
+    rows: dict, optional
+        Maps species (or "heat", or an energy reservoir such as "dust heat") to its rate expression; the heat row is 0
+        if not given.
     """
-    Top-level class containing a description of a microscopic process
 
-    Most importantly, this implements the procedure for combining processes to build up a network for chemistry
-    + conservation equations.
-    """
+    def __init__(self, name="", bibliography=(), rows=None):
+        rows = rows or {}
+        network = EquationSystem()
+        if "heat" not in rows:
+            network["heat"] = Equation(_row_lhs("heat"), 0)
+        for key, rhs in rows.items():
+            network[key] = Equation(_row_lhs(key), rhs)
+        self._init(name, bibliography, network, None)
 
-    # TODO: want to define an equivalence relation between processes that compares only the equations/rates, so that
-    # process composition is commutative
-
-    def __init__(self, name="", bibliography=[]):
-        """Construct an empty Process instance
-
-        Parameters
-        ----------
-        name: str, optional
-            Name of the process
-        """
+    def _init(self, name, bibliography, network, subprocesses):
+        """Set the state and freeze; subclasses call this last"""
         self.name = name
-        self.initialize_network()
-        self.rate = 0
-        self.heat = 0
-        self.bibliography = bibliography
-        self.subprocesses = [self]
-        self.equations = []
+        self.bibliography = list(bibliography)
+        self._network = network
+        self._subprocesses = [self] if subprocesses is None else list(subprocesses)
+        self._frozen = True
+
+    @staticmethod
+    def _composite(name, bibliography, network, subprocesses):
+        obj = Process.__new__(Process)
+        obj._init(name, bibliography, network, subprocesses)
+        return obj
+
+    def __setattr__(self, attr, value):
+        if getattr(self, "_frozen", False):
+            raise AttributeError(f"{type(self).__name__} '{self.name}' is immutable; build a new process instead")
+        object.__setattr__(self, attr, value)
 
     def __repr__(self):
-        """Print the name in print()"""
         return self.name
 
-    def __add__(self, other):
-        """Sum 2 processes together: define a new process whose rates are the sum of the input process"""
-        if other == 0:  # necessary for native sum() routine to work
-            return self
-
-        attrs_to_sum = "heat", "subprocesses", "network", "bibliography", "equations"  # all rates
-
-        sum_process = Process()
-        sum_process.rate = None  # "rate" ceases to be meaningful for composite processes
-        for summed_attr in attrs_to_sum:
-            attr1, attr2 = getattr(self, summed_attr), getattr(other, summed_attr)
-            if attr1 is None or attr2 is None:
-                setattr(sum_process, summed_attr, None)
-            else:
-                setattr(sum_process, summed_attr, attr1 + attr2)
-
-        sum_process.name = f"{self.name} +\n{other.name}"
-        return sum_process
-
-    def __radd__(self, other):
-        return self.__add__(other)
-
-    def initialize_network(self):
-        self.network = EquationSystem()  # this is a dict for which unknown keys are initialized to 0 by default
+    @property
+    def network(self):
+        """The rate equations, as a fresh EquationSystem the caller may modify"""
+        return self._network.copy()
 
     @property
     def heat(self):
-        """Energy lost from gas per unit volume and time"""
-        return self.__heat
+        """Energy given to the gas per unit volume and time"""
+        return dict.__getitem__(self._network, "heat").rhs
 
-    @heat.setter
-    def heat(self, value):
-        """Ensures that the network is always updated when we update the heat"""
-        self.__heat = value
-        self.network["heat"] = Equation(d_dt(n_("heat")), value)
+    @property
+    def subprocesses(self):
+        """The atomic processes this process is the sum of"""
+        return list(self._subprocesses)
 
-    def solve(
-        self,
-        known_quantities,
-        guess,
-        time_dependent=[],
-        dt=None,
-        verbose=False,
-        tol=1e-3,
-        careful_steps=10,
-    ):
-        """
-        Solves the equations for a set of desired quantities given a set of known quantities
+    def __add__(self, other):
+        """Process whose rates are the sums of the operands' rates; the operands are unchanged"""
+        if isinstance(other, (int, float)) and other == 0:  # sum() starts from 0
+            return self
+        if not isinstance(other, Process):
+            return NotImplemented
+        return Process._composite(f"{self.name} +\n{other.name}", self.bibliography + other.bibliography,
+                                  self._network + other._network, self._subprocesses + other._subprocesses)
 
-        Parameters
-        ----------
-        known_quantities: dict
-            Dict of symbolic quantities and their values that will be plugged into the network solve as known quantities.
-            Can be arrays if you want to substitute multiple values. If T is included here, we solve for chemical
-            equilibrium. If T is not included, solve for thermochemical equilibrium.
-        guess: dict, optional
-            Dict of symbolic quantities and their values that will be plugged into the network solve as guesses for the
-            unknown quantities. Can be arrays if you want to substitute multiple values. Will default to trying sensible
-            guesses for recognized quantities.
-        normalize_to_H: bool, optional
-            Whether to return abundances normalized by the number density of H nucleons (default: True)
-        reduce_network: bool, optional
-            Whether to solve the reduced version of the network substituting conservation laws (default: True)
-        tol: float, optional
-            Desired relative error in chemical abundances (default: 1e-3)
-        careful_steps: int, optional
-            Number of careful initial steps in the Newton solve before full step size is used - try increasing this if
-            your solve has trouble converging.
+    def __radd__(self, other):
+        if isinstance(other, (int, float)) and other == 0:
+            return self
+        return NotImplemented
 
-        Returns
-        -------
-        soldict: dict
-            Dict of solved quantities
-        """
+    def transformed(self, rule):
+        """Copy with rule (a function of an expression) applied to every rate and heat expression"""
+        if len(self._subprocesses) > 1:
+            return sum(p.transformed(rule) for p in self._subprocesses)
+        return Process(self.name, self.bibliography, {k: rule(sp.sympify(e.rhs)) for k, e in self._network.items()})
 
-        return self.network.solve(
-            known_quantities,
-            guess,
-            time_dependent=time_dependent,
-            tol=tol,
-            careful_steps=careful_steps,
-            dt=dt,
-            verbose=verbose,
-        )
+    def unclumped(self):
+        """Copy without the declared clumping factors (processes that declare none are returned unchanged)"""
+        if len(self._subprocesses) > 1:
+            return sum(p.unclumped() for p in self._subprocesses)
+        return self
+
+    def solve(self, known_quantities, guess, time_dependent=[], dt=None, verbose=False, tol=1e-3, careful_steps=10):
+        """Solve the network for the guessed quantities given the known ones; see :meth:`EquationSystem.solve`"""
+        return self.network.solve(known_quantities, guess, time_dependent=time_dependent, tol=tol,
+                                  careful_steps=careful_steps, dt=dt, verbose=verbose)
 
     def solver_functions(self, solve_vars, time_dependent=[], return_jac=False, return_dict=False):
-        """Returns the RHS of the system to solve and its Jacobian, applying simplifications"""
+        """The RHS of the reduced system and its Jacobian; see :meth:`EquationSystem.solver_functions`"""
         return self.network.solver_functions(solve_vars, time_dependent, return_jac, return_dict)
-
-    def generate_code(self, solve_vars=[], time_dependent=[], language="c", cse=True,
-                       func_name="microphysics_func_jac", jac_mode="symbolic", output_dir="."):
-        """Generate the RHS + Jacobian sources (plus headers, EOS and table glue) into ``output_dir``.
-
-        See :func:`jaco.codegen.gizmo.generate_funcjac_code` for the artifact list.
-
-        Parameters
-        ----------
-        solve_vars : list
-            Variables to solve for, in index order. Defaults to ["u", "T"].
-        time_dependent : list
-            Variables that get a backward-Euler term. Defaults to ["T"].
-        language : str
-            Target language: 'c', 'c++', 'cuda', 'python', 'julia'
-        cse : bool
-            Whether to apply common subexpression elimination
-        func_name : str
-            Name of the generated function.
-        jac_mode : str
-            'symbolic' or 'autodiff'
-        output_dir : str
-            Directory to write into.
-        """
-        from .codegen.gizmo import generate_funcjac_code
-        return generate_funcjac_code(
-            self, solve_vars=solve_vars or None,
-            time_dependent=time_dependent or None,
-            cse=cse, language=language, jac_mode=jac_mode,
-            func_name=func_name, output_dir=output_dir,
-        )

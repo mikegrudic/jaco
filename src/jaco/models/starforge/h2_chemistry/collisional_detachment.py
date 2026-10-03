@@ -1,7 +1,7 @@
 """Implementation of collisional detachment for the H- ion"""
 
 from ..symbols import sp, T
-from jaco.processes import ChemicalReaction
+from jaco.processes import Reaction
 
 
 def Hminus_collisional_detachment(collider):
@@ -41,12 +41,10 @@ def Hminus_collisional_detachment(collider):
         case _:
             raise NotImplementedError(f"Collisional dissociation rate of H- with {collider} not implemented.")
 
-    return ChemicalReaction(
+    return Reaction(
         f"H- + {collider} -> H + {collider} + e-",
         k,
         name=f"Collisional detachment of H- by {collider}",
         bibliography=["1987ephh.book.....J"],
     )
 
-
-model_process = Hminus_collisional_detachment("H")

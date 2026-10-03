@@ -47,3 +47,9 @@ def test_dissociation_rate_matches_gizmo(G):
     Tv, column, xH2, gradv, dx_cm, n_H2 = 20.0, 1e-2, 0.2, 1e-14, 3e18, 50.0
     per_molecule = 3.3e-11 * G * gizmo_y_ss(Tv, column, 1.0, 2 * xH2, gradv, dx_cm)
     assert -rate(Tv, column / PROTONMASS_CGS, xH2, gradv, dx_cm, G, n_H2) == pytest.approx(per_molecule * n_H2, rel=1e-10)
+
+
+def test_selfshielding_prescription_reaches_the_reaction():
+    wg = photodissociation("H_2", self_shielding="Wolcott-Green 2011")
+    assert sp.Symbol("N_H_2") in wg.rate.free_symbols
+    assert sp.simplify(wg.rate - 3.3e-11 * G_LW * f_selfshield_H2("Wolcott-Green 2011") * n_("H_2")) == 0

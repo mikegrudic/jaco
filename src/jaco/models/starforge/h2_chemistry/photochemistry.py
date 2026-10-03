@@ -1,7 +1,7 @@
 """Implementation of photodissociation of various hydrogen species"""
 
 from ..symbols import sp, G_LW, T, grad_v, dx, NH, x_
-from jaco.processes import ChemicalReaction
+from jaco.processes import Reaction
 
 
 def f_selfshield_H2(prescription="Gnedin & Draine 2014"):
@@ -33,18 +33,19 @@ def f_selfshield_H2(prescription="Gnedin & Draine 2014"):
             raise NotImplementedError("self-shielding prescription not implemented")
 
 
-def photodissociation(molecule):
+def photodissociation(molecule, self_shielding="Gnedin & Draine 2014"):
     """
-    Photodissociation processes for a species given a certain UV flux
+    Photodissociation processes for a species given a certain UV flux, with the self-shielding prescription of
+    f_selfshield_H2
 
     Neglects the associated photon absorption.
     """
     match molecule:
         case "H_2":
             Rdiss = 3.3e-11 * G_LW
-            rate = Rdiss * f_selfshield_H2()
+            rate = Rdiss * f_selfshield_H2(self_shielding)
             bib = "2014ApJ...795...37G"
-            return ChemicalReaction("H_2 -> H + H", rate, name="Photodissociation of H_2", bibliography=[bib])
+            return Reaction("H_2 -> H + H", rate, name="Photodissociation of H_2", bibliography=[bib])
             # could add heat of UV pumping: heat = 2e-11 Rdiss n_H_2
             # and heat of photo dissociation: heat = 6.4e-13 R_diss n_H_2 n/(n+n_crit)
             # while we're in here.
@@ -59,4 +60,4 @@ def photodetachment(species):
             # glover & jappsen: heating rate of this not significant
             rate = 3.62e-17
             bib = "2023MNRAS.519.3154H"
-            return ChemicalReaction("H- -> H + e-", rate, name="Photodetachment of H-", bibliography=[bib])
+            return Reaction("H- -> H + e-", rate, name="Photodetachment of H-", bibliography=[bib])

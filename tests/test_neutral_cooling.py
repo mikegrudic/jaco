@@ -4,6 +4,7 @@ from jaco.processes import (
     CollisionalIonization,
     GasPhaseRecombination,
     Ionization,
+    ThermalTerm,
 )
 import numpy as np
 from matplotlib import pyplot as plt
@@ -30,25 +31,25 @@ def test_neutral_cooling(T0):
         [CollisionalIonization(s) for s in ("H", "He", "He+")]
         + [GasPhaseRecombination(i) for i in ("H+", "He+", "He++")]
         + [FreeFreeEmission(i) for i in ("H+", "He+", "He++")]
-        + [LineCoolingSimple(i) for i in ("H", "He+")]
+        + [LineCoolingSimple(i, "e-") for i in ("H", "He+")]
     )
-    system = sum(processes)
 
     # throw in some order-of-magntiude numbers to model photoelectric heating and cosmic-ray ionization
     heat_per_H = 1e-27
     zeta_CR = 2e-16
-    system.heat += heat_per_H * sp.Symbol("n_Htot")
-    system += Ionization(species="H", rate_per_volume=zeta_CR * sp.Symbol("n_Htot"))
+    processes.append(ThermalTerm(heat_per_H * sp.Symbol("n_Htot"), name="heating"))
+    processes.append(Ionization("H", rate=zeta_CR * sp.Symbol("n_Htot"), bibliography=["test"]))
     T = sp.Symbol("T")
 
     # C+ cooling - assumes x_C+ = x_e- = 3e-4
     x_C = 3e-4
-    system.heat -= (
-        1e-27
+    processes.append(ThermalTerm(
+        -1e-27
         * sp.Symbol("n_Htot")
         * sp.exp(-91.211 / T)
-        * (4890 / sp.sqrt(T) * (x_C * sp.Symbol("n_Htot")) + 0.47 * T**0.15 * sp.Symbol("n_Htot"))
-    )
+        * (4890 / sp.sqrt(T) * (x_C * sp.Symbol("n_Htot")) + 0.47 * T**0.15 * sp.Symbol("n_Htot")),
+        name="C+ cooling"))
+    system = sum(processes)
 
     ngrid = np.logspace(-2, 3, 10**4)
     ones = np.ones_like(ngrid)

@@ -12,10 +12,10 @@ from . import (
     collisional_detachment,
     cosmic_ray_dissociation,
 )
-from jaco.processes import ChemicalReaction
+from jaco.processes import Reaction
 from ..symbols import T
 
-r16 = ChemicalReaction(
+r16 = Reaction(
     "H+ + H- -> H_2+ + e-", sp.Min(6.9e-9 * T**-0.35, 9.6e-7 * T**-0.9), bibliography=["1978JPhB...11L.671P"]
 )  # reaction 16 in Glover & Abel 2008
 
@@ -38,6 +38,3 @@ def h2_chemistry_processes(chemical_heat=True):
         r16,
     ]
 
-
-def H2_chemistry(chemical_heat=True):
-    return sum(h2_chemistry_processes(chemical_heat))

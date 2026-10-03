@@ -2,7 +2,7 @@
 
 from ..symbols import T
 from .chemical_heat import formation_heat
-from jaco.processes import ChemicalReaction
+from jaco.processes import Reaction
 import sympy as sp
 
 k2 = sp.Piecewise((1.5e-9, T <= 300.0), (4.0e-9 * T**-0.17, T > 300.0))
@@ -35,7 +35,7 @@ def associative_detachment(species1, species2, chemical_heat=True):
     if "D-" in species and "D" in species:
         product = "D_2"
 
-    return ChemicalReaction(
+    return Reaction(
         f"{species1} + {species2} -> {product} + e-",
         rate,
         heat_per_reaction=formation_heat("H-", chemical_heat) if product == "H_2" else 0,

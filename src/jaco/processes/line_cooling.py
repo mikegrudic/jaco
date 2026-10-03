@@ -1,8 +1,6 @@
 import sympy as sp
-from ..process import Process
-from ..species_strings import total_atom_abundance
-from .nbody_process import NBodyProcess
-from ..symbols import T, T5, n_
+from .thermal_process import ThermalTerm, collisional_thermal_term
+from ..symbols import T, T5
 from ..data import SolarAbundances
 
 # put analytic fits for cooling efficiencies
@@ -14,47 +12,30 @@ line_cooling_coeffs = {
         "H": 1e-27 * 0.47 * T**0.15 * sp.exp(-91.211 / T) / SolarAbundances.x("C"),
     },
 }
+line_cooling_bibliography = {"H": "1996ApJS..105...19K", "He+": "1996ApJS..105...19K", "C+": "2023MNRAS.519.3154H"}
 
 
-def LineCoolingSimple(emitter: str, collider=None) -> NBodyProcess:
-    """Returns a 2-body process representing cooling via excitations from collisions of given pair of species
-
-    This is the simple approximation where everything is well below critical density and no ambient radiation field.
-    eventually would like to have a class that considers collisions from all available colliders, given just the
-    energies, deexcitation coefficients, temperature, and statistical weights...
+def LineCoolingSimple(emitter: str, collider=None):
+    """Cooling by collisional excitation of emitter by collider, well below the critical density with no ambient
+    radiation field.
 
     Parameters
     ----------
     emitter: str
         Emitting excited species
     collider: str, optional
-        Exciting colliding species. If None, will look up all known
+        Exciting colliding species. If None, a list of the terms for every collider with a known rate.
 
     Returns
     -------
-    An NBodyProcess instance whose heat attribute is the line cooling process's cooling rate in erg cm^-3
+    A two-body ThermalTerm (or a list of them) whose heat is the line cooling rate in erg cm^-3 s^-1
     """
-
     if emitter not in line_cooling_coeffs:
         raise NotImplementedError(f"Line cooling not implemented for {emitter}")
-
-    coeffs = line_cooling_coeffs[emitter]
-
-    if collider is None:  # if we haven't specified a collider, just take all of them and return the sum
-        p = [LineCoolingSimple(emitter, c) for c in coeffs]
-        return sum(p)  # type: ignore # have to put a 0-process in here as start variable or it will try to add 0 + process
-
-    process = NBodyProcess({emitter, collider})
+    if collider is None:
+        return [LineCoolingSimple(emitter, c) for c in line_cooling_coeffs[emitter]]
     if collider not in line_cooling_coeffs[emitter]:
         raise NotImplementedError(f"Excitation by collisions with {collider} not implemented for {emitter}")
-
-    process.heat_rate_coefficient = -line_cooling_coeffs[emitter][collider]
-    if collider:
-        process.name = f"{emitter}-{collider} Line Cooling"
-    else:
-        process.name = f"{emitter} Line Cooling"
-
-    return process
-
-
-# def LineCooling(emitter: str)
+    return collisional_thermal_term((emitter, collider), -line_cooling_coeffs[emitter][collider],
+                                    name=f"{emitter}-{collider} Line Cooling",
+                                    bibliography=[line_cooling_bibliography[emitter]])

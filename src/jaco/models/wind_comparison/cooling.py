@@ -1,6 +1,6 @@
 import numpy as np
 from jaco.symbols import piecewise_powerlaw, T, n_
-from jaco.processes import ThermalProcess
+from jaco.processes import ThermalTerm
 import sympy as sp
 from jaco.math import logistic
 
@@ -44,11 +44,11 @@ exponent_cooling_curve = np.array(
 
 
 lambda_cooling = piecewise_powerlaw(T_cooling_curve, lambda_cooling_curve, T, extrapolate=True, name="lambda_cooling")
-cooling = ThermalProcess(-lambda_cooling * n_("H") ** 2, name="Cooling")
-heating = ThermalProcess(2e-26 * n_("H") * logistic(-(T - 15000) / 1000), name="Heating")
+cooling = ThermalTerm(-lambda_cooling * n_("H") ** 2, name="Cooling")
+heating = ThermalTerm(2e-26 * n_("H") * logistic(-(T - 15000) / 1000), name="Heating")
 
 
-pdv_work = ThermalProcess(sp.Symbol("pdv_work"), name="PdV work")
+pdv_work = ThermalTerm(sp.Symbol("pdv_work"), name="PdV work")
 
 
 def make_model():

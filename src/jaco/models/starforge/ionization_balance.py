@@ -11,7 +11,7 @@ rate carries the clumping factor C_2.
 """
 
 import sympy as sp
-from jaco.process import Process
+from jaco.processes import Reaction
 from jaco.symbols import n_
 from .symbols import T, n_Htot, G_0, x_, cosmicray_ionization_rate_H as zeta
 from .grain_assisted_recombination import alpha_grain, GrainAssistedRecombination
@@ -65,14 +65,11 @@ def solved_electrons(n_steps=N_NEWTON):
     return inter, e_other + e_ions, x_Mgplus
 
 
-class ChargeTransferToMetals(Process):
-    """H+ + Mg -> H + Mg+ at k n_H+ n_Mg0 C_2; the Mg+ it makes is in the electron balance"""
-
-    def __init__(self, x_Mgplus):
-        super().__init__(name="Charge transfer of H+ to Mg", bibliography=["1980ApJS...43....1P"])
-        rate = K_CT_HPLUS_MG * n_("H+") * n_Htot * (x_Mg - x_Mgplus) * C2
-        self.network["H+"] -= rate
-        self.network["H"] += rate
+def ChargeTransferToMetals(x_Mgplus):
+    """H+ + Mg -> H + Mg+ at k n_H+ n_Mg0 C_2; Mg is not a network species, and the Mg+ it makes is in the electron
+    balance"""
+    return Reaction("H+ -> H", rate=K_CT_HPLUS_MG * n_("H+") * n_Htot * (x_Mg - x_Mgplus), clumping=C2,
+                    name="Charge transfer of H+ to Mg", bibliography=["1980ApJS...43....1P"])
 
 
 def ionization_processes():

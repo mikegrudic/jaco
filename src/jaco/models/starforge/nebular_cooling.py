@@ -14,7 +14,7 @@ explicit photoionization; GIZMO applies this term only under RT_CHEM_PHOTOION.
 import sympy as sp
 from jaco.math import logistic
 from jaco.symbols import n_
-from jaco.processes import NBodyProcess
+from jaco.processes import collisional_thermal_term
 from .symbols import T, Z_dust
 
 f_neb = sp.Symbol("f_neb")
@@ -38,9 +38,9 @@ def nebular_cooling_coefficient(T=T, n_e=n_("e-")):
     return 3.68e-23 * sp.exp(-3.86 / T4) / sp.sqrt(T4) * 10**log10_fneb / deexcitation * cie_taper * lower_edge
 
 
-nebular_cooling = NBodyProcess(
-    {"e-", "H+"},
-    heat_rate_coefficient=-f_neb * Z_dust * nebular_cooling_coefficient(),
+nebular_cooling = collisional_thermal_term(
+    ("e-", "H+"),
+    -f_neb * Z_dust * nebular_cooling_coefficient(),
     name="Nebular forbidden-line cooling",
     bibliography=["2023ApJS..264...10K"],
 )
