@@ -3,7 +3,7 @@
 Artifact set (C, with source extension ``ext``):
 
 - ``microphysics_func_jac{ext}`` -- RHS + analytic Jacobian of the backward-Euler system
-- ``microphysics_func_jac.h``    -- SolveVars/Params unions, IDX_/PARAM_ enums, JACO_MODEL_<NAME>
+- ``microphysics_func_jac.h``    -- SolveVars/Params unions, IDX_/PARAM_ enums, JACO_MODEL_<NAME>, JACO_FAMILY_<FAMILY>
 - ``jaco_interp.h``              -- 1D interpolation helpers and static 1D table data
 - ``jaco_eos{ext}``              -- jaco_eos_pressure, jaco_T_to_u, jaco_u_to_T, jaco_electron_abundance,
                                     jaco_fixed_electron_abundance
@@ -189,6 +189,7 @@ def generate_funcjac_code(
     source_ext=None,
     output_dir=".",
     model_name=None,
+    model_family=None,
 ):
     """Generate the RHS + Jacobian sources for ``system`` and write them to ``output_dir``.
 
@@ -215,6 +216,9 @@ def generate_funcjac_code(
         Directory to write into.
     model_name : str, optional
         If given, the header defines JACO_MODEL_<MODEL_NAME> for host-code #ifdefs.
+    model_family : str, optional
+        If given (or with model_name, which is its default), the header also defines JACO_FAMILY_<MODEL_FAMILY>, which
+        models sharing the host code's paths have in common.
     """
     solve_vars = list(solve_vars) if solve_vars else ["u", "T"]
     time_dependent = list(time_dependent) if time_dependent else ["T"]
@@ -241,8 +245,9 @@ def generate_funcjac_code(
     if "header" in result:
         header = result["header"]
         if model_name:
-            macro = "JACO_MODEL_" + re.sub(r"\W", "_", model_name).upper()
-            header = header.replace("#pragma once\n", f"#pragma once\n#define {macro}\n", 1)
+            macros = ["JACO_MODEL_" + re.sub(r"\W", "_", model_name).upper(),
+                      "JACO_FAMILY_" + re.sub(r"\W", "_", model_family or model_name).upper()]
+            header = header.replace("#pragma once\n", "#pragma once\n" + "".join(f"#define {m}\n" for m in macros), 1)
         out(func_name + ".h", header)
     if lang in ("c", "c++", "cuda"):
         out("jaco_interp.h", "#pragma once\n" + result.get("interp_header", "") + "\n")

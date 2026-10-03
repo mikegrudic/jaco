@@ -2,8 +2,9 @@
 
     python -m jaco.codegen.gizmo.gizmo starforge --language c --ext .cc --output-dir cooling
 
-The model is ``jaco.models.<model>``; it must provide ``make_model()`` and may set ``SOLVE_VARS`` and
-``TIME_DEPENDENT`` (defaults: ["u", "T"] and ["T"]).
+The model is ``jaco.models.<model>``; it must provide ``make_model()`` and may set ``SOLVE_VARS``,
+``TIME_DEPENDENT`` (defaults: ["u", "T"] and ["T"]) and ``GIZMO_FAMILY``, the name of the host-code family macro
+JACO_FAMILY_<FAMILY> for models that share GIZMO's code paths (default: the model name).
 """
 
 import argparse
@@ -41,6 +42,7 @@ def main(argv=None):
         output_dir=args.output_dir,
         jac_mode=args.jac_mode,
         model_name=args.model,
+        model_family=getattr(model_mod, "GIZMO_FAMILY", args.model),
     )
 
 
