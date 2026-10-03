@@ -755,18 +755,20 @@ class EquationSystem(dict):
         names = [r[0] for r in rows]
         if len(set(names)) != len(names):
             raise ValueError(f"two outputs share a name: {names}")
-        derived = getattr(system, 'derived_params', {})
-        to_x = {n_(s): n_Htot * x_(s) for s, kind in kinds.items() if kind != "energy"}
-        out = []
-        for name, e, units, doc in rows:
-            e = sp.sympify(e)
-            for sym_name, expr in derived.items():
-                e = e.subs(sp.Symbol(sym_name), expr)
-            e = e.xreplace(to_x)
-            for sym, sub in self._reduction_substitutions:
-                e = e.subs(sym, sub)
-            out.append((name, e, units, doc))
-        return out
+        return [(name, self._reduce_expression(e), units, doc) for name, e, units, doc in rows]
+
+    def _reduce_expression(self, e):
+        """e (a rate in the network's symbols) reduced like the rate equations by the last solver_functions call:
+        derived parameters, n -> x for the declared species but the energy reservoirs, then the reduction's
+        substitutions in order (conservation, charge neutrality, fixed and steady-state species)"""
+        kinds = getattr(self, 'species_kinds', {})
+        e = sp.sympify(e)
+        for sym_name, expr in getattr(self, 'derived_params', {}).items():
+            e = e.subs(sp.Symbol(sym_name), expr)
+        e = e.xreplace({n_(s): n_Htot * x_(s) for s, kind in kinds.items() if kind != "energy"})
+        for sym, sub in self._reduction_substitutions:
+            e = e.subs(sym, sub)
+        return e
 
     def _solver_metadata(self, indices, time_dependent):
         """What the implicit solver needs to know about each solve variable beyond the equations: backward-Euler term
