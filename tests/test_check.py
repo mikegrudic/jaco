@@ -27,7 +27,7 @@ def toy(*extra, parameters=()):
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize("name", ["starforge", "starforge_legacy", "wind_comparison"])
+@pytest.mark.parametrize("name", ["starforge", "starforge_legacy", "starforge_legacy_RT", "wind_comparison"])
 def test_shipped_models_pass(name):
     report = jaco.check(import_module(f"jaco.models.{name}").make_model(), "standard" if FULL else GRID, name=name)
     assert report.ok, report.summary()
