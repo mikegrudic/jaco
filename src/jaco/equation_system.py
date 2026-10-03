@@ -34,9 +34,9 @@ class EquationSystem(dict):
         are treated as externally-provided parameters: their equations are
         removed during reduction and their x_ symbols are substituted with
         the given values throughout the remaining equations.
-    equilibrium_overrides : dict
-        Maps species name to a sympy expression for explicit equilibrium
-        substitution (used when automatic steady-state linearization fails).
+    steady_state : tuple of str
+        The fixed species whose values are their steady-state closures (see
+        :meth:`steady_state_closure`); used to report the reduction.
     derived_params : dict
         Maps parameter symbol names to sympy expressions in terms of solve
         variables and/or true external parameters. These are substituted
@@ -57,14 +57,16 @@ class EquationSystem(dict):
     substitutions : list of (expr, replacement) tuples
         Accumulated symbolic substitutions from conservation reductions,
         charge neutrality, atom conservation, and fixed species.
+    discarded : dict
+        Equations the reduction removed, mapped to the reason.
     """
 
     def copy(self):
         new = EquationSystem()
         for k in self:
             new[k] = self[k]
-        new.equilibrium_overrides = dict(getattr(self, 'equilibrium_overrides', {}))
         new.fixed_species = dict(getattr(self, 'fixed_species', {}))
+        new.steady_state = tuple(getattr(self, 'steady_state', ()))
         new.derived_params = dict(getattr(self, 'derived_params', {}))
         new.fixed_electrons = getattr(self, 'fixed_electrons', None)
         new.intermediates = list(getattr(self, 'intermediates', []))
@@ -88,8 +90,8 @@ class EquationSystem(dict):
                 new[k] = get(self, k) + get(other, k)
             else:
                 new[k] = get(self, k) if k in self else get(other, k)
-        new.equilibrium_overrides = {**getattr(self, 'equilibrium_overrides', {}),
-                                     **getattr(other, 'equilibrium_overrides', {})}
+        new.steady_state = tuple(dict.fromkeys(tuple(getattr(self, 'steady_state', ()))
+                                               + tuple(getattr(other, 'steady_state', ()))))
         new.fixed_species = {**getattr(self, 'fixed_species', {}),
                              **getattr(other, 'fixed_species', {})}
         new.derived_params = {**getattr(self, 'derived_params', {}),
@@ -126,6 +128,30 @@ class EquationSystem(dict):
         """Substitute symbolic expressions throughout the whole network."""
         for k, e in self.items():
             self[k] = e.subs(expr, replacement)
+
+    def discard(self, key, reason):
+        """Remove an equation, recording why in self.discarded"""
+        if key in self:
+            del self[key]
+            if not hasattr(self, "discarded"):
+                self.discarded = {}
+            self.discarded[key] = reason
+
+    def steady_state_closure(self, species):
+        """Abundance of species in the steady state of its rate equation, which must be linear in its density:
+        source + sink_coefficient * n_species = 0, clamped at 0"""
+        if species not in self:
+            raise ValueError(f"steady-state species {species} has no rate equation")
+        n = n_(species)
+        source, sink_coeff = sp.S.Zero, sp.S.Zero
+        for term in sp.Add.make_args(dict.__getitem__(self, species).rhs):
+            if n not in term.free_symbols:
+                source += term
+            else:
+                sink_coeff += sp.simplify(term / n)
+        if n in sink_coeff.free_symbols:
+            raise ValueError(f"the rate equation of {species} is not linear in its density; it has no closed steady state")
+        return sp.Max(0, -source / sink_coeff / n_Htot)
 
     def fix_species(self, species_values):
         """Fix species to given values and remove their equations from the system.
@@ -168,8 +194,9 @@ class EquationSystem(dict):
                                   for expr, sub in self.substitutions]
             self.substitutions.append((xs, value))
 
+        steady = set(getattr(self, 'steady_state', ()))
         for species in species_values:
-            self.pop(species, None)
+            self.discard(species, "steady state" if species in steady else "fixed abundance")
 
     def prune_decoupled(self):
         """Remove equations whose variable no equation (its own included) depends on.
@@ -192,7 +219,7 @@ class EquationSystem(dict):
             if not found:
                 to_remove.append(key)
         for key in to_remove:
-            del self[key]
+            self.discard(key, "decoupled: no equation depends on it")
 
     def reduced(self, knowns, time_dependent=[]):
         """Return a reduced copy of the system ready for solving.
@@ -220,6 +247,7 @@ class EquationSystem(dict):
             Reduced system with only the equations needed for the solve.
         """
         subsystem = self.copy()
+        subsystem.discarded = {}
         # Substitute derived parameters (expressions of solve variables) before
         # time dependence so the Jacobian includes their T-derivatives
         derived = getattr(subsystem, 'derived_params', {})
@@ -256,7 +284,7 @@ class EquationSystem(dict):
             inter.append((w, W))
         subsystem.intermediates = inter
         if "T" in (str(k) for k in knowns) and "T" not in time_dependent:
-            del subsystem["heat"]
+            subsystem.discard("heat", "T is known")
         subsystem.prune_decoupled()
         return subsystem
 
@@ -288,54 +316,6 @@ class EquationSystem(dict):
         for expr, sub in self.substitutions:
             self.subs(expr, sub)
 
-        # Optional steady-state elimination: for species not being evolved in time,
-        # solve 0 = RHS for x_s if linear. Off by default — when enabled, eliminated
-        # species are substituted into all expressions (including EOS), which can make
-        # them unwieldy. When off, these species remain as parameters that the caller
-        # must set.
-        if getattr(self, 'eliminate_steady_state', False):
-            overrides = getattr(self, 'equilibrium_overrides', {})
-            ss_subs = []
-            for species in list(self.keys()):
-                if species in time_dependent_vars or species == "heat" or species == "u":
-                    continue
-                if species in atoms:
-                    continue
-                eq = self[species]
-                if eq.lhs != 0:
-                    continue
-                xs = x_(species)
-                if species in overrides:
-                    ss_subs.append((xs, overrides[species]))
-                    self.pop(species, None)
-                    continue
-                if xs not in eq.rhs.free_symbols:
-                    continue
-                rhs = eq.rhs
-                terms = sp.Add.make_args(sp.expand(rhs))
-                P_terms = [t for t in terms if not t.has(xs)]
-                D_terms = [t for t in terms if t.has(xs)]
-                if not D_terms:
-                    continue
-                P = sum(P_terms) if P_terms else sp.S.Zero
-                D = sum(t / xs for t in D_terms)
-                if D.has(xs):
-                    continue
-                ss_subs.append((xs, -P / D))
-                self.pop(species, None)
-
-            for species, sub in overrides.items():
-                xs = x_(species)
-                if any(a == xs for a, _ in ss_subs):
-                    continue
-                if xs in self.symbols:
-                    ss_subs.append((xs, sub))
-                    self.pop(species, None)
-
-            for expr, sub in ss_subs:
-                self.substitutions.append((expr, sub))
-                self.subs(expr, sub)
-
         # charge neutrality — exclude fixed species with negative charge whose
         # equilibrium expressions depend on x_e (e.g. H-), to avoid circular
         # substitutions. Positive fixed species (e.g. C+) are included since
@@ -362,7 +342,7 @@ class EquationSystem(dict):
                         continue  # skip: expression depends on electron abundance (circular)
                 x_ion_sum += species_charge(s) * x_(s)
             conservation_subs.append((x_("e-"), x_ion_sum))
-            del self["e-"]
+            self.discard("e-", "charge neutrality")
 
         # atom species conservation — exclude fixed species only if their
         # expression would create a circular dependency (i.e., the fixed species'
@@ -389,7 +369,7 @@ class EquationSystem(dict):
 
             xtot = total_atom_abundance(i)
             conservation_subs.append((x_(i), xtot - x_total))
-            self.pop(i, None)
+            self.discard(i, f"{i} conservation")
 
         for expr, sub in conservation_subs:
             self.substitutions.append((expr, sub))
@@ -466,6 +446,7 @@ class EquationSystem(dict):
             if verbose:
                 print(*a, **k)
 
+        knowns = dict(knowns)  # the caller's dict is left alone
         # first: check knowns and guesses are all same size
         num_params = np.array([len(np.array(guesses[g])) for g in guesses] + [len(np.array(knowns[g])) for g in knowns])
         if not np.all(num_params == num_params[0]):
@@ -475,9 +456,10 @@ class EquationSystem(dict):
         if dt is not None:
             knowns["Δt"] = np.repeat(dt.to(units.s), num_params)
 
+        system = self.copy()  # the energy equation goes on a copy, not on the caller's network
         if "u" in guesses or "T" in time_dependent:
-            self["u"] = Equation(0, self.eos.internal_energy - sp.Symbol("u"))
-        subsystem = self.reduced(knowns, time_dependent)
+            system["u"] = Equation(0, system.eos.internal_energy - sp.Symbol("u"))
+        subsystem = system.reduced(knowns, time_dependent)
         if subsystem.intermediates:
             raise NotImplementedError("solve() does not support intermediates; use the generated code")
         symbols = subsystem.symbols
@@ -646,13 +628,15 @@ class EquationSystem(dict):
         """Returns the RHS of the system to solve and its Jacobian, applying simplifications"""
 
         solve_vars = list(solve_vars)
+        system = self.copy()  # the energy equation goes on a copy, not on the caller's network
         if "u" in solve_vars or "T" in time_dependent:
-            self["u"] = Equation(0, self.eos.internal_energy - sp.Symbol("u"))
+            system["u"] = Equation(0, system.eos.internal_energy - sp.Symbol("u"))
             if "u" not in solve_vars:
                 solve_vars.append("u")
 
-        knowns = self.symbols.difference(solve_vars)
-        subsystem = self.reduced(knowns, time_dependent)
+        knowns = system.symbols.difference(solve_vars)
+        subsystem = system.reduced(knowns, time_dependent)
+        self._discarded = dict(subsystem.discarded)
         self._reduction_substitutions = getattr(subsystem, 'substitutions', [])
         self._intermediates = list(getattr(subsystem, 'intermediates', []))
         self._intermediate_prelude = []
@@ -848,6 +832,7 @@ class EquationSystem(dict):
 
         result["var_names"] = var_names
         result["param_names"] = [str(p) for p in param_syms]
+        result["discarded"] = dict(getattr(self, "_discarded", {}))
         result["n_vars"] = n_vars
         result["n_params"] = len(param_syms)
         result["language"] = language

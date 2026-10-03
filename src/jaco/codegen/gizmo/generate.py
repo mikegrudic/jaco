@@ -193,14 +193,16 @@ def generate_funcjac_code(
 ):
     """Generate the RHS + Jacobian sources for ``system`` and write them to ``output_dir``.
 
+    Prints every equation the reduction discards, with the reason.
+
     Parameters
     ----------
-    system : Process
+    system : Model or Process
         The model to generate code for. Must already include any PdV-work term it needs.
     solve_vars : list of str, optional
-        Solve variables in index order. Defaults to ["u", "T"].
+        Solve variables in index order; a Model's own by default, required for a Process.
     time_dependent : list of str, optional
-        Variables that get a backward-Euler term. Defaults to ["T"].
+        Variables that get a backward-Euler term; a Model's own by default, required for a Process.
     cse : bool
         Apply common subexpression elimination.
     language : str
@@ -220,8 +222,16 @@ def generate_funcjac_code(
         If given (or with model_name, which is its default), the header also defines JACO_FAMILY_<MODEL_FAMILY>, which
         models sharing the host code's paths have in common.
     """
-    solve_vars = list(solve_vars) if solve_vars else ["u", "T"]
-    time_dependent = list(time_dependent) if time_dependent else ["T"]
+    from ...model import Model
+
+    if isinstance(system, Model):
+        solve_vars = system.solve_vars if solve_vars is None else solve_vars
+        time_dependent = system.time_dependent if time_dependent is None else time_dependent
+    elif solve_vars is None or time_dependent is None:
+        raise ValueError("give solve_vars and time_dependent, or a Model that declares them")
+    if not solve_vars:
+        raise ValueError("no solve variables")
+    solve_vars, time_dependent = list(solve_vars), list(time_dependent)
     lang = language.lower()
     if source_ext is None:
         source_ext = {"c": ".c", "c++": ".cpp", "cuda": ".cu", "python": ".py", "julia": ".jl"}[lang]
@@ -235,6 +245,9 @@ def generate_funcjac_code(
         minimal=False, func_name=func_name, jac_mode=jac_mode,
     )
     code = result["code"]
+    if result.get("discarded"):
+        print("jaco codegen: discarded equations: "
+              + ", ".join(f"{k} ({why})" for k, why in result["discarded"].items()))
     # Only the tables the generated code actually references (the registry is process-global)
     tables = {name: t for name, t in result.get("tables", {}).items() if re.search(rf"&{re.escape(name)}\b", code)}
 

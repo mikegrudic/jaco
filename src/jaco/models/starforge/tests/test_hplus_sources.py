@@ -9,12 +9,11 @@ import pytest
 import sympy as sp
 from jaco.symbols import n_
 from ..starforge import make_model
-from ..switches import STARFORGE, STARFORGE_LEGACY
+from ...starforge_legacy import make_model as make_legacy
 from ..symbols import cosmicray_ionization_rate_H, x_
 
 
-def H_plus_terms(switches):
-    model = make_model(switches)
+def H_plus_terms(model):
     sources, sinks = {}, {}
     for p in model.subprocesses:
         if "H+" not in p.network or p.network["H+"].rhs == 0:
@@ -26,13 +25,13 @@ def H_plus_terms(switches):
 
 
 def test_legacy_only_collisions_make_Hplus():
-    sources, sinks = H_plus_terms(STARFORGE_LEGACY)
+    sources, sinks = H_plus_terms(make_legacy())
     assert list(sources) == ["Collisional Ionization of H"]
     assert list(sinks) == ["Gas-phase recombination of H+"]
 
 
 def test_starforge_cosmic_rays_ionize_H():
-    sources, sinks = H_plus_terms(STARFORGE)
+    sources, sinks = H_plus_terms(make_model())
     assert sp.simplify(sources.pop("Direct ionization of H by cosmic rays") - cosmicray_ionization_rate_H * n_("H")) == 0
     assert list(sources) == ["Collisional Ionization of H"]
     for name in ("Gas-phase recombination of H+", "Grain-assisted recombination of H+", "Charge transfer of H+ to Mg"):

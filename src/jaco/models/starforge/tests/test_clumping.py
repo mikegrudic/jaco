@@ -1,5 +1,6 @@
-"""Sub-grid clumping (switch clumping): STARFORGE multiplies every two-body rate by C_2 and every three-body rate by C_3;
-STARFORGE_LEGACY clumps only the H2 terms GIZMO's update_explicit_molecular_fraction multiplies by its clumping_factor.
+"""Sub-grid clumping: STARFORGE multiplies every two-body rate by C_2 and every three-body rate by C_3; STARFORGE_LEGACY
+(rule GIZMO_CLUMPING) clumps only the H2 terms GIZMO's update_explicit_molecular_fraction multiplies by its
+clumping_factor.
 
 Walks every process of each model: each rate and heat expression must scale as C_2^1 (C_3^1) if its process is two-body
 (three-body) and not at all if it is one-body, at a sub-critical state. New processes must be classified here."""
@@ -9,7 +10,7 @@ import pytest
 import sympy as sp
 from jaco.symbols import n_, x_
 from ..starforge import make_model
-from ..switches import STARFORGE, STARFORGE_LEGACY
+from ...starforge_legacy import make_model as make_legacy
 from ..ionization_balance import ion_abundances
 from ..symbols import clumping_factor, T, grad_v, dx, x_solar
 
@@ -49,7 +50,7 @@ def expressions(process):
     return {k: eq.rhs for k, eq in process.network.items() if eq.rhs != 0}
 
 
-@pytest.mark.parametrize("process", make_model(STARFORGE).subprocesses, ids=lambda p: p.name)
+@pytest.mark.parametrize("process", make_model().subprocesses, ids=lambda p: p.name)
 def test_starforge_clumps_every_collision(process):
     expected = (0, 0) if process.name in ONE_BODY else (0, 1) if process.name in THREE_BODY else (1, 0)
     for key, expr in expressions(process).items():
@@ -58,7 +59,7 @@ def test_starforge_clumps_every_collision(process):
             assert exps == pytest.approx(expected, abs=0.02), key
 
 
-@pytest.mark.parametrize("process", make_model(STARFORGE_LEGACY).subprocesses, ids=lambda p: p.name)
+@pytest.mark.parametrize("process", make_legacy().subprocesses, ids=lambda p: p.name)
 def test_legacy_clumps_only_H2_chemistry(process):
     for key, expr in expressions(process).items():
         if process.name == "GIZMO H2 network":
@@ -72,7 +73,7 @@ def by_name(model, name):
 
 
 def test_cooling_and_H2_terms_each_model():
-    sf, legacy = make_model(STARFORGE), make_model(STARFORGE_LEGACY)
+    sf, legacy = make_model(), make_legacy()
     assert clumping_exponents(by_name(sf, "Gas-dust collisions").network["heat"].rhs)[0] == pytest.approx(1)
     assert clumping_exponents(by_name(sf, "Formation of H_2 on dust grains").network["H_2"].rhs)[0] == pytest.approx(1)
     assert C2 not in by_name(legacy, "Gas-dust collisions").network["heat"].rhs.free_symbols

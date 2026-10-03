@@ -3,3 +3,4 @@ from .numerics import *
 from .process import Process
 from .equation_system import EquationSystem
 from .equation import Equation
+from .model import Model, Rule

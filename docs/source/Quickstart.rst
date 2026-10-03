@@ -182,7 +182,7 @@ can do that too with ``generate_code``.
 
 .. code:: ipython3
 
-    print(system.generate_code(('H+','He+','He++'),language='c'))
+    print(system.network.generate_code(('H+','He+','He++'),language='c'))
 
 
 .. parsed-literal::

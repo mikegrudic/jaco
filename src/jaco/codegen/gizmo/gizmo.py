@@ -2,8 +2,8 @@
 
     python -m jaco.codegen.gizmo.gizmo starforge --language c --ext .cc --output-dir cooling
 
-The model is ``jaco.models.<model>``; it must provide ``make_model()`` and may set ``SOLVE_VARS``,
-``TIME_DEPENDENT`` (defaults: ["u", "T"] and ["T"]) and ``GIZMO_FAMILY``, the name of the host-code family macro
+The model is ``jaco.models.<model>``; it must provide ``make_model()``, returning a :class:`jaco.model.Model` (which
+declares its solve variables), and may set ``GIZMO_FAMILY``, the name of the host-code family macro
 JACO_FAMILY_<FAMILY> for models that share GIZMO's code paths (default: the model name).
 """
 
@@ -23,9 +23,9 @@ def main(argv=None):
     parser.add_argument("--ext", default=None, help="source file extension, e.g. .cc")
     parser.add_argument("--output-dir", default=".", help="directory for the generated files")
     parser.add_argument("--jac-mode", default="symbolic", help="symbolic or autodiff")
-    parser.add_argument("--solve-vars", default=None, help="comma-separated override of the model's SOLVE_VARS")
+    parser.add_argument("--solve-vars", default=None, help="comma-separated override of the model's solve variables")
     parser.add_argument("--time-dependent", default=None,
-                        help="comma-separated override of the model's TIME_DEPENDENT")
+                        help="comma-separated override of the model's time-dependent variables")
     args = parser.parse_args(argv)
 
     model_mod = import_module(f"jaco.models.{args.model}")
@@ -35,8 +35,8 @@ def main(argv=None):
 
     generate_funcjac_code(
         model_mod.make_model(),
-        solve_vars=_split(args.solve_vars) or getattr(model_mod, "SOLVE_VARS", None),
-        time_dependent=_split(args.time_dependent) or getattr(model_mod, "TIME_DEPENDENT", None),
+        solve_vars=_split(args.solve_vars),
+        time_dependent=_split(args.time_dependent),
         language=args.language,
         source_ext=args.ext,
         output_dir=args.output_dir,

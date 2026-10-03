@@ -15,8 +15,21 @@ Implement things in as general a way as is reasonable, to save time in case you 
 3. Documented
 It should be easy for an interested colleague to know exactly what is in the model and where its data or models came from. When instantiating the process, please supply a bibcode `bibliography` argument, and a descriptive name of the process in the `name` argument. The goal is to lose none of this information as we assemble the network, so that it is easy to recall what exactly is in the network, and where it came from. Please numpy-style docstrings on any functions.
 
-## Step 2: Sum the process to obtain the full system
+Processes are immutable: write a reaction as `Reaction("H + H -> H_2", k, heat_per_reaction=..., name=..., bibliography=[...])`
+(clumping `C_k` is applied by default to `k >= 2` reactants; pass `clumping=` to say otherwise) and a heating or cooling
+term as `ThermalTerm(heat, ...)`. Give every process a unique name: it is the process's id in the model.
+
+## Step 2: Collect the processes in a `Model`
+
+`make_model()` returns `Model(processes, solve_vars=..., time_dependent=...)`. A composite process is split into its
+atoms. `model + process` adds one (a duplicate id raises), `model.without(id)` and `model.replace(id, new)` take one out
+or swap it, and `model + other_model` merges two (conflicting declarations raise).
 
 ## Step 3: Implement the assumptions
+
+Declare them on the model, never by editing processes: `steady_state=["H-"]` closes a species from its own rate
+equation when the network is assembled; `fixed={species: expression}` prescribes an abundance; `derived={parameter:
+expression}` substitutes an expression of the solve variables for a parameter before differentiation; `rules=[Rule(...)]`
+rewrite the processes (e.g. a different density in the rates) at assembly, so processes added later get them too.
 
 ### Style guidelines

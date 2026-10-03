@@ -1,6 +1,7 @@
 import numpy as np
 from jaco.symbols import piecewise_powerlaw, T, n_
 from jaco.processes import ThermalTerm
+from jaco.model import Model
 import sympy as sp
 from jaco.math import logistic
 
@@ -55,11 +56,10 @@ def make_model():
     """Build the wind_comparison model: simple atomic-H cooling + heating + PdV work.
 
     A minimal model with a tabulated cooling curve, a low-temperature heating
-    floor, and an external PdV work parameter. Used for wind bubble tests.
+    floor, and an external PdV work parameter, solving u and T. Used for wind bubble tests.
 
     Returns
     -------
-    Process
-        Composite process with cooling, heating, and PdV work.
+    Model
     """
-    return cooling + heating + pdv_work
+    return Model([cooling, heating, pdv_work], solve_vars=["u", "T"], time_dependent=["T"])

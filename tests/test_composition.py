@@ -99,12 +99,10 @@ def test_chemical_reaction_network_follows_its_rate():
 
 
 @pytest.mark.slow
-@pytest.mark.xfail(strict=True, reason="the H- steady state is computed once in make_model(); fixed by closure rules "
-                                       "evaluated at reduction time (R1)")
 def test_added_Hminus_reaction_reaches_reduced_system():
-    from jaco.models.starforge import make_model, SOLVE_VARS, TIME_DEPENDENT
+    from jaco.models.starforge import make_model
 
     k = sp.Symbol("k_test")
     model = make_model() + Reaction("H + e- -> H-", k, bibliography=["test"])
-    rhs, _ = model.network.solver_functions(SOLVE_VARS, TIME_DEPENDENT)
+    rhs, _ = model.solver_functions()
     assert any(k in sp.sympify(r).free_symbols for r in rhs)

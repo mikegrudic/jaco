@@ -13,57 +13,49 @@ composite networks.
    :members:
    :undoc-members:
 
-Specialized process types:
+Processes are immutable. Physics is written as reactions and thermal terms; the other names are thin factories
+returning them:
 
 .. automodule:: jaco.processes
-   :members: ThermalProcess, NBodyProcess, ChemicalReaction, CollisionalIonization, GasPhaseRecombination, FreeFreeEmission, LineCoolingSimple
+   :members: Reaction, ThermalTerm, collisional_thermal_term, Ionization, Recombination, CollisionalIonization, GasPhaseRecombination, FreeFreeEmission, LineCoolingSimple
    :undoc-members:
+
+Model
+-----
+
+A ``Model`` is a keyed collection of processes (``+`` adds one and raises on a duplicate id; ``without(id)``,
+``replace(id, new)``) plus the declarations that make their rate equations solvable: solve variables, the
+time-dependent set, steady-state species (closed from their own rate equation when the network is assembled), fixed
+abundances, derived parameters, intermediates and model-level ``Rule`` rewrites of the processes. Everything is
+worked out from the current processes when the network is assembled, so ``model + process`` is the model with that
+process in every respect.
+
+.. autoclass:: jaco.model.Model
+   :members:
+
+.. autoclass:: jaco.model.Rule
 
 EquationSystem
 --------------
 
 The ``EquationSystem`` is the core symbolic engine that stores the rate
 equations for all species and provides methods for reducing, solving, and
-generating code from the network.
+generating code from the network. A model's ``network`` is one, with the
+model's declarations attached.
 
 .. autoclass:: jaco.EquationSystem
    :members:
    :undoc-members:
 
-Key concepts:
-
-- **fixed_species** (``dict``): Maps species names to fixed values or
-  parameter symbols. These species' equations are removed from the solve
-  system during reduction, and their abundances are substituted throughout
-  the remaining equations. Set at the model level to declare which species
-  are computed externally by the host code (e.g. ``gizmo_to_jaco``).
-
-  Example::
-
-      model.network.fixed_species = {
-          "C+": sp.Symbol("x_Cplus_fixed"),
-          "H-": 1e-15,
-          "H_2+": 0,
-      }
-
-- **equilibrium_overrides** (``dict``): Maps species names to sympy
-  expressions for their equilibrium abundance. Used when the automatic
-  steady-state linearization cannot derive the equilibrium (e.g. nonlinear
-  or implicit expressions).
-
-  Example::
-
-      model.network.equilibrium_overrides = {
-          "H_2+": sp.S.Zero,
-          "HD": 2.527e-5 * x_("H_2"),
-      }
-
 - **Reduction pipeline** (``reduced()``):
 
-  1. Set time dependence (BDF for evolved species, steady-state for others)
-  2. Conservation reductions (n->x conversion, charge neutrality, atom conservation)
-  3. Fix species (substitute fixed_species values, remove their equations)
-  4. Prune decoupled equations (remove orphaned equations like dust heat)
+  1. Substitute derived parameters
+  2. Set time dependence (BDF for evolved species, steady-state for others)
+  3. Conservation reductions (n->x conversion, charge neutrality, atom conservation)
+  4. Fix species (substitute fixed and steady-state abundances, remove their equations)
+  5. Prune decoupled equations (remove orphaned equations like dust heat)
+
+  Every removed equation is recorded with its reason in ``discarded``; code generation prints them.
 
 - **Code generation** (``generate_code()``): Produces C/C++/CUDA/Python/Julia
   source files with the RHS function, Jacobian, EOS functions, and
@@ -72,26 +64,19 @@ Key concepts:
 Models
 ------
 
-Models are assembled from processes and declare their configuration:
-
-.. automodule:: jaco.models
-   :members:
+Each subpackage of ``jaco.models`` provides ``make_model()``, returning a ``Model``.
 
 Starforge
 ^^^^^^^^^
 
 The STARFORGE model implements ISM thermochemistry with H2, metals, dust,
 cosmic rays, and radiation. It is the primary model for star formation
-simulations in GIZMO.
+simulations in GIZMO. ``starforge_legacy`` builds GIZMO's legacy cooling
+module from the same process library.
 
 .. autofunction:: jaco.models.starforge.starforge.make_model
 
-The model declares:
-
-- **Solve variables**: ``u, T, H+, He+, He++, H_2``
-- **Time-dependent**: ``T, H_2`` (backward Euler); ions in steady-state equilibrium
-- **Fixed species**: ``C+, H-, H_2+, CO, HD`` (computed by host code)
-- **Equilibrium overrides**: ``H_2+ = 0``, ``HD = 2.527e-5 * x_H2``
+.. autofunction:: jaco.models.starforge_legacy.make_model
 
 Wind Comparison
 ^^^^^^^^^^^^^^^
