@@ -33,10 +33,10 @@ from ..starforge.metal_electrons import metal_electrons
 from ..starforge.symbols import n_Htot, nH_gizmo_cooling, PARAMETERS
 
 
-def scaled_densities(factor):
-    """Expression rule multiplying every number density (n_X, n_Htot) by factor"""
+def scaled_densities(factor, exclude=frozenset()):
+    """Expression rule multiplying every number density (n_X, n_Htot) by factor, but those in exclude"""
     def rule(e):
-        return e.xreplace({s: factor * s for s in e.free_symbols if str(s).startswith("n_")})
+        return e.xreplace({s: factor * s for s in e.free_symbols if str(s).startswith("n_") and s not in exclude})
     return rule
 
 
