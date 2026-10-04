@@ -20,14 +20,24 @@
     "microphysics_outputs.cc": "b49308de32bcc8ff2181f42822366a3fd6009fde9e93075a336071aeb467f6df"
   },
   "starforge_legacy_RT": {
+    "jaco_eos.cc": "7b2b8c7d6ddf01a077b0a45f14143806d76425e286dfa38e67a1b8ba8ceea23b",
+    "jaco_interp.h": "df92d67f002be0789937277cbacfb46b15a4129861cb3e287ce6abcd34415792",
+    "jaco_tables.h": "fa75f46b3d66447a0886285a72fd10bb8082e533355346ab9c77807a1488235d",
+    "jaco_tables.hdf5": "5d1570183d8e8b38afbd975f9a21b0b24dc0d838244ea41593b60fd96cccfdcb",
+    "jaco_util.cc": "c48b87c7528c030f3073a5fa91ce387b4bdbd4a51b0baec5bd519a10eefcf8cd",
+    "microphysics_func_jac.cc": "4836884a414af9479ca595c7466cda265b0103a107fd3009df2f65399446d8c2",
+    "microphysics_func_jac.h": "93eb06831e549abf652e60ff24898b57f35b1d7eca64cfa4321fde2fb379fadf",
+    "microphysics_outputs.cc": "b8a92986514d29dff750d4b066cb5d9ac5ae4a44121b96fc0874ba047a385d77"
+  },
+  "starforge_legacy_RT_EUV": {
     "jaco_eos.cc": "f709d75a2e027284e76621f73369fff68a6ecb1cfe57f5670cedec4da582803d",
     "jaco_interp.h": "a16bc266af3714eba8951abcc237076a257efba4846a0fd83a717f7843960573",
     "jaco_tables.h": "fa75f46b3d66447a0886285a72fd10bb8082e533355346ab9c77807a1488235d",
     "jaco_tables.hdf5": "5d1570183d8e8b38afbd975f9a21b0b24dc0d838244ea41593b60fd96cccfdcb",
     "jaco_util.cc": "c48b87c7528c030f3073a5fa91ce387b4bdbd4a51b0baec5bd519a10eefcf8cd",
-    "microphysics_func_jac.cc": "a53176fcb694fa82273d47bcb3600c77404a74e831b5e7c69075759e7bef46fc",
-    "microphysics_func_jac.h": "de51527a9b2ef92263690e351ea038d1f5ec383f814ec555c967d8a8a29cfccb",
-    "microphysics_outputs.cc": "d75562ae93216f1a74057810eed00a2f1de9e97057cb35d0c6f368937b21e118"
+    "microphysics_func_jac.cc": "76359b900e9c1f83e83fbdb358ececee700196db83c38501e3cf90927f8d4a9c",
+    "microphysics_func_jac.h": "ad320dda2c2efdb9df0fe308573377e9e37b3f41091ba741e127b2ba17ede90a",
+    "microphysics_outputs.cc": "94654e9304390a16cd1059f37a4fcf59970c60e7fcb7c7b7309ad453c86dcc8f"
   },
   "wind_comparison": {
     "jaco_eos.cc": "ba6a6d9f7ab0e0734b8a9b4e3e6a1062067cb3b4c7afc0c6c62e60c711420484",

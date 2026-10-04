@@ -1,92 +1,97 @@
-"""GIZMO's legacy cooling module with its matter-radiation coupling (RADTRANSFER + RT_CHEM_PHOTOION), as a jaco model.
+"""GIZMO's legacy cooling module and its matter-radiation coupling under full-physics STARFORGE RT (M1 RADTRANSFER with
+the ionizing, photoelectric, NUV, optical/NIR and infrared bands: SINGLE_STAR_FB_RAD), as one jaco model whose
+unknowns include the energy of every band and the dust temperature.
 
-starforge_legacy plus the terms the legacy module adds when the ionizing band is evolved by the RT solver. Line numbers
-refer to cooling/cooling.cc and radiation/rt_chem.cc at gizmo_jaco_dev bd3500d7.
+starforge_legacy plus the processes of jaco.models.starforge.radiation, which hold the GIZMO references. GIZMO keeps
+radiation transport only: the host hands the model each cell's post-transport band energies as the step's initial
+values (x_photon_*_initial) and writes the solved ones back, and every exchange between the bands, the gas and the
+dust is one of these processes, solved with the gas energy and the chemistry in one backward-Euler Newton system:
 
-- Photoionization of H by the ionizing band (find_abundances_and_rates, 846-904): Gamma = c sigma_HI n_gamma per
-  neutral H at the true c, with heat eps_HI per ionization (Heat_Ion_from_RHD, 1225-1266). eps_HI is rt_ion_G_HI, the
-  cross-section-weighted photoelectron energy of the band, not h nu_eff - 13.6 eV (rt_get_sigma). He is not
-  photoionized (rt_ion_G_HeI = rt_ion_G_HeII = 0 without RT_CHEM_PHOTOION_HE). The rate acts on atomic H; GIZMO's
-  neutral H includes H2, which the solver's H budget cannot give up to H+ directly.
-- Rate law: Gamma_eff = Gamma S(tau), S(x) = (1 - e^-x)/x in GIZMO's Pade form (slab_averaging_function), with
-  tau = c_tilde sigma_HI n_H0 Delta_t: the photon-limited average over the step, under which the photons a cell takes,
-  n_H0 Gamma_eff Delta_t (c_tilde/c), never exceed n_gamma. c_tilde = 0 gives GIZMO's law, Gamma frozen over the step,
-  which is right where the RT solver's kick has already attenuated the band (cooling.cc 875 and 1244 comment S out).
-- H+ is time-dependent, as GIZMO's linearized backward-Euler H balance (903) is. GIZMO integrates abundances per
-  nHcgs = 0.76 rho/m_p, at which its rates are evaluated (rule GIZMO_DENSITY); rule GIZMO_ABUNDANCES divides the species
-  rows by nHcgs/n_Htot so that the backward-Euler term, which jaco writes per n_Htot, runs at GIZMO's speed.
-- The emission corrections (the CMB-bath factor of metal-line, molecular and fine-structure cooling) take the
-  background radiation temperature T_bg (get_background_radiation_temperature_for_emission_corrections, 2467-2482): the
-  energy-weighted IR + CMB temperature under RT_INFRARED. Compton cooling keeps the CMB alone; GIZMO adds the RT bands
-  to it, a term negligible against photoheating and the dust coupling.
-- Under RT_INFRARED every heating and cooling rate but the gas-dust coupling is multiplied by the IR self-absorption
-  factor fcorr = 1/(1 + tau_self^2) (1308-1313), a parameter (f_IR_selfabs) the host evaluates at the cached
-  temperature.
+- photoionization of H by the ionizing band, each event taking one photon at c_tilde and donating its energy to the
+  optical band (the kick's donation), heating the gas by eps_HI; the IR band's tail above 13.6 eV ionizes too;
+- dust absorption of the photoelectric, NUV and optical bands and of the IR band, the dust's thermal emission into the
+  IR band, gas-dust collisions, and gas absorption of the IR band (heating the gas at c_tilde/c, as GIZMO's kick does);
+- the cooling radiation GIZMO returns to the bands (CoolingRate 1317-1348): metal and nebular lines, H and He+
+  excitation, the recombination share f_recNUV and free-free emission above 1e5 K to the NUV band (to the IR band where
+  T_rad > 1e4 K); molecular, fine-structure and atomic carbon lines, Compton and free-free emission below 1e5 K to the
+  IR band;
+- the dust temperature Td solves the dust's energy balance (zero heat capacity: absorption + gas-dust heating = emission),
+  in place of rt_eqm_dust_temp and rt_ir_lambdadust;
+- G_0, the H2 network's G_LW, the background temperature of the emission corrections T_bg, the IR self-absorption
+  factor of the heating and cooling rates and the recombination share f_recNUV are expressions of the bands, the dust
+  and the gas. The photoelectric heating and G_LW, rates over the step, see the photoelectric band averaged over it
+  (as the dust absorbs it); the closures of the state at the step's end (the C+ fraction, the metals' free electrons)
+  see the band there, so that the EOS does not depend on the step.
 
-Outputs, for the host to return to the RT bands (CoolingRate's routing, 1317-1348, and rt_ir_lambdadust):
+Deviations from GIZMO, each forced by doing the coupling in one implicit step:
 
-- L_NUV: metal lines, nebular lines, H and He+ collisional excitation, the recombination radiation not taken as UVB
-  reprocessing (f_recNUV, the share GIZMO credits, 1322) and free-free emission above 1e5 K;
-- L_IR_gas: the GIZMO molecular, fine-structure and atomic carbon cooling, Compton cooling and free-free emission below
-  1e5 K;
-- dust_heat (the energy reservoir's row): the energy the gas gives the dust, which the dust re-emits in the IR;
-- photoionization_rate: photoionizations per unit volume, at GIZMO's nHcgs, for the ionizing band's photon sink.
+- GIZMO absorbs each band in the kick with an exponential at frozen opacity and its dust temperature from that, then
+  cools at fixed band energies; here absorption, emission and the dust temperature are terms of the same step, at the
+  opacities of the solved state (Td, x_e, x_H+, H2). The dust's absorption of the photoelectric, NUV and optical bands
+  keeps the kick's exponential (radiation.kick_absorption_factor), so those bands end the step at e^(-a Delta_t) of
+  their initial energy, but what is added to them within the step (the NUV cooling return, the optical band's
+  donation) is absorbed as if present from its start; the ionizing and IR bands are backward Euler;
+- GIZMO's cooling return is limited by the gas energy change (de_u_touse); the processes give the bands exactly what
+  the gas emits;
+- GIZMO counts the gas-phase IR absorption in its dust balance as well; here it heats the gas only;
+- the photon flux is left to the RT kick (whose relaxation with Rad_Kappa is the absorption's damping of it) but for the
+  M1 limit; GIZMO's cooling return also scales the flux with the band's energy;
+- the dust opacity table's composition switches are smoothed (jaco.models.starforge.dust_opacity);
+- T_rad, the IR band's radiation temperature, is an input; the output T_rad_new is GIZMO's update of it from what the
+  band kept and gained over the step, for the host to store. Solving for it would take the band's photon number as a
+  second IR species (T_rad = its energy over its number times the mean photon energy's constant), with every IR
+  process given a number row at the temperature it emits at.
+
+Reproduced as GIZMO does them, though they do not conserve energy: the gas absorption of the IR band heats the gas at
+c_tilde/c of the physical rate; the kick puts the dust-absorbed energy of the photoelectric, NUV and optical bands into
+the IR band twice (radiation.legacy_ir_donation_copy, a separate process: Model.without removes it); photoheating takes
+eps_HI per photoionization while the band loses hnu_EUV to the optical band; photoelectric heating and H2
+photodissociation do not take from the bands.
 """
 
 import sympy as sp
 from jaco.model import Rule
-from jaco.declarations import Parameter, Output
+from jaco.declarations import Parameter, Species, Variable, Output
 from jaco.process import Process
-from jaco.processes import Reaction
-from jaco.symbols import n_, dt
 from ..starforge.starforge import GIZMO_FAMILY, SHARED_SPECIES  # noqa: F401  (GIZMO_FAMILY: the host-code family)
 from ..starforge.symbols import z, nH_gizmo_cooling, n_Htot, T
-from ..starforge_legacy import make_model as make_legacy
+from ..starforge.dust_opacity import T_dust, dust_survival
+from ..starforge import radiation as rt
+from ..starforge.radiation import EUV, FUV, NUV, ONIR, IR, BANDS
+from ..starforge_legacy import make_model as make_legacy, scaled_densities, GIZMO_CLUMPING
 
 T_CMB_Z0 = 2.73  # GIZMO's CMB temperature at z = 0, as jaco's starforge symbols write it: 2.73 (1 + z)
+T_bg, f_IR_selfabs, f_recNUV = sp.Symbol("T_bg"), sp.Symbol("f_IR_selfabs"), sp.Symbol("f_recNUV")
+DUST_TEMPERATURE_FLOOR = 2.73  # GIZMO's: max(MinGasTemp, T_CMB) under GALSF; the RT tests run MinGasTemp = 2.73
+MAX_DUST_TEMP = 1.0e4  # GIZMO's MAX_DUST_TEMP
 
-Gamma_HI = sp.Symbol("Gamma_HI")
-sigma_HI = sp.Symbol("sigma_HI")
-eps_HI = sp.Symbol("eps_HI")
-c_tilde = sp.Symbol("c_tilde")
-T_bg = sp.Symbol("T_bg")
-
+BAND_SPECIES = {
+    EUV: Species(EUV, "radiation", "ionizing photons (13.6-500 eV) per H nucleus", floor=0.0),
+    FUV: Species(FUV, "radiation", "photoelectric band (8-13.6 eV) energy per H nucleus [eV]", floor=0.0),
+    NUV: Species(NUV, "radiation", "NUV band (3.444-8 eV) energy per H nucleus [eV]", floor=0.0),
+    ONIR: Species(ONIR, "radiation", "optical/NIR band (0.4133-3.444 eV) energy per H nucleus [eV]", floor=0.0),
+    IR: Species(IR, "radiation", "IR band (0.001-0.4133 eV) energy per H nucleus [eV]", floor=0.0),
+}
 RT_PARAMETERS = [
-    Parameter("Gamma_HI", "s^-1", 0.0, "photoionization rate per neutral H of the ionizing band at the true c, "
-                                       "c sigma_HI n_gamma (cooling.cc gJH0ne n_e)"),
+    Parameter("rsol", "", 1e-4, "reduced speed of light of the bands, c_tilde / c (RT_SPEEDOFLIGHT_REDUCTION)"),
     Parameter("sigma_HI", "cm^2", 0.0, "band-averaged H photoionization cross-section (rt_ion_sigma_HI)"),
     Parameter("eps_HI", "erg", 0.0, "heat per photoionization (rt_ion_G_HI)"),
-    Parameter("c_tilde", "cm s^-1", 0.0, "speed of light of the band's absorption in the rate law; 0: Gamma frozen "
-                                         "over the step, as where the RT solver absorbs the band"),
-    Parameter("T_bg", "K", T_CMB_Z0, "background radiation temperature of the emission corrections"),
-    Parameter("f_IR_selfabs", "", 1.0, "IR self-absorption factor 1/(1 + tau_self^2) of the heating and cooling rates "
-                                       "(1 without RT_INFRARED)"),
-    Parameter("f_recNUV", "", 0.0, "share of the recombination cooling GIZMO returns to the NUV band"),
+    Parameter("hnu_EUV", "eV", 20.0, "mean energy of the ionizing photons (rt_nu_eff_eV)"),
 ]
-f_IR_selfabs = sp.Symbol("f_IR_selfabs")
-f_recNUV = sp.Symbol("f_recNUV")
-
-
-def slab_average(x):
-    """(1 - e^-x)/x: GIZMO's slab_averaging_function, a Pade fit accurate to ~0.1% that is 1 at x = 0 and 1/x at x >> 1"""
-    return ((1 + x * (0.21772719088733913 + x * (0.047076512011644776 + x * 0.005068307557496351)))
-            / (1 + x * (0.71772719088733920 + x * (0.239273440788647680 + x * (0.046750496137263675
-                                                                             + x * 0.005068307557496351)))))
-
-
-def photoionization_optical_depth():
-    """c_tilde sigma_HI n_H0 Delta_t, the band's absorption optical depth over the step"""
-    return c_tilde * sigma_HI * n_("H") * dt
-
-
-photoionization = Reaction("H -> H+ + e-", rate=Gamma_HI * slab_average(photoionization_optical_depth()) * n_("H"),
-                           heat_per_reaction=eps_HI, clumping=1, name="Photoionization of H by the RT band",
-                           bibliography=["GIZMO cooling.cc find_abundances_and_rates and Heat_Ion_from_RHD",
-                                         "GIZMO rt_chem.cc rt_get_sigma"])
+IR_PARAMETERS = [
+    Parameter("T_rad", "K", 10.0, "radiation temperature of the IR band (Radiation_Temperature)"),
+    Parameter("T_CMB", "K", T_CMB_Z0, "CMB temperature"),
+    Parameter("rho", "g cm^-3", 2.3e-22, "gas density"),
+    Parameter("Z_metals", "", 0.014, "metal mass fraction (Metallicity[0])"),
+    Parameter("gamma_eos", "", 5.0 / 3.0, "the cell's adiabatic index at the start of the step"),
+    Parameter("G_LW_bg", "Habing", 0.0, "UV background's contribution to the Lyman-Werner field"),
+    Parameter("gamma_12_UVB", "", 0.0, "UV background's H photoionization rate / 1e-12 s^-1 (local_gammamultiplier gJH0)"),
+    Parameter("eps_H0_UVB", "erg s^-1", 0.0, "UV background's photoheating per neutral H before shielding"),
+]
 
 
 def _material_rows_scaled(species_rows, factor):
-    """Rule: every row of a species in species_rows divided by factor, the heat and energy rows kept"""
+    """Rule: every row of a species in species_rows divided by factor, the heat, energy and radiation rows kept"""
     def rule(p):
         rows = {k: e.rhs for k, e in p.network.items()}
         if not any(k in species_rows and rows[k] != 0 for k in rows):
@@ -108,7 +113,7 @@ def _cmb_to_background(expr):
 
 
 def _heat_scaled(factor):
-    """Rule: the heat row multiplied by factor, the species rows kept"""
+    """Rule: the heat row multiplied by factor, the species and band rows kept"""
     def rule(p):
         rows = {k: e.rhs for k, e in p.network.items()}
         if rows.get("heat", 0) == 0:
@@ -117,6 +122,10 @@ def _heat_scaled(factor):
     return rule
 
 
+# GIZMO evaluates the rates at nHcgs = 0.76 rho/m_p (starforge_legacy's GIZMO_DENSITY); the bands are physical densities
+GIZMO_DENSITY = Rule("GIZMO's nHcgs in the rates",
+                     lambda p: p.transformed(scaled_densities(nH_gizmo_cooling / n_Htot, exclude=rt.PHOTON_DENSITIES)),
+                     exempt={"GIZMO H2 network"})
 GIZMO_ABUNDANCES = Rule("GIZMO integrates abundances per nHcgs",
                         _material_rows_scaled({s.name for s in SHARED_SPECIES if s.kind in ("material", "trace")},
                                               nH_gizmo_cooling / n_Htot),
@@ -125,33 +134,92 @@ GIZMO_EMISSION_BACKGROUND = Rule("GIZMO's background temperature in the emission
                                  lambda p: p.transformed(_cmb_to_background),
                                  exempt={"Inverse Compton cooling (CMB)"})
 
-
-GIZMO_IR_SELF_ABSORPTION = Rule("GIZMO's IR self-absorption of the heating and cooling rates", _heat_scaled(f_IR_selfabs),
-                                exempt={"Gas-dust collisions", "PdV work"})
-
+# CoolingRate's routing of its cooling terms into the bands (1317-1348), by process: weight of the heat lost
 ABOVE_1E5K = sp.Piecewise((1, T >= 1e5), (0, True))  # GIZMO's free-free routing (logT >= 5)
 RECOMBINATION = [f"Gas-phase recombination of {i}" for i in ("H+", "He+", "He++")]
 FREE_FREE = [f"Free-free emission from {i}" for i in ("H+", "He+", "He++")]
-OUTPUTS = [
-    Output("L_NUV", units="erg cm^-3 s^-1", doc="cooling radiation GIZMO returns to the NUV band",
-           heat_of={"Metal line cooling": -1, "Nebular forbidden-line cooling": -1, "H-e- Line Cooling": -1,
-                    "He+-e- Line Cooling": -1, **{r: -f_recNUV for r in RECOMBINATION},
-                    **{f: -ABOVE_1E5K for f in FREE_FREE}}),
-    Output("L_IR_gas", units="erg cm^-3 s^-1", doc="cooling radiation of the gas GIZMO returns to the IR band",
-           heat_of={"GIZMO C+, [CI] and CO cooling": -1, "GIZMO H2 + HD cooling": -1,
-                    "Inverse Compton cooling (CMB)": -1, **{f: ABOVE_1E5K - 1 for f in FREE_FREE}}),
-    Output("photoionization_rate", photoionization.network["H+"].rhs.xreplace({n_("H"): nH_gizmo_cooling / n_Htot * n_("H")}),
-           units="cm^-3 s^-1", doc="photoionizations of H by the ionizing band per unit volume, at GIZMO's nHcgs"),
+NUV_ROUTE = {"Metal line cooling": 1, "Nebular forbidden-line cooling": 1, "H-e- Line Cooling": 1,
+             "He+-e- Line Cooling": 1, **{r: f_recNUV for r in RECOMBINATION}, **{f: ABOVE_1E5K for f in FREE_FREE}}
+IR_ROUTE = {"GIZMO C+, [CI] and CO cooling": 1, "GIZMO H2 + HD cooling": 1, "Inverse Compton cooling (CMB)": 1,
+            "Inverse Compton cooling (RT bands)": 1, **{f: 1 - ABOVE_1E5K for f in FREE_FREE}}
+NUV_TO_IR = sp.Piecewise((1, sp.Symbol("T_rad") > 1e4), (0, True))  # where the IR band is hotter than 1e4 K
+
+
+def _route_cooling(p):
+    lost = -p.heat * rt.rsol / rt.EV  # radiated energy, at c_tilde, in the bands' eV
+    w_nuv, w_ir = NUV_ROUTE.get(p.name, 0), IR_ROUTE.get(p.name, 0)
+    rows = {}
+    if w_nuv != 0:
+        rows[NUV] = lost * w_nuv * (1 - NUV_TO_IR)
+    if w_ir != 0 or w_nuv != 0:
+        rows[IR] = lost * (w_ir + w_nuv * NUV_TO_IR)
+    return p.with_rows(rows)
+
+
+GIZMO_COOLING_RADIATION = Rule("GIZMO's cooling radiation into the NUV and IR bands", _route_cooling,
+                               only=set(NUV_ROUTE) | set(IR_ROUTE))
+# The photoelectric heating, a rate over the step, sees the photoelectric band over the step, as the H2 network's G_LW
+# does; the closures of the state at the step's end (the C+ fraction, the metals' free electrons, grain charging in
+# them) see the band there, so that u(T, x) does not depend on the step
+G_0_step = sp.Symbol("G_0_step")
+PHOTOELECTRIC_OVER_STEP = Rule("the photoelectric heating over the step",
+                               lambda p: p.transformed(lambda e: e.xreplace({sp.Symbol("G_0"): G_0_step})),
+                               only={"Photoelectric Heating"})
+GIZMO_IR_SELF_ABSORPTION = Rule("GIZMO's IR self-absorption of the heating and cooling rates", _heat_scaled(f_IR_selfabs),
+                                exempt={"Gas-dust collisions", "PdV work", "Gas absorption of photon_IR"})
+
+RADIATION_PROCESSES = [
+    rt.photoionization(donation=ONIR),
+    rt.ir_tail_photoionization(),
+    *[rt.dust_band_absorption(b) for b in (FUV, NUV, ONIR)],
+    rt.legacy_ir_donation_copy(),
+    rt.dust_ir_absorption(),
+    rt.gas_ir_absorption(),
+    rt.dust_ir_emission(),
+    rt.compton_off_bands(BANDS),
 ]
+IR_ABSORBERS = ["Dust absorption of photon_IR", "Gas absorption of photon_IR"]
+DONATION_COPY = "GIZMO's second copy of the donated dust absorption in photon_IR"
+DERIVED = {
+    "f_d": dust_survival(T_dust),
+    "G_0": rt.G0_of_band(),
+    "G_0_step": rt.G0_of_band(over_step=True),
+    "G_LW": rt.G_LW_of_bands(),
+    "T_bg": rt.background_temperature(),
+    "f_IR_selfabs": rt.ir_self_absorption(),
+    "f_recNUV": rt.recombination_return_fraction(),
+}
+
+
+def _outputs():
+    # GIZMO's direct donation (here the dust's re-emission of what it absorbs) is in the IR band before the kick's
+    # update counts it at T_rad; its second copy is the update's dust emission: the copy takes the first's weight
+    T_new, sums = rt.ir_radiation_temperature(IR_ABSORBERS, ["Dust emission into photon_IR"],
+                                              sorted(set(NUV_ROUTE) | set(IR_ROUTE)), prior_sources=[DONATION_COPY])
+    return [
+        Output("T_rad_new", T_new, units="K", sums=sums,
+               doc="IR radiation temperature after the step, GIZMO's photon-number weighting"),
+        Output("photoionization_rate", heat_of={(p, EUV): -1 / rt.rsol for p in rt.EUV_SINKS},
+               units="cm^-3 s^-1", doc="photoionizations by the ionizing band per unit volume (each takes one photon)"),
+    ]
 
 
 def make_model():
     """The STARFORGE_LEGACY_RT model"""
     base = make_legacy()
+    processes = [rt.gas_dust_collisions() if i == "Gas-dust collisions" else p for i, p in base.processes.items()]
+    dropped = set(DERIVED) | {"Td"}
     return base.evolve(
-        list(base.processes.values()) + [photoionization],
-        time_dependent=("T", "H+", "H_2"),
-        rules=[*base.rules, GIZMO_ABUNDANCES, GIZMO_EMISSION_BACKGROUND, GIZMO_IR_SELF_ABSORPTION],
-        parameters=[*base.parameters, *RT_PARAMETERS],
-        outputs=OUTPUTS,
+        processes + RADIATION_PROCESSES,
+        solve_vars=base.solve_vars + (EUV, FUV, NUV, ONIR, IR, "Td"),
+        time_dependent=("T", "H+", "H_2", EUV, FUV, NUV, ONIR, IR),
+        rules=[GIZMO_CLUMPING, GIZMO_DENSITY, GIZMO_ABUNDANCES, GIZMO_EMISSION_BACKGROUND, GIZMO_IR_SELF_ABSORPTION,
+               GIZMO_COOLING_RADIATION, PHOTOELECTRIC_OVER_STEP],
+        derived={**base.derived, **DERIVED},
+        intermediates=rt.kick_absorption_intermediates() + list(base.intermediates),
+        parameters=[p for p in base.parameters if p.name not in dropped] + RT_PARAMETERS + IR_PARAMETERS,
+        species=[*base.species, *BAND_SPECIES.values()],
+        variables=[Variable("Td", "dust heat", floor=DUST_TEMPERATURE_FLOOR, ceiling=MAX_DUST_TEMP, units="K",
+                            doc="dust temperature: the steady state of the dust's energy balance")],
+        outputs=_outputs(),
     )
