@@ -564,9 +564,10 @@ def check(model, grid="standard", params=None, rtol=1e-3, name=None):
                  for k in range(len(rows)) if (labels[k], j) in part_index]
         cases += [(labels_sys[i], n_sys0 + i, base_jac[i * nv + j], sys_gross[i], f"Jacobian d/d{v}")
                   for i in range(nv)]
-        # at steps h and 10 h: round-off in a rate (e.g. a cancelling difference) grows as 1/h, truncation as h^2,
-        # while a wrong partial disagrees with both
-        verdicts = []
+        # at steps h and 10 h: round-off in a rate (e.g. a cancelling difference) grows as 1/h, truncation as h^2
+        # (as h where a bound leaves only a one-sided difference, which Richardson extrapolation of the two removes),
+        # while a wrong partial disagrees with all of them
+        verdicts, one_sided = [], []
         for hk in (h, 10 * h):
             hk = (x + hk) - x  # the step as represented
             can_up, can_down = r - hk >= 0, x - hk >= 0
@@ -584,9 +585,16 @@ def check(model, grid="standard", params=None, rtol=1e-3, name=None):
                     bad = comparable & (hk > 0) & (up_ok | dn_ok) & np.isfinite(d) & (err > tol) & \
                         ~(up_ok & dn_ok & (d >= lo) & (d <= hi))
                     out.append((bad, err / tol))
+                    one_sided.append((np.where(up_ok & ~dn_ok, fwd, np.where(dn_ok & ~up_ok, bwd, np.nan)), hk))
             verdicts.append(out)
-        for (what, _, _, _, quantity), (bad1, e1), (bad10, e10) in zip(cases, verdicts[0], verdicts[1]):
+        nc = len(cases)
+        for c_i, ((what, _, d, g, quantity), (bad1, e1), (bad10, e10)) in enumerate(zip(cases, verdicts[0], verdicts[1])):
             bad = bad1 & bad10
+            (s1, h1), (s10, h10) = one_sided[c_i], one_sided[nc + c_i]
+            with np.errstate(all="ignore"):  # one-sided differences d + a h at h and 10 h: extrapolated to h -> 0
+                rich = (s1 * h10 - s10 * h1) / (h10 - h1)
+                tol_r = rtol * np.abs(rich) + FD_ATOL * cond * g / s_j
+                bad &= ~(np.isfinite(rich) & (np.abs(d - rich) <= tol_r))
             if bad.any():
                 key = (what, quantity)
                 if key not in jac_bad:

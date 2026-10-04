@@ -73,6 +73,39 @@ def test_wrong_jacobian_is_found(monkeypatch):
     assert ("system row T", "Jacobian d/dT") in found
 
 
+class WrongLinear(sp.Function):
+    """the identity with a derivative of 2"""
+    def fdiff(self, argindex=1):
+        return sp.Integer(2)
+
+
+def band_toy(power):
+    """the toy plus a radiation band (floor 0, as the RT models' bands) that a heating term absorbs"""
+    from jaco.processes import Transfer
+    band = Species("photon_test", "radiation", "a test band", floor=0.0)
+    absorb = Transfer(power, {"photon_test": -1 / n_Htot, "heat": 1}, name="band absorption")
+    return Model([CollisionalIonization("H"), GasPhaseRecombination("H+"), pdv, absorb],
+                 solve_vars=["u", "T", "H+", "photon_test"], time_dependent=["T", "photon_test"],
+                 species=[Species("H"), Species("H+"), Species("e-"), band])
+
+
+def test_curved_partial_at_an_empty_band_is_not_flagged():
+    """at a floored variable only a forward difference exists, first-order in its step: a rate saturating on a scale
+    near that step is compared through the two steps' Richardson extrapolation"""
+    xg = sp.Symbol("x_photon_test")
+    report = jaco.check(band_toy(1e-25 * n_Htot**2 * xg / (xg + 3e-16)), "quick")
+    assert not report.jacobian, report.summary()
+
+
+def test_wrong_partial_at_an_empty_band_is_found(monkeypatch):
+    from jaco.model_check import _CSemanticsPrinter
+    monkeypatch.setattr(_CSemanticsPrinter, "_print_WrongLinear", lambda self, e: f"({self._print(e.args[0])})",
+                        raising=False)
+    xg = sp.Symbol("x_photon_test")
+    report = jaco.check(band_toy(1e-25 * n_Htot**2 * WrongLinear(xg / 3e-16)), "quick")
+    assert ("process 'band absorption' row heat", "d/dx_photon_test") in {(f.what, f.quantity) for f in report.jacobian}
+
+
 def test_undeclared_symbol_is_flagged():
     report = jaco.check(toy(ThermalTerm(1e-25 * sp.Symbol("G0") * n_Htot, name="typo")), "quick")
     assert report.undeclared == ["G0"] and not report.ok
