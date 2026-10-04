@@ -29,9 +29,9 @@ Deviations from GIZMO, each forced by doing the coupling in one implicit step:
   cools at fixed band energies; here absorption, emission and the dust temperature are terms of the same step, at the
   opacities of the solved state (Td, x_e, x_H+, H2). The dust's absorption of the photoelectric, NUV and optical bands
   keeps the kick's exponential at the start-of-step dust temperature (radiation.kick_absorption_factor,
-  dust_band_rate), so those bands end the step at e^(-a Delta_t) of their initial energy, but what is added to them
-  within the step (the NUV cooling return, the optical band's donation) is absorbed as if present from its start; the
-  ionizing and IR bands are backward Euler;
+  dust_band_rate), so those bands end the step at e^(-a Delta_t) of their initial energy, with the exponent capped at
+  10 rather than GIZMO's 50, but what is added to them within the step (the NUV cooling return, the optical band's
+  donation) is absorbed as if present from its start; the ionizing and IR bands are backward Euler;
 - GIZMO's cooling return is limited by the gas energy change (de_u_touse); the processes give the bands exactly what
   the gas emits;
 - the photon flux is left to the RT kick (whose relaxation with Rad_Kappa is the absorption's damping of it) but for the

@@ -415,14 +415,19 @@ def test_dust_temperature_root_is_rt_eqm_dust_temps(models):
     """The steady state of the dust heat row (the model's Td equation) against rt_eqm_dust_temp's fixed point over gas
     temperatures, densities, band energies and starting dust temperatures, both found by GIZMO's walk from the start
     (across a composition switch the balance has two roots, and the walk takes the one it reaches first): equal where
-    the root is not within a switch's smoothing window, within the window where it is"""
+    the root is not within a switch's smoothing window, within the window where it is, or, where the smoothing removes
+    GIZMO's root inside a window, GIZMO's other root beyond it"""
     rt_model, _, _ = models
     for over in DUST_GRID:
         v = state(**over, T_rad=40.0)
         ref = gizmo_eqm_dust_temp(v)
         got = _walk_root(_dust_row_function(rt_model, v), v[S("Td")])
         near = [(b, h) for b, h in zip(do.ZONE_BOUNDARIES, do.ZONE_HALF_WIDTHS) if abs(ref - b) < h or abs(got - b) < h]
-        if near:
+        if near and abs(got - ref) >= 2 * near[0][1]:
+            # GIZMO's root within a window that the smoothing removes: the model's walk goes on to the other zone's
+            # root, which must then be one of GIZMO's own (its walk started there stays there)
+            assert gizmo_eqm_dust_temp({**v, S("Td"): got}) == pytest.approx(got, rel=1e-6), (over, got, ref)
+        elif near:
             assert abs(got - ref) < 2 * near[0][1], (over, got, ref)
         else:
             assert got == pytest.approx(ref, rel=1e-8), (over, got, ref)

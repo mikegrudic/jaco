@@ -11,9 +11,10 @@ dust energy balance has two roots, one per composition; GIZMO's bracketed search
 takes the one its walk from the previous dust temperature reaches first, a hysteresis. Each switch here is a C1
 smoothstep in T_dust over [boundary - 5 K, boundary + 5 K], which keeps both roots (and a third, unstable one inside
 the window) and gives Newton finite derivatives; the solver starts from the previous dust temperature as GIZMO's walk
-does. Smoothing wide enough to make the emission monotonic (23.5 and 97.5 K half-widths at 160 and 425 K) would remove
-the hysteresis and move the dust temperature by up to ~100 K near 425 K. Outside the windows the opacity is the table's
-exactly.
+does. A root of GIZMO's balance inside a window can vanish under the smoothing, and the walk then lands on the other
+zone's root, which GIZMO's walk reaches from the other side. Smoothing wide enough to make the emission monotonic
+(23.5 and 97.5 K half-widths at 160 and 425 K) would remove the hysteresis and move the dust temperature by up to
+~100 K near 425 K. Outside the windows the opacity is the table's exactly.
 """
 
 import numpy as np

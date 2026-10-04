@@ -120,12 +120,15 @@ def ir_tail_photoionization():
 DUST_BAND_OPACITY = {FUV: (720.0, 1e-4), NUV: (480.0, 0.0), ONIR: (180.0, 0.0)}  # rt_kappa 209-221: kappa, Z floor
 
 
-KICK_EXPONENT_CAP = 50.0
+KICK_EXPONENT_CAP = 10.0
 
 
 def kick_absorption_factor(a_dt):
     """expm1(a dt) / (a dt): the factor on an absorption rate a for which the backward-Euler step gives the kick's
-    exponential, 1 / (1 + factor a dt) = exp(-a dt), with the kick's cap a dt <= 50 (rt_update_driftkick)"""
+    exponential, 1 / (1 + factor a dt) = exp(-a dt), for a dt up to KICK_EXPONENT_CAP: beyond it the band keeps e^-10
+    of its energy over the step rather than e^-(a dt). GIZMO's kick caps the exponent at 50; a factor of e^50 on the
+    rows of a band absorbed in a dense cell made a few percent of Newton's tier-1 attempts fail their line search
+    (shu_M120: 2.7% of the solves to tier 2 or 3, a mean 23 evaluations per solve, against 0.08% and 3 at 10)"""
     x = sp.Min(a_dt, KICK_EXPONENT_CAP)
     return sp.Piecewise((1 + x * (sp.Rational(1, 2) + x / 6), x < 1e-3), ((sp.exp(x) - 1) / a_dt, True))
 
