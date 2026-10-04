@@ -32,13 +32,17 @@ class Reaction(Process):
     clumping: expression, optional
         Factor <n^k>/<n>^k multiplying the events and heat. Default: C_k for a mass-action rate with k >= 2 reactants
         (a model may exclude reactants it declares to be radiation), 1 otherwise.
+    row_factors: dict, optional
+        Species -> factor multiplying that species' row: a radiation band transported at a reduced speed of light loses
+        or gains its photons at c_tilde/c of the matter rate, and a band counted in energy rather than photons takes the
+        energy per event (non-integer stoichiometry, e.g. photons per dissociation times their energy).
     name: str, optional
         Defaults to the equation.
     bibliography: sequence of str, optional
     """
 
     def __init__(self, equation, rate_coefficient=None, heat_per_reaction=0, *, rate=None, heat_rate_coefficient=None,
-                 clumping=None, name="", bibliography=()):
+                 clumping=None, row_factors=None, name="", bibliography=()):
         if rate is not None and rate_coefficient is not None:
             raise ValueError(f"{equation}: give a rate coefficient or a rate, not both")
         if heat_rate_coefficient is not None and (heat_per_reaction != 0 or rate is not None):
@@ -57,6 +61,7 @@ class Reaction(Process):
         self.heat_rate_coefficient = heat_rate_coefficient
         self._explicit_rate = rate
         self._clumping_given = clumping
+        self.row_factors = dict(row_factors or {})
         self.clumping = self.default_clumping() if clumping is None else clumping
 
         nprod = self.nprod
@@ -75,6 +80,11 @@ class Reaction(Process):
             rows[s] = rows.get(s, sp.S.Zero) - self.rate * coeff
         for s, coeff in self.rhs_coeffs.items():
             rows[s] = rows.get(s, sp.S.Zero) + self.rate * coeff
+        unknown = set(self.row_factors) - set(rows)
+        if unknown:
+            raise ValueError(f"{equation}: row_factors for species not in the equation: {sorted(unknown)}")
+        for s, f in self.row_factors.items():
+            rows[s] = rows[s] * f
         rows["heat"] = heat
         super().__init__(name or equation, bibliography, rows)
 
@@ -91,8 +101,8 @@ class Reaction(Process):
     def _rebuild(self, **changes):
         args = dict(rate_coefficient=None if self._explicit_rate is not None else self.rate_coefficient,
                     heat_per_reaction=self.heat_per_reaction, rate=self._explicit_rate,
-                    heat_rate_coefficient=self.heat_rate_coefficient, clumping=self._clumping_given, name=self.name,
-                    bibliography=self.bibliography)
+                    heat_rate_coefficient=self.heat_rate_coefficient, clumping=self._clumping_given,
+                    row_factors=self.row_factors, name=self.name, bibliography=self.bibliography)
         args.update(changes)
         return Reaction(self.equation, **args)
 

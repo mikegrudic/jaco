@@ -6,7 +6,7 @@ from typing import Callable
 import sympy as sp
 
 from .process import Process
-from .declarations import Parameter, Species, Output, merge_declarations
+from .declarations import Parameter, Species, Output, Variable, merge_declarations
 
 
 @dataclass(frozen=True)
@@ -21,14 +21,22 @@ class Rule:
         Maps a process to the process the model uses in its place.
     exempt: collection of str
         Ids of processes the rule leaves alone; each must be in the model.
+    only: collection of str, optional
+        Ids of the only processes the rule rewrites (None: all but the exempt); each must be in the model.
     """
 
     name: str
     apply: Callable[[Process], Process]
     exempt: frozenset = field(default_factory=frozenset)
+    only: frozenset = None
 
     def __post_init__(self):
         object.__setattr__(self, "exempt", frozenset(self.exempt))
+        if self.only is not None:
+            object.__setattr__(self, "only", frozenset(self.only))
+
+    def applies_to(self, process_id):
+        return process_id not in self.exempt and (self.only is None or process_id in self.only)
 
 
 def _merge_dicts(what, a, b):
@@ -83,10 +91,14 @@ class Model:
     outputs: sequence of Output
         Further quantities the generated code evaluates at the converged state, e.g. the emission into one radiation
         band as a sum of named cooling terms.
+    variables: sequence of Variable
+        Solve variables that are neither u, T nor species (e.g. the dust temperature), each determined by the steady
+        state of its row; each must be in solve_vars and not time-dependent.
     """
 
     def __init__(self, processes=(), *, solve_vars=(), time_dependent=(), steady_state=(), fixed=None, derived=None,
-                 intermediates=(), fixed_electrons=None, rules=(), parameters=(), species=(), outputs=()):
+                 intermediates=(), fixed_electrons=None, rules=(), parameters=(), species=(), outputs=(),
+                 variables=()):
         atoms = {}
         for p in processes:
             if not isinstance(p, Process):
@@ -109,6 +121,7 @@ class Model:
         self.parameters = tuple(merge_declarations("parameter", parameters).values())
         self.species = tuple(merge_declarations("species", species).values())
         self.outputs = tuple(merge_declarations("output", outputs).values())
+        self.variables = tuple(merge_declarations("variable", variables).values())
         self._check()
         self._assembled = None
         self._frozen = True
@@ -131,9 +144,18 @@ class Model:
             raise TypeError("species must be Species declarations")
         if not all(isinstance(o, Output) for o in self.outputs):
             raise TypeError("outputs must be Output declarations")
+        if not all(isinstance(v, Variable) for v in self.variables):
+            raise TypeError("variables must be Variable declarations")
+        names = {v.name for v in self.variables}
+        if names - set(self.solve_vars):
+            raise ValueError(f"variables {sorted(names - set(self.solve_vars))} are not solve variables")
+        if names & set(self.time_dependent):
+            raise ValueError(f"variables {sorted(names & set(self.time_dependent))} are determined by a steady state")
+        if names & {s.name for s in self.species}:
+            raise ValueError(f"{sorted(names & {s.name for s in self.species})} declared as both species and variables")
         declared = {s.name for s in self.species}
         if declared:
-            undeclared = (set(self.solve_vars) - {"u", "T"} | set(self.steady_state) | set(self.fixed)) - declared
+            undeclared = (set(self.solve_vars) - {"u", "T"} - names | set(self.steady_state) | set(self.fixed)) - declared
             if undeclared:
                 raise ValueError(f"species {sorted(undeclared)} are not declared")
 
@@ -149,7 +171,7 @@ class Model:
         return dict(solve_vars=self.solve_vars, time_dependent=self.time_dependent, steady_state=self.steady_state,
                     fixed=self.fixed, derived=self.derived, intermediates=self.intermediates,
                     fixed_electrons=self.fixed_electrons, rules=self.rules, parameters=self.parameters,
-                    species=self.species, outputs=self.outputs)
+                    species=self.species, outputs=self.outputs, variables=self.variables)
 
     def evolve(self, processes=None, **declarations):
         """Copy with the processes and/or declarations replaced"""
@@ -201,7 +223,8 @@ class Model:
                      rules=list(rules.values()),
                      parameters=merge_declarations("parameter", self.parameters, other.parameters).values(),
                      species=merge_declarations("species", self.species, other.species).values(),
-                     outputs=merge_declarations("output", self.outputs, other.outputs).values())
+                     outputs=merge_declarations("output", self.outputs, other.outputs).values(),
+                     variables=merge_declarations("variable", self.variables, other.variables).values())
 
     def __radd__(self, other):
         if isinstance(other, (int, float)) and other == 0:
@@ -255,12 +278,15 @@ class Model:
             unknown = rule.exempt - set(self._processes)
             if unknown:
                 raise ValueError(f"rule '{rule.name}' exempts processes not in the model: {sorted(unknown)}")
+            unknown = (rule.only or frozenset()) - set(self._processes)
+            if unknown:
+                raise ValueError(f"rule '{rule.name}' applies to processes not in the model: {sorted(unknown)}")
         radiation = {s.name for s in self.species if s.kind == "radiation"}
         effective = []
         for i, p in self._processes.items():
             p = p.with_radiation(radiation) if radiation else p
             for rule in self.rules:
-                if i not in rule.exempt:
+                if rule.applies_to(i):
                     p = rule.apply(p)
             effective.append(p)
         network = sum(effective).network if effective else Process().network
@@ -271,6 +297,10 @@ class Model:
         network.species_kinds = {s.name: s.kind for s in self.species}
         network.species_declarations = {s.name: s for s in self.species}
         network.parameters = {p.name: p for p in self.parameters}
+        for v in self.variables:
+            if v.row not in network:
+                raise ValueError(f"variable {v.name}: no process has the row {v.row!r} that determines it")
+        network.variables = {v.name: v for v in self.variables}
         network.outputs = self._resolved_outputs(effective)
         closures = {s: network.steady_state_closure(s) for s in self.steady_state}
         network.fixed_species = {**self.fixed, **closures}
@@ -283,13 +313,22 @@ class Model:
 
     def _resolved_outputs(self, effective):
         """The declared outputs with heat_of resolved against the processes as assembled (rules applied)"""
-        heats = {i: p.heat for i, p in zip(self._processes, effective)}
+        procs = dict(zip(self._processes, effective))
+
+        def row(key):
+            i, r = (key, "heat") if isinstance(key, str) else key
+            net = procs[i]._network
+            return dict.__getitem__(net, r).rhs if r in net else sp.S.Zero
+
+        def total(terms):
+            missing = [k for k, _ in terms if (k if isinstance(k, str) else k[0]) not in procs]
+            if missing:
+                raise ValueError(f"output {o.name} takes terms of processes not in the model: {missing}")
+            return sum((w * row(k) for k, w in terms), sp.S.Zero)
+
         resolved = []
         for o in self.outputs:
-            missing = [i for i, _ in o.heat_of if i not in heats]
-            if missing:
-                raise ValueError(f"output {o.name} takes the heat of processes not in the model: {missing}")
-            expr = o.expr + sum((w * heats[i] for i, w in o.heat_of), sp.S.Zero)
+            expr = o.expr.xreplace({sp.Symbol(k): total(v) for k, v in o.sums}) + total(o.heat_of)
             resolved.append(Output(o.name, expr, o.units, o.doc))
         return resolved
 

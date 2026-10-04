@@ -68,6 +68,9 @@ class EquationSystem(dict):
     outputs : list of :class:`jaco.declarations.Output`
         Declared outputs, their expressions resolved; evaluated at the converged state by the generated code along
         with the rows of the radiation and energy species that are not solved for.
+    variables : dict
+        Declared solve variable name -> :class:`jaco.declarations.Variable` (neither u, T nor a species), each the
+        steady state of its row.
     """
 
     def copy(self):
@@ -83,6 +86,7 @@ class EquationSystem(dict):
         new.species_declarations = dict(getattr(self, 'species_declarations', {}))
         new.parameters = dict(getattr(self, 'parameters', {}))
         new.outputs = list(getattr(self, 'outputs', []))
+        new.variables = dict(getattr(self, 'variables', {}))
         return new
 
     def __getitem__(self, __key: str):
@@ -116,7 +120,7 @@ class EquationSystem(dict):
         new.intermediates = list(getattr(self, 'intermediates', [])) + list(getattr(other, 'intermediates', []))
         if len({w for w, _ in new.intermediates}) != len(new.intermediates):
             raise ValueError("an intermediate is defined twice")
-        for attr in ("species_kinds", "species_declarations", "parameters"):
+        for attr in ("species_kinds", "species_declarations", "parameters", "variables"):
             a, b = getattr(self, attr, {}), getattr(other, attr, {})
             clash = [k for k in set(a) & set(b) if a[k] != b[k]]
             if clash:
@@ -234,9 +238,10 @@ class EquationSystem(dict):
         """
         to_remove = []
         used_by_intermediates = set().union(*[sp.sympify(W).free_symbols for _, W in getattr(self, 'intermediates', [])])
+        variable_rows = {v.row for v in getattr(self, 'variables', {}).values()}
         for key in list(self.keys()):
-            if key in ("heat", "u"):
-                continue  # always keep energy equations
+            if key in ("heat", "u") or key in variable_rows:
+                continue  # always keep energy equations and the rows that determine declared variables
             xs = x_(key)
             ns = n_(key)
             found = xs in used_by_intermediates or ns in used_by_intermediates
@@ -683,11 +688,14 @@ class EquationSystem(dict):
         self._eliminated_atoms = list(getattr(subsystem, 'eliminated_atoms', []))
         self._outputs = self._reduced_outputs(system, solve_vars)
 
+        variable_rows = {name: v.row for name, v in getattr(system, 'variables', {}).items()}
         rhs = {}
         for s in subsystem.symbols:
             for g in solve_vars:
                 if str(s) == "T" and "T" in solve_vars:
                     rhs[s] = subsystem.rhs["heat"]
+                elif str(s) == g and g in variable_rows:
+                    rhs[s] = subsystem.rhs[variable_rows[g]]
                 elif str(g) == str(s) or f"x_{g}" == str(s):
                     rhs[s] = subsystem.rhs[g]
 
@@ -744,9 +752,10 @@ class EquationSystem(dict):
         from .declarations import output_identifier
         kinds = getattr(system, 'species_kinds', {})
         decls = getattr(system, 'species_declarations', {})
+        variable_rows = {v.row for v in getattr(system, 'variables', {}).values()}
         rows = []
         for s, kind in kinds.items():
-            if kind in ("radiation", "energy") and s not in solve_vars and s in system:
+            if kind in ("radiation", "energy") and s not in solve_vars and s not in variable_rows and s in system:
                 units = "cm^-3 s^-1" if kind == "radiation" else "erg cm^-3 s^-1"
                 doc = decls[s].doc if s in decls else ""
                 rows.append((output_identifier(s), dict.__getitem__(system, s).rhs, units,
@@ -777,21 +786,28 @@ class EquationSystem(dict):
         parameter (added to the generated Params). Uses the reduction of the last solver_functions call."""
         from .declarations import Species, NO_CEILING
         decls = getattr(self, 'species_declarations', {})
+        declared_vars = getattr(self, 'variables', {})
         td = set(time_dependent)
         names = [sanitize_name(str(v)) for v in indices]
         variables = []
         for v in indices:
             name = str(v)
+            if name in declared_vars:
+                d = declared_vars[name]
+                variables.append(dict(name=name, td=False, floor=float(d.floor), ceiling=float(d.ceiling),
+                                      scale=float(d.scale), charge=0, initial=None, kind=d.kind))
+                continue
             if not name.startswith("x_"):  # u and T: their limits are the solver's settings
                 init = "u_initial" if name == "T" and "T" in td else None
                 variables.append(dict(name=name, td=name in td, floor=0.0, ceiling=NO_CEILING, scale=1.0, charge=0,
-                                      initial=init))
+                                      initial=init, kind="energy" if name == "u" else "gas temperature"))
                 continue
             species = name[2:]
             d = decls.get(species) or Species(species, getattr(self, 'species_kinds', {}).get(species, "material"))
             variables.append(dict(name=name, td=species in td, floor=d.abundance_floor, ceiling=d.abundance_ceiling,
                                   scale=float(d.scale), charge=species_charge(species) if d.kind in ("material", "trace")
-                                  else 0, initial=sanitize_name(f"x_{species}_initial") if species in td else None))
+                                  else 0, initial=sanitize_name(f"x_{species}_initial") if species in td else None,
+                                  kind="radiation" if d.kind == "radiation" else "species"))
         subs = dict(self._reduction_substitutions)
         species_vars = {v: i for v, i in indices.items() if str(v).startswith("x_")}
         budgets, unbounded = [], []
@@ -1353,6 +1369,14 @@ end
         lines.append("#define JACO_VAR_CEILING_INIT {" + ", ".join(num(v["ceiling"]) for v in var) + "}")
         lines.append("#define JACO_VAR_SCALE_INIT {" + ", ".join(num(v["scale"]) for v in var) + "}")
         lines.append("#define JACO_VAR_CHARGE_INIT {" + ", ".join(str(v["charge"]) for v in var) + "}")
+        lines.append("/* kind of each variable: JACO_KIND_ENERGY (u), _GAS_TEMPERATURE (T), _SPECIES (a material or trace "
+                     "abundance), _RADIATION (a band, per H nucleus), _TEMPERATURE (determined by the steady state of its row, "
+                     "e.g. the dust's) */")
+        lines.append("#define JACO_KIND_ENERGY 0\n#define JACO_KIND_GAS_TEMPERATURE 1\n#define JACO_KIND_SPECIES 2\n"
+                     "#define JACO_KIND_RADIATION 3\n#define JACO_KIND_TEMPERATURE 4")
+        kinds = {"energy": "JACO_KIND_ENERGY", "gas temperature": "JACO_KIND_GAS_TEMPERATURE", "species": "JACO_KIND_SPECIES",
+                 "radiation": "JACO_KIND_RADIATION", "temperature": "JACO_KIND_TEMPERATURE"}
+        lines.append("#define JACO_VAR_KIND_INIT {" + ", ".join(kinds[v["kind"]] for v in var) + "}")
         lines.append("/* PARAM_ index of each variable's start-of-step value (-1: none; T's is u_initial) */")
         lines.append("#define JACO_VAR_INITIAL_PARAM_INIT {"
                      + ", ".join(f"PARAM_{v['initial']}" if v["initial"] else "-1" for v in var) + "}")

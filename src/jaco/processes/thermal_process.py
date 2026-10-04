@@ -36,6 +36,27 @@ class ThermalTerm(Process):
         return ThermalTerm(self._heat_unclumped, self.name, self.bibliography, reservoir=self.reservoir)
 
 
+class Transfer(Process):
+    """Energy moved between rows that are not species abundances: the gas heat, energy reservoirs (e.g. "dust heat")
+    and radiation bands counted in energy, immutable after construction. Row k gets factor_k * rate, e.g. dust
+    absorption of a band: {"photon_NUV": -c_tilde/c / eV, "dust heat": 1} times the absorbed power per unit volume.
+
+    Parameters
+    ----------
+    rate: expression
+        Power per unit volume (erg cm^-3 s^-1) moved.
+    rows: dict
+        Row -> factor (dimensionless for energy rows; the inverse unit energy for a band counted in that unit).
+    name: str, optional
+    bibliography: sequence of str, optional
+    """
+
+    def __init__(self, rate, rows, name="", bibliography=()):
+        self.rate = rate
+        self.factors = dict(rows)
+        super().__init__(name, bibliography, {k: f * rate for k, f in self.factors.items()})
+
+
 def collisional_thermal_term(colliders, heat_rate_coefficient, *, clumping=None, name="", bibliography=()):
     """Heat ``heat_rate_coefficient * prod(n_collider) * C_k`` of k colliders (a sequence, repeated for like
     colliders); ``heat_rate_coefficient`` is negative for cooling. clumping defaults to C_k, or 1 for one collider."""

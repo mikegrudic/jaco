@@ -95,6 +95,16 @@ class Process:
             return sum(p.transformed(rule) for p in self._subprocesses)
         return Process(self.name, self.bibliography, {k: rule(sp.sympify(e.rhs)) for k, e in self._network.items()})
 
+    def with_rows(self, rows):
+        """Copy with rows (species or reservoir -> rate expression) added to its own, e.g. the share of its cooling a
+        model deposits in a radiation band"""
+        if len(self._subprocesses) > 1:
+            raise ValueError("with_rows applies to an atomic process")
+        new = {k: e.rhs for k, e in self._network.items()}
+        for k, v in rows.items():
+            new[k] = new.get(k, sp.S.Zero) + v
+        return Process(self.name, self.bibliography, new)
+
     def unclumped(self):
         """Copy without the declared clumping factors (processes that declare none are returned unchanged)"""
         if len(self._subprocesses) > 1:

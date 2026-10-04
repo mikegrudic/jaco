@@ -407,6 +407,7 @@ def check(model, grid="standard", params=None, rtol=1e-3, name=None):
         {p.name for p in implied_parameters({s: Species(s, k) for s, k in net.species_kinds.items()}, td)}
     report.undeclared = [p for p in param_names if p not in declared]
     species_vars = {v: m for v, m in zip(variables, meta["variables"]) if str(v).startswith("x_")}
+    declared_vars = {sp.Symbol(name): d for name, d in getattr(net, "variables", {}).items()}
     by_grid = {"n_Htot", "Δt", "u_initial"} | {f"{v}_initial" for v in species_vars}  # set per point below
     values, missing = _parameter_values(net, param_names, td, {**{p: 0.0 for p in by_grid}, **params})
     report.missing_values = [p for p in missing if p not in report.undeclared]
@@ -419,6 +420,8 @@ def check(model, grid="standard", params=None, rtol=1e-3, name=None):
     T, n, c = T.ravel(), n.ravel(), c.ravel()
     npts = len(T)
     state = {sp.Symbol("T"): T}
+    for v, d in declared_vars.items():  # e.g. a dust temperature: at the gas temperature, within its bounds
+        state[v] = np.clip(T, d.floor * (1 + 1e-6), d.ceiling)
     for v in species_vars:
         state[v] = np.array([comps[i][1][sname[v]] for i in range(len(comps))])[c]
     pvals = {p: np.full(npts, values[p]) for p in param_names}
@@ -498,7 +501,9 @@ def check(model, grid="standard", params=None, rtol=1e-3, name=None):
             gross[key] = gross[key] + gross.get("heat", 0.0)
     sys_gross = []
     for v in variables:
-        if v == u_sym:
+        if v in declared_vars:
+            sys_gross.append(gross.get(declared_vars[v].row, 0.0))
+        elif v == u_sym:
             sys_gross.append(np.abs(state[u_sym]))
         elif v == sp.Symbol("T"):
             g = gross.get("heat", 0.0)
@@ -544,7 +549,8 @@ def check(model, grid="standard", params=None, rtol=1e-3, name=None):
             # total (total - w x rounds) once below ~1e-9 of it (h_round). Take h_lin if it is resolved; else h_round
             # if that is still small (curvature errors below 1e-3); else h_lin where the budget path it misses is below
             # the tolerance (what remains >= 1e7 x the variable); else, next to a budget's end, do not compare.
-            s_j = np.abs(x) + species_vars[v]["floor"] + 1e-300
+            floor = species_vars[v]["floor"]  # a band's floor is 0: step on its scale there
+            s_j = np.abs(x) + (floor if floor > 0 else 1e-12 * species_vars[v]["scale"]) + 1e-300
             r, big = room(v)
             small = np.fmin(s_j, r)
             h_lin, h_round = FD_STEP * small, 1e-3 * FD_STEP * big

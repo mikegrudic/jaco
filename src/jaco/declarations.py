@@ -93,6 +93,50 @@ class Species:
         return 1.0 if self.kind in ("material", "trace") else NO_CEILING
 
 
+VARIABLE_KINDS = ("temperature",)
+
+
+@dataclass(frozen=True)
+class Variable:
+    """A solve variable that is neither the gas energy nor a species abundance, determined by the steady state of one
+    row of the network, e.g. the dust temperature by the dust's energy balance (zero heat capacity).
+
+    Parameters
+    ----------
+    name: str
+        Symbol name as the expressions use it (e.g. "Td").
+    row: str
+        The row whose balance is the variable's equation (e.g. the energy reservoir "dust heat"); it is never an output.
+    kind: str
+        "temperature".
+    floor, ceiling: float
+        Bounds the solver keeps the variable in.
+    scale: float
+        Magnitude at which the variable starts to matter; the solver's absolute tolerances are fractions of it.
+    units: str
+    doc: str
+    """
+
+    name: str
+    row: str
+    kind: str = "temperature"
+    floor: float = 0.0
+    ceiling: float = NO_CEILING
+    scale: float = 1.0
+    units: str = ""
+    doc: str = ""
+
+    def __post_init__(self):
+        if self.kind not in VARIABLE_KINDS:
+            raise ValueError(f"variable {self.name}: kind must be one of {VARIABLE_KINDS}, not {self.kind!r}")
+        if not (0 <= self.floor < self.ceiling and self.scale > 0):
+            raise ValueError(f"variable {self.name}: need 0 <= floor < ceiling and scale > 0")
+
+    @property
+    def symbol(self):
+        return sp.Symbol(self.name)
+
+
 def output_identifier(name):
     """C identifier of an output named name (a species such as "dust heat" or "photon_assoc,H")"""
     return re.sub(r"\W", "_", sanitize_name(name))
@@ -119,6 +163,10 @@ class Output:
     heat_of: dict or sequence, optional
         Process id -> weight (a sequence of ids: weight 1). Adds the sum of weight * heat of those processes as the model
         assembles them, i.e. after its rules. Heat is energy given to the gas, so a cooling luminosity takes weight -1.
+        A key (process id, row) takes that row of the process instead of its heat, e.g. its contribution to a band.
+    sums: dict, optional
+        Symbol name -> mapping like heat_of: each such symbol in expr is replaced by its sum, for outputs nonlinear in
+        sums of process terms (e.g. a mean temperature weighting what each group of processes put into a band).
     """
 
     name: str
@@ -126,14 +174,27 @@ class Output:
     units: str = ""
     doc: str = ""
     heat_of: tuple = ()
+    sums: tuple = ()
 
     def __post_init__(self):
         if not re.fullmatch(r"[A-Za-z_]\w*", self.name):
             raise ValueError(f"output name {self.name!r} is not a C identifier")
         h = self.heat_of
-        items = h.items() if isinstance(h, dict) else [(i, 1) if isinstance(i, str) else tuple(i) for i in h]
-        object.__setattr__(self, "heat_of", tuple((str(i), sp.sympify(w)) for i, w in items))
+        object.__setattr__(self, "heat_of", self._terms(h))
+        sums = self.sums.items() if isinstance(self.sums, dict) else self.sums
+        object.__setattr__(self, "sums", tuple((str(k), self._terms(v)) for k, v in sums))
         object.__setattr__(self, "expr", sp.sympify(self.expr))
+
+    @staticmethod
+    def _terms(h):
+        """((process id or (process id, row)), weight) pairs from a mapping or a sequence of keys"""
+        def entry(i):
+            if isinstance(i, str) or (isinstance(i, tuple) and len(i) == 2 and all(isinstance(a, str) for a in i)):
+                return i, 1
+            return tuple(i)
+
+        items = h.items() if isinstance(h, dict) else [entry(i) for i in h]
+        return tuple(((tuple(map(str, i)) if isinstance(i, tuple) else str(i)), sp.sympify(w)) for i, w in items)
 
 
 CORE_PARAMETERS = (
