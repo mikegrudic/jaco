@@ -120,18 +120,25 @@ def ir_tail_photoionization():
 DUST_BAND_OPACITY = {FUV: (720.0, 1e-4), NUV: (480.0, 0.0), ONIR: (180.0, 0.0)}  # rt_kappa 209-221: kappa, Z floor
 
 
+KICK_EXPONENT_CAP = 50.0
+
+
 def kick_absorption_factor(a_dt):
     """expm1(a dt) / (a dt): the factor on an absorption rate a for which the backward-Euler step gives the kick's
     exponential, 1 / (1 + factor a dt) = exp(-a dt), with the kick's cap a dt <= 50 (rt_update_driftkick)"""
-    x = sp.Min(a_dt, 50)
+    x = sp.Min(a_dt, KICK_EXPONENT_CAP)
     return sp.Piecewise((1 + x * (sp.Rational(1, 2) + x / 6), x < 1e-3), ((sp.exp(x) - 1) / a_dt, True))
 
 
 def dust_band_rate(band):
     """c f_abs kappa rho [s^-1]: the dust's absorption rate of a non-ionizing band at the true c, with rt_kappa's
-    opacity (max of the neutral/electron floor and the dust's) and albedo f_abs = 1/2 (rt_absorb_frac_albedo)"""
+    opacity (max of the neutral/electron floor and the dust's) and albedo f_abs = 1/2 (rt_absorb_frac_albedo), the
+    surviving dust at the start-of-step dust temperature, as GIZMO's kick takes rt_kappa from the cell before the dust
+    temperature is updated. The band's absorption is then linear in its energy at fixed rate over the solve: through
+    the exponential kick factor, a rate depending on the solved Td makes the rows of a band absorbed in a dense cell
+    exponentially sensitive to Td, and Newton's line search fails there"""
     kappa, floor = DUST_BAND_OPACITY[band]
-    return C_LIGHT * 0.5 * band_dust_opacity(kappa, floor) * rho
+    return C_LIGHT * 0.5 * band_dust_opacity(kappa, floor, T_d=T_dust_initial) * rho
 
 
 def kick_factor(band):
@@ -139,15 +146,19 @@ def kick_factor(band):
     return sp.Symbol(f"kick_{band}")
 
 
+T_dust_initial = sp.Symbol("Td_initial")  # dust temperature at the start of the step [K]
+
+
 def kick_absorption_intermediates(bands=(FUV, NUV, ONIR)):
     """(Symbol, expression) per dust-absorbed band: kick_absorption_factor at the band's absorption over the step,
     a dt = c_tilde f_abs kappa rho dt, with the dust's opacity only (an intermediate cannot read the electron
     abundance, which rt_kappa's neutral/electron floor does; the floor exceeds the dust's opacity only where the dust
-    is gone or the metallicity is below ~1e-3, and there the absorption falls back toward backward Euler)"""
+    is gone or the metallicity is below ~1e-3, and there the absorption falls back toward backward Euler), at the
+    start-of-step dust temperature (dust_band_rate)"""
     out = []
     for band in bands:
         kappa, floor = DUST_BAND_OPACITY[band]
-        Zf = Z_dust * dust_survival(T_dust)
+        Zf = Z_dust * dust_survival(T_dust_initial)
         a = C_LIGHT * 0.5 * kappa * (sp.Max(floor, Zf) if floor else Zf) * rho
         out.append((kick_factor(band), kick_absorption_factor(rsol * a * dt)))
     return out
@@ -197,13 +208,31 @@ def dust_ir_absorption():
                     bibliography=["GIZMO rt_utilities.cc dust_dE_cooling", "2003A&A...410..611S"])
 
 
+def kick_gas_share():
+    """The share 2 (1 - exp(-x/2)) / x of the gas IR absorption rate GIZMO's two half-step kicks give the gas: each
+    absorbs at most the band's energy, e0 (1 - exp(-x/2)), and gives the gas its opacity share of that. x = c_tilde
+    kappa rho dt at the dust's absorption opacity (which dominates the band's) and the start-of-step dust temperature,
+    so a function of parameters only"""
+    a = rsol * C_LIGHT * ir_dust_opacity(T_dust_initial, T_rad) * rho * dt
+    x = sp.Min(a, 100)
+    return sp.Piecewise((1 - x / 4 + x * x / 24, x < 1e-3), (2 * (1 - sp.exp(-x / 2)) / a, True))
+
+
 def gas_ir_absorption():
-    """Gas absorption of the IR band at the non-dust absorption opacity (rt_kappa_adaptive_IR_band flags -1, -1). GIZMO's
-    kick heats the gas with the energy the band loses (DtInternalEnergy, rt_utilities.cc 822), i.e. at c_tilde/c of the
-    physical rate; reproduced, as GIZMO does it"""
+    """Gas absorption of the IR band at the non-dust absorption opacity (rt_kappa_adaptive_IR_band flags -1, -1), as
+    GIZMO's kick and dust balance take it: the kick heats the gas (DtInternalEnergy) with its share of the energy the
+    band absorbs, at c_tilde/c of the physical rate and at most the band's energy per half-step kick
+    (kick_gas_share); rt_eqm_dust_temp counts the whole absorption at the true c as the dust's heating (its absorbed
+    power is the band's at the gas and dust absorption opacity, flags -1, 0), while the kick re-emits only the dust's
+    share into the band: the dust balance's re-emission of the gas share is taken back from the band. Reproduced,
+    though the dust heating creates energy. In an optically thick cell the band is absorbed and re-emitted many times
+    over a step; uncapped, the gas share would drain it at every pass and the kick's per-kick cap matters"""
     power = C_LIGHT * ir_gas_opacity(T_rad, T_dust) * rho * n_(IR) * EV
-    return Transfer(power, {IR: -rsol / EV, "heat": rsol}, name="Gas absorption of photon_IR",
-                    bibliography=["GIZMO rt_utilities.cc rt_update_driftkick and rt_kappa_adaptive_IR_band"])
+    share = kick_gas_share()
+    return Transfer(power, {IR: -rsol * (share + 1) / EV, "heat": rsol * share, "dust heat": 1},
+                    name="Gas absorption of photon_IR",
+                    bibliography=["GIZMO rt_utilities.cc rt_update_driftkick, rt_eqm_dust_temp and "
+                                  "rt_kappa_adaptive_IR_band"])
 
 
 def dust_ir_emission():

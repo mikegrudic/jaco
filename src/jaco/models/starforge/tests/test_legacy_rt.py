@@ -52,6 +52,8 @@ def state(Tv=8e3, **over):
             xs[k] = val
         else:
             v[T if k == "T" else n_Htot if k == "n_Htot" else S(k)] = val
+    if "Td_initial" not in over:
+        v[S("Td_initial")] = v[S("Td")]  # the solve starting from the state's dust temperature
     xs["H"] = 1 - xs["H+"] - 2 * xs["H_2"]
     v.update({x_(s): val for s, val in xs.items()})
     v.update({n_(s): val * v[n_Htot] for s, val in xs.items()})
@@ -204,7 +206,7 @@ def test_dust_band_absorption_is_the_kicks(models, band, over):
     rt_model, _, _ = models
     p = process(rt_model, f"Dust absorption of {band}")
     kappa0, floor = rt.DUST_BAND_OPACITY[band]
-    for rho_ in (2.3e-22, 2.3e-20, 2.3e-18, 2.3e-14):  # a dt from ~1e-4 to beyond the kick's cap of 50
+    for rho_ in (2.3e-22, 2.3e-20, 2.3e-18, 2.3e-14):  # a dt from ~1e-4 to beyond the exponent's cap
         v = state(**over)
         v[S("rho")] = rho_
         d, rsol_ = v[dt], v[S("rsol")]
@@ -213,10 +215,10 @@ def test_dust_band_absorption_is_the_kicks(models, band, over):
         kappa_dust = kappa0 * (max(floor, zf) if floor else zf)
         a = rsol_ * C_LIGHT * 0.5 * kappa * rho_
         e1 = u_band(v, band)
-        x = min(a * d * kappa_dust / kappa, 50)
+        x = min(a * d * kappa_dust / kappa, rt.KICK_EXPONENT_CAP)
         e0 = e1 * (1 + a * d * math.expm1(x) / (a * d * kappa_dust / kappa))  # the implicit step back from e1
         if kappa_dust >= kappa:
-            assert e0 == pytest.approx(e1 * math.exp(min(a * d, 50)), rel=1e-9)  # the kick's exponential
+            assert e0 == pytest.approx(e1 * math.exp(min(a * d, rt.KICK_EXPONENT_CAP)), rel=1e-9)  # the kick's exponential
         loss = -value(p.network[band].rhs, v) * EV * d
         assert loss == pytest.approx(e0 - e1, rel=1e-9)
         assert value(p.network["dust heat"].rhs, v) * d == pytest.approx((e0 - e1) / rsol_, rel=1e-9)
@@ -236,7 +238,7 @@ def test_ir_band_gets_the_donations_twice(models, over):
     for b in (FUV, NUV, ONIR):  # donors first, an exponential absorption each at c_tilde
         a = v[S("rsol")] * C_LIGHT * 0.5 * gizmo_kappa_band(*rt.DUST_BAND_OPACITY[b], v) * v[S("rho")]
         e1 = u_band(v, b)
-        de_abs = e1 * math.expm1(min(a * d, 50))  # from the e0 that ends at e1
+        de_abs = e1 * math.expm1(min(a * d, rt.KICK_EXPONENT_CAP))  # from the e0 that ends at e1
         E_abs_tot_toIR += de_abs / d
         first_copy += de_abs
     kick_gain = first_copy + E_abs_tot_toIR * d  # no IR absorption: its re-emission returns it but for the gas share
@@ -306,8 +308,34 @@ def test_dust_emission_and_ir_rows(models):
     assert value(p.network["dust heat"].rhs, v) == pytest.approx(dust_abs, rel=1e-12)
     assert value(p.network[IR].rhs, v) * EV == pytest.approx(-r * dust_abs, rel=1e-12)
     p = process(rt_model, "Gas absorption of photon_IR")
-    assert value(p.network[IR].rhs, v) * EV == pytest.approx(-r * gas_abs, rel=1e-12)
-    assert value(p.heat, v) == pytest.approx(r * gas_abs, rel=1e-12)
+    d = v[dt]
+    x = r * C_LIGHT * gizmo_kappa_ir(v[S("Td_initial")], 45.0, -1, 1, c) * v[S("rho")] * d  # the kick's dust absorption
+    share = 2 * -math.expm1(-x / 2) / x
+    assert value(p.heat, v) == pytest.approx(r * share * gas_abs, rel=1e-9)
+    assert value(p.network["dust heat"].rhs, v) == pytest.approx(gas_abs, rel=1e-12)  # rt_eqm_dust_temp counts it all
+    assert value(p.network[IR].rhs, v) * EV == pytest.approx(-r * (share + 1) * gas_abs, rel=1e-9)  # the share, and the
+    # dust balance's re-emission of the gas absorption, which the kick does not make
+
+
+@pytest.mark.parametrize("rho_", [2.3e-22, 2.3e-18, 2.3e-14])
+def test_gas_share_is_two_half_kicks(models, rho_):
+    """rt_update_driftkick, twice per step: each half-step kick absorbs e0 (1 - exp(-a dt/2)) of the IR band and gives
+    the gas its opacity share fgas of that (DtInternalEnergy), re-emitting the rest; the model's gas heating over the
+    step is that, to first order in fgas, from optically thin (the rate) to thick (2 fgas e0 per step)"""
+    rt_model, _, _ = models
+    v = state(Td=60.0, T_rad=45.0, rho=rho_)
+    c = cell_of(v)
+    d, r = v[dt], v[S("rsol")]
+    k_dust = gizmo_kappa_ir(v[S("Td_initial")], 45.0, -1, 1, c)
+    k_gas = gizmo_kappa_ir(60.0, 45.0, -1, -1, c)
+    e = u_band(v, IR)
+    gas = 0.0
+    for _ in range(2):
+        de_abs = e * -math.expm1(-r * C_LIGHT * (k_dust + k_gas) * rho_ * d / 2)
+        gas += de_abs * k_gas / (k_dust + k_gas)
+        e -= de_abs * k_gas / (k_dust + k_gas)
+    model = value(process(rt_model, "Gas absorption of photon_IR").heat, v) * d
+    assert model == pytest.approx(gas, rel=3 * k_gas / k_dust + 1e-6)
 
 
 def test_gas_dust_collisions_are_the_dust_balances(models):
@@ -333,26 +361,28 @@ def _dust_row_function(model, vals):
 
 def gizmo_eqm_dust_temp(vals):
     """rt_eqm_dust_temp's root of dust_dEdt (volumetric): Lambda_gd nHcgs^2 (T - Td) + absorption - 4 sigma kappa_P rho
-    Td^4, the absorption (the dust bands at rt_kappa and f_abs, the IR band at kappa(Td, T_rad)) evaluated at the root
-    itself, as the cooling-side balance (dust_dE_cooling) has it. A dust band's absorption is the kick's
+    Td^4, the absorption (the dust bands at rt_kappa and f_abs, the IR band at the gas and dust absorption opacity,
+    flags -1, 0) evaluated at the root itself, as the cooling-side balance (dust_dE_cooling) has it. A dust band's
+    absorption is the kick's
     E_abs_tot_toIR (c/c_tilde): e0 (1 - exp(-a dt)) / dt, for the e0 that the kick takes to the band's energy here
     (the exponent with the dust's opacity alone where rt_kappa's floor exceeds it, as the model's intermediate has it)"""
     c = cell_of(vals)
     d, rsol_ = vals[dt], vals[S("rsol")]
 
-    def kick_absorbed(v, b):
+    def kick_absorbed(v, b):  # rt_kappa from the cell before the update: the start-of-step dust temperature
         kappa0, floor = rt.DUST_BAND_OPACITY[b]
-        kappa = gizmo_kappa_band(kappa0, floor, v)
-        zf = v[S("Z_d")] * gizmo_dust_survival(v[S("Td")])
+        v0 = {**v, S("Td"): vals[S("Td_initial")]}
+        kappa = gizmo_kappa_band(kappa0, floor, v0)
+        zf = v[S("Z_d")] * gizmo_dust_survival(v0[S("Td")])
         x = rsol_ * C_LIGHT * 0.5 * kappa0 * (max(floor, zf) if floor else zf) * v[S("rho")] * d
         a_dt = rsol_ * C_LIGHT * 0.5 * kappa * v[S("rho")] * d
-        factor = math.expm1(min(x, 50)) / x if x > 0 else 1.0
+        factor = math.expm1(min(x, rt.KICK_EXPONENT_CAP)) / x if x > 0 else 1.0
         return u_band(v, b) * a_dt * factor / d / rsol_
 
     def dEdt(Td):
         v = {**vals, S("Td"): Td}
         absorbed = sum(kick_absorbed(v, b) for b in (FUV, NUV, ONIR))
-        absorbed += C_LIGHT * gizmo_kappa_ir(Td, vals[S("T_rad")], -1, 1, c) * vals[S("rho")] * u_band(vals, IR)
+        absorbed += C_LIGHT * gizmo_kappa_ir(Td, vals[S("T_rad")], -1, 0, c) * vals[S("rho")] * u_band(vals, IR)
         emission = 4 * 5.67e-5 * gizmo_kappa_ir(Td, Td, 1, 1, c) * vals[S("rho")] * Td**4
         return gizmo_gas_dust_coeff(vals[T], Td, vals[S("Z_d")]) * nHcgs(vals) ** 2 * (vals[T] - Td) + absorbed - emission
     return _walk_root(dEdt, vals[S("Td")])
@@ -463,7 +493,7 @@ def test_derived_inputs_are_gizmos(over):
     v = state(**over)
     a_dt = v[S("rsol")] * C_LIGHT * 0.5 * gizmo_kappa_band(*rt.DUST_BAND_OPACITY[FUV], v) * v[S("rho")] * v[dt]
     u_pe_end, u_ir = u_band(v, FUV), u_band(v, IR)
-    u_pe = u_pe_end * math.expm1(min(a_dt, 50)) / a_dt  # over the step, with the kick's cap
+    u_pe = u_pe_end * math.expm1(min(a_dt, rt.KICK_EXPONENT_CAP)) / a_dt  # over the step, with the exponent's cap
     habing = 1.6e-3 / C_LIGHT
     assert value(DERIVED["G_0"], v) == pytest.approx(max(1e-56, min(u_pe_end / habing, 1e8)), rel=1e-12, abs=1e-56)
     assert value(DERIVED["G_0_step"], v) == pytest.approx(max(1e-56, min(u_pe / habing, 1e8)), rel=1e-12, abs=1e-56)

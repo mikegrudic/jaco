@@ -28,12 +28,12 @@ Deviations from GIZMO, each forced by doing the coupling in one implicit step:
 - GIZMO absorbs each band in the kick with an exponential at frozen opacity and its dust temperature from that, then
   cools at fixed band energies; here absorption, emission and the dust temperature are terms of the same step, at the
   opacities of the solved state (Td, x_e, x_H+, H2). The dust's absorption of the photoelectric, NUV and optical bands
-  keeps the kick's exponential (radiation.kick_absorption_factor), so those bands end the step at e^(-a Delta_t) of
-  their initial energy, but what is added to them within the step (the NUV cooling return, the optical band's
-  donation) is absorbed as if present from its start; the ionizing and IR bands are backward Euler;
+  keeps the kick's exponential at the start-of-step dust temperature (radiation.kick_absorption_factor,
+  dust_band_rate), so those bands end the step at e^(-a Delta_t) of their initial energy, but what is added to them
+  within the step (the NUV cooling return, the optical band's donation) is absorbed as if present from its start; the
+  ionizing and IR bands are backward Euler;
 - GIZMO's cooling return is limited by the gas energy change (de_u_touse); the processes give the bands exactly what
   the gas emits;
-- GIZMO counts the gas-phase IR absorption in its dust balance as well; here it heats the gas only;
 - the photon flux is left to the RT kick (whose relaxation with Rad_Kappa is the absorption's damping of it) but for the
   M1 limit; GIZMO's cooling return also scales the flux with the band's energy;
 - the dust opacity table's composition switches are smoothed (jaco.models.starforge.dust_opacity);
@@ -43,9 +43,11 @@ Deviations from GIZMO, each forced by doing the coupling in one implicit step:
   process given a number row at the temperature it emits at.
 
 Reproduced as GIZMO does them, though they do not conserve energy: the gas absorption of the IR band heats the gas at
-c_tilde/c of the physical rate; the kick puts the dust-absorbed energy of the photoelectric, NUV and optical bands into
-the IR band twice (radiation.legacy_ir_donation_copy, a separate process: Model.without removes it); photoheating takes
-eps_HI per photoionization while the band loses hnu_EUV to the optical band; photoelectric heating and H2
+c_tilde/c of the physical rate, at most its share of the band's energy per half-step kick, and is counted in full in
+the dust balance as well, though the band gets only the dust's share back (radiation.gas_ir_absorption); the kick
+puts the dust-absorbed energy of the photoelectric, NUV and optical bands into the IR band twice
+(radiation.legacy_ir_donation_copy, a separate process: Model.without removes it); photoheating takes eps_HI per
+photoionization while the band loses hnu_EUV to the optical band; photoelectric heating and H2
 photodissociation do not take from the bands.
 """
 
@@ -80,6 +82,7 @@ RT_PARAMETERS = [
 ]
 IR_PARAMETERS = [
     Parameter("T_rad", "K", 10.0, "radiation temperature of the IR band (Radiation_Temperature)"),
+    Parameter("Td_initial", "K", 20.0, "dust temperature at the start of the step (the dust-absorbed bands' opacity)"),
     Parameter("T_CMB", "K", T_CMB_Z0, "CMB temperature"),
     Parameter("rho", "g cm^-3", 2.3e-22, "gas density"),
     Parameter("Z_metals", "", 0.014, "metal mass fraction (Metallicity[0])"),

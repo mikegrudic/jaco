@@ -121,10 +121,11 @@ def ir_gas_opacity(T_r, T_d, absorption=True):
     return kappa if absorption else kappa + k_electron
 
 
-def band_dust_opacity(kappa_dust, floor_metals=0.0):
+def band_dust_opacity(kappa_dust, floor_metals=0.0, T_d=T_dust):
     """rt_kappa for a dust-absorbed band [cm^2/g]: max(kappa_HHe, kappa_dust Z f_dust), kappa_HHe = 0.02 + 0.35 x_e
-    (neutral and free-electron floor); the photoelectric band floors Z f_dust at floor_metals"""
-    Zf = Z_dust * dust_survival(T_dust)
+    (neutral and free-electron floor), the surviving dust at T_d; the photoelectric band floors Z f_dust at
+    floor_metals"""
+    Zf = Z_dust * dust_survival(T_d)
     if floor_metals:
         Zf = sp.Max(floor_metals, Zf)
     return sp.Max(0.02 + 0.35 * x_("e-"), kappa_dust * Zf)
