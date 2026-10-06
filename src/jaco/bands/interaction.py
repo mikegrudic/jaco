@@ -19,8 +19,9 @@ class Absorber:
     ----------
     name: str
         Id of the process.
-    cross_section: number, callable of E, PowerLaw or Spectral
-        sigma(E) or kappa(E); zero below its E_min.
+    cross_section: number, callable of E, PowerLaw or Spectral, or None
+        sigma(E) or kappa(E); zero below its E_min. None: the absorber's band coefficients are all given as overrides
+        (e.g. a host code's band-averaged opacities), and those not given are None.
     absorber: str, optional
         The absorbing species (sigma per particle), or None for an opacity per unit mass.
     E_th: float
@@ -45,7 +46,8 @@ class Absorber:
     scattering: object = None
 
     def __post_init__(self):
-        object.__setattr__(self, "cross_section", as_spectral(self.cross_section))
+        if self.cross_section is not None:
+            object.__setattr__(self, "cross_section", as_spectral(self.cross_section))
         if self.scattering is not None:
             object.__setattr__(self, "scattering", as_spectral(self.scattering))
         if self.heat_yield is not None:
@@ -93,6 +95,16 @@ class Continuum:
     @property
     def temperature_dependent(self):
         return getattr(self.j, "temperature_dependent", False)
+
+
+@dataclass(frozen=True)
+class RoutedEmission:
+    """Emission whose split among the bands is given rather than derived from a spectrum, taken from the row source:
+    overrides (name, band) -> {"fraction": f_b} (any expression) for the bands it reaches; the rest escapes. E.g. a
+    host code's fixed routing of a cooling term into bands."""
+
+    name: str
+    source: str = "heat"
 
 
 @dataclass(frozen=True)

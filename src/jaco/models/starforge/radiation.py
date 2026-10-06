@@ -16,10 +16,17 @@ Speeds of light: matter rates run at the true c, as GIZMO's cooling module and d
 transported at c_tilde = rsol c, so every band row is rsol times the matter-side rate (Reaction row_factors,
 Transfer factors). Both are physical: GIZMO renormalizes the sources so that a band's energy density is the physical
 one.
+
+The bands are jaco.bands.GIZMO_STARFORGE, and GIZMO's coefficients for them are overrides of the band layer
+(GIZMO_RT): the ionizing band's sigma_HI, eps_HI and hnu_EUV (runtime parameters, rt_get_sigma), the dust's band
+opacities (rt_kappa) and IR opacities (rt_kappa_adaptive_IR_band), the gas's IR opacity, and the bands' Compton
+temperatures. The processes below take every band identity, edge, mean photon energy and opacity from there, and keep
+GIZMO's composition laws (opacity floors, dust survival) and scheme (kick factors, donations) themselves.
 """
 
 import numpy as np
 import sympy as sp
+from jaco.bands import Absorber, GIZMO_STARFORGE, Projector, RoutedEmission
 from jaco.processes import Reaction, ThermalTerm, Transfer
 from jaco.symbols import n_, dt
 from .symbols import T, n_Htot, nH_gizmo_cooling, sqrt_T
@@ -40,15 +47,62 @@ G_LW_bg = sp.Symbol("G_LW_bg")
 gamma_12_UVB = sp.Symbol("gamma_12_UVB")
 eps_H0_UVB = sp.Symbol("eps_H0_UVB")
 
-EUV, FUV, NUV, ONIR, IR = "photon_EUV", "photon_FUV", "photon_NUV", "photon_ONIR", "photon_IR"
-BANDS = (EUV, FUV, NUV, ONIR, IR)
+GIZMO_BANDS = GIZMO_STARFORGE
+EUV, FUV, NUV, ONIR, IR = GIZMO_BANDS.species
+BANDS = GIZMO_BANDS.species
 PHOTON_DENSITIES = frozenset(n_(b) for b in BANDS)
-EUV_SINKS = ("Photoionization of H by the ionizing band",)
+PHOTOIONIZATION = "Photoionization of H by the ionizing band"
+EUV_SINKS = (PHOTOIONIZATION,)
+EV_EXACT = sp.Rational(EV)  # eV -> erg for the band layer's energies, exact for GIZMO's erg-valued parameters
+LW_THRESHOLD = 11.2  # eV, H2 photodissociation (the IR band's tail above it adds to G_LW)
+
+# band-layer absorbers and emitters; GIZMO gives their band coefficients, so none declares a spectrum
+H_ABSORBER, DUST_ABSORBER, GAS_ABSORBER = "H photoionization", "dust", "gas"
+DUST_EMISSION = "Dust emission into photon_IR"
+DUST_BAND_OPACITY_CGS = {FUV: 720.0, NUV: 480.0, ONIR: 180.0}  # rt_kappa 209-221: extinction per unit Z f_dust
+DUST_ALBEDO_ABSORBED = 0.5  # rt_absorb_frac_albedo
+DUST_Z_FLOOR = {FUV: 1e-4, NUV: 0.0, ONIR: 0.0}  # rt_kappa's floor of Z f_dust in the photoelectric band
+
+
+def _band(species):
+    return GIZMO_BANDS.by_species(species).name
+
+
+GIZMO_RT = Projector(
+    GIZMO_BANDS,
+    absorbers=[Absorber(H_ABSORBER, None, absorber="H", E_th=13.6),
+               Absorber(DUST_ABSORBER, None, heat_to="dust heat"), Absorber(GAS_ABSORBER, None)],
+    emitters=[RoutedEmission(DUST_EMISSION, source="dust heat")],
+    overrides={
+        (H_ABSORBER, _band(EUV)): {"sigma_N": sigma_HI, "heat": eps_HI / EV_EXACT},
+        **{(DUST_ABSORBER, _band(b)): {"chi_F": k, "chi_E": DUST_ALBEDO_ABSORBED * k}
+           for b, k in DUST_BAND_OPACITY_CGS.items()},
+        (DUST_ABSORBER, _band(IR)): {"chi_E": ir_dust_opacity(T_dust, T_rad)},
+        (GAS_ABSORBER, _band(IR)): {"chi_E": ir_gas_opacity(T_rad, T_dust)},
+        (DUST_EMISSION, _band(IR)): {"fraction": 1},
+    },
+    band_overrides={  # evaluate_Compton_heating_cooling_rate's effective temperatures (cooling.cc 2387-2440)
+        _band(EUV): {"hnu": hnu_EUV, "T_compton": 2340 * hnu_EUV},
+        _band(FUV): {"T_compton": 24400.0}, _band(NUV): {"T_compton": 12000.0}, _band(ONIR): {"T_compton": 2800.0},
+        _band(IR): {"T_compton": GIZMO_BANDS[_band(IR)].T_rad},
+    })
+DUST_BANDS = tuple(b for b in (FUV, NUV, ONIR) if GIZMO_RT.absorption(DUST_ABSORBER, _band(b)) is not None)
+DUST_BAND_OPACITY = {b: (GIZMO_RT.absorption(DUST_ABSORBER, _band(b)).chi_F, DUST_Z_FLOOR[b]) for b in DUST_BANDS}
+
+
+def coefficients(absorber, band):
+    """GIZMO_RT's AbsorptionCoefficients of absorber in the band of species band"""
+    return GIZMO_RT.absorption(absorber, _band(band))
+
+
+def hnu(band):
+    """Mean photon energy of a band [eV]"""
+    return GIZMO_RT.mean_photon_energy(_band(band))
 
 
 def band_energy_eV(band):
     """Energy density of a band [eV cm^-3]"""
-    return n_(band) * hnu_EUV if band == EUV else n_(band)
+    return n_(band) * hnu(band) if GIZMO_BANDS.by_species(band).unit == "photons" else n_(band)
 
 
 def blackbody_fraction(E_lower, E_upper, T_eff):
@@ -94,31 +148,33 @@ def photoionization(donation=None):
     rate law needs no photon-limited time average (slab_averaging_function, commented out at cooling.cc 875 and 1244):
     on the Iliev test 1 R-type front at c_tilde = 0.1 c, with tau ~ 40 per cell and step, r_I/analytic is 0.976-1.020
     over 0.5-4 t_rec either way."""
+    c = coefficients(H_ABSORBER, EUV)
     rows = {EUV: rsol}
-    equation = "H + photon_EUV -> H+ + e-"
+    equation = f"H + {EUV} -> H+ + e-"
     if donation:
         equation += f" + {donation}"
-        rows[donation] = rsol * hnu_EUV
+        rows[donation] = rsol * hnu(EUV)
     bib = ["GIZMO cooling.cc find_abundances_and_rates and Heat_Ion_from_RHD", "GIZMO rt_utilities.cc rt_kappa",
            "GIZMO rt_chem.cc rt_get_sigma"]
-    name = "Photoionization of H by the ionizing band"
-    return Reaction(equation, C_LIGHT * sigma_HI, eps_HI, clumping=1, row_factors=rows, name=name, bibliography=bib)
+    return Reaction(equation, C_LIGHT * c.sigma_N, c.heat * EV_EXACT, clumping=1, row_factors=rows,
+                    name=PHOTOIONIZATION, bibliography=bib)
 
 
 def ir_tail_photoionization():
     """Photoionization of H by the IR band's blackbody tail above 13.6 eV at T_rad (cooling.cc 1235-1238 and 859-878,
     rt_irband_egydensity_in_band), photons counted at max(hnu_EUV, T_rad/2959.81) eV; GIZMO's kick does not take them
-    from the IR band, so neither does this. Atomic H only: the tail matters only where T_rad >~ 2e4 K"""
-    n_tail = n_(IR) * blackbody_fraction(13.6, 500.0, T_rad) / sp.Max(hnu_EUV, T_rad / 2959.81)
-    return Reaction("H -> H+ + e-", rate=C_LIGHT * sigma_HI * n_("H") * n_tail, heat_per_reaction=eps_HI, clumping=1,
-                    name="Photoionization of H by the IR band's tail",
+    from the IR band, so neither does this. Atomic H only: the tail matters only where T_rad >~ 2e4 K.
+
+    GIZMO's IR band is a whole blackbody at T_rad, its edges nominal; this tail lies in the ionizing band's range and
+    is absorbed with that band's coefficients"""
+    c, euv, ir = coefficients(H_ABSORBER, EUV), GIZMO_BANDS.by_species(EUV), GIZMO_BANDS.by_species(IR)
+    n_tail = n_(IR) * blackbody_fraction(euv.E_lo, euv.E_hi, ir.T_rad) / sp.Max(hnu(EUV), ir.T_rad / 2959.81)
+    return Reaction("H -> H+ + e-", rate=C_LIGHT * c.sigma_N * n_("H") * n_tail, heat_per_reaction=c.heat * EV_EXACT,
+                    clumping=1, name="Photoionization of H by the IR band's tail",
                     bibliography=["GIZMO cooling.cc CoolingRate and find_abundances_and_rates"])
 
 
 # --- dust ----------------------------------------------------------------------------------------------------------
-
-DUST_BAND_OPACITY = {FUV: (720.0, 1e-4), NUV: (480.0, 0.0), ONIR: (180.0, 0.0)}  # rt_kappa 209-221: kappa, Z floor
-
 
 KICK_EXPONENT_CAP = 10.0
 
@@ -140,8 +196,8 @@ def dust_band_rate(band):
     temperature is updated. The band's absorption is then linear in its energy at fixed rate over the solve: through
     the exponential kick factor, a rate depending on the solved Td makes the rows of a band absorbed in a dense cell
     exponentially sensitive to Td, and Newton's line search fails there"""
-    kappa, floor = DUST_BAND_OPACITY[band]
-    return C_LIGHT * 0.5 * band_dust_opacity(kappa, floor, T_d=T_dust_initial) * rho
+    c = coefficients(DUST_ABSORBER, band)
+    return C_LIGHT * (c.chi_E / c.chi_F) * band_dust_opacity(c.chi_F, DUST_Z_FLOOR[band], T_d=T_dust_initial) * rho
 
 
 def kick_factor(band):
@@ -152,7 +208,7 @@ def kick_factor(band):
 T_dust_initial = sp.Symbol("Td_initial")  # dust temperature at the start of the step [K]
 
 
-def kick_absorption_intermediates(bands=(FUV, NUV, ONIR)):
+def kick_absorption_intermediates(bands=DUST_BANDS):
     """(Symbol, expression) per dust-absorbed band: kick_absorption_factor at the band's absorption over the step,
     a dt = c_tilde f_abs kappa rho dt, with the dust's opacity only (an intermediate cannot read the electron
     abundance, which rt_kappa's neutral/electron floor does; the floor exceeds the dust's opacity only where the dust
@@ -160,9 +216,9 @@ def kick_absorption_intermediates(bands=(FUV, NUV, ONIR)):
     start-of-step dust temperature (dust_band_rate)"""
     out = []
     for band in bands:
-        kappa, floor = DUST_BAND_OPACITY[band]
+        c, floor = coefficients(DUST_ABSORBER, band), DUST_Z_FLOOR[band]
         Zf = Z_dust * dust_survival(T_dust_initial)
-        a = C_LIGHT * 0.5 * kappa * (sp.Max(floor, Zf) if floor else Zf) * rho
+        a = C_LIGHT * (c.chi_E / c.chi_F) * c.chi_F * (sp.Max(floor, Zf) if floor else Zf) * rho
         out.append((kick_factor(band), kick_absorption_factor(rsol * a * dt)))
     return out
 
@@ -187,7 +243,8 @@ def dust_band_absorption(band):
     """Dust absorption of a non-ionizing band (dust_band_power), the band losing it at c_tilde (the kick,
     rt_update_driftkick); the kick donates it to the IR band through the dust, which here re-emits it in its
     balance"""
-    return Transfer(dust_band_power(band), {band: -rsol / EV, "dust heat": 1}, name=f"Dust absorption of {band}",
+    heat_to = GIZMO_RT.absorbers[DUST_ABSORBER].heat_to
+    return Transfer(dust_band_power(band), {band: -rsol / EV, heat_to: 1}, name=f"Dust absorption of {band}",
                     bibliography=["GIZMO rt_utilities.cc rt_kappa, rt_absorb_frac_albedo, rt_update_driftkick and "
                                   "dust_dE_cooling"])
 
@@ -198,16 +255,17 @@ def legacy_ir_donation_copy():
     the same amount again as a source rate (E_abs_tot_toIR in its total_de_dt; rt_update_driftkick). This process is
     the second copy, energy GIZMO creates: the IR band gains, at c_tilde, what the dust absorbs from those bands
     (dust_band_power), with nothing taken from anywhere. Remove it (Model.without) for the conserving coupling"""
-    power = sum(dust_band_power(b) for b in (FUV, NUV, ONIR))
-    return Transfer(power, {IR: rsol / EV}, name="GIZMO's second copy of the donated dust absorption in photon_IR",
+    power = sum(dust_band_power(b) for b in DUST_BANDS)
+    return Transfer(power, {IR: rsol / EV}, name=f"GIZMO's second copy of the donated dust absorption in {IR}",
                     bibliography=["GIZMO rt_utilities.cc rt_update_driftkick"])
 
 
 def dust_ir_absorption():
     """Dust absorption of the IR band at the dust's absorption opacity kappa(T_dust, T_rad) (dust_dE_cooling, 1335;
     rt_kappa_adaptive_IR_band flags -1, 1)"""
-    power = C_LIGHT * ir_dust_opacity(T_dust, T_rad) * rho * n_(IR) * EV
-    return Transfer(power, {IR: -rsol / EV, "dust heat": 1}, name="Dust absorption of photon_IR",
+    c = coefficients(DUST_ABSORBER, IR)
+    power = C_LIGHT * c.chi_E * rho * n_(IR) * EV
+    return Transfer(power, {IR: -rsol / EV, c.heat_to: 1}, name=f"Dust absorption of {IR}",
                     bibliography=["GIZMO rt_utilities.cc dust_dE_cooling", "2003A&A...410..611S"])
 
 
@@ -216,7 +274,7 @@ def kick_gas_share():
     absorbs at most the band's energy, e0 (1 - exp(-x/2)), and gives the gas its opacity share of that. x = c_tilde
     kappa rho dt at the dust's absorption opacity (which dominates the band's) and the start-of-step dust temperature,
     so a function of parameters only"""
-    a = rsol * C_LIGHT * ir_dust_opacity(T_dust_initial, T_rad) * rho * dt
+    a = rsol * C_LIGHT * coefficients(DUST_ABSORBER, IR).chi_E.xreplace({T_dust: T_dust_initial}) * rho * dt
     x = sp.Min(a, 100)
     return sp.Piecewise((1 - x / 4 + x * x / 24, x < 1e-3), (2 * (1 - sp.exp(-x / 2)) / a, True))
 
@@ -230,19 +288,23 @@ def gas_ir_absorption():
     share into the band: the dust balance's re-emission of the gas share is taken back from the band. Reproduced,
     though the dust heating creates energy. In an optically thick cell the band is absorbed and re-emitted many times
     over a step; uncapped, the gas share would drain it at every pass and the kick's per-kick cap matters"""
-    power = C_LIGHT * ir_gas_opacity(T_rad, T_dust) * rho * n_(IR) * EV
+    power = C_LIGHT * coefficients(GAS_ABSORBER, IR).chi_E * rho * n_(IR) * EV
     share = kick_gas_share()
     return Transfer(power, {IR: -rsol * (share + 1) / EV, "heat": rsol * share, "dust heat": 1},
-                    name="Gas absorption of photon_IR",
+                    name=f"Gas absorption of {IR}",
                     bibliography=["GIZMO rt_utilities.cc rt_update_driftkick, rt_eqm_dust_temp and "
                                   "rt_kappa_adaptive_IR_band"])
 
 
 def dust_ir_emission():
     """Thermal emission of the dust into the IR band: 4 sigma kappa_P(T_dust) rho T_dust^4 (dust_dEdt and dust_dE_cooling,
-    the emission opacity rt_kappa_adaptive_IR_band(Td, Td, 1, 1))"""
-    power = 4 * SIGMA_SB * ir_dust_opacity(T_dust, T_dust) * rho * T_dust**4
-    return Transfer(power, {"dust heat": -1, IR: rsol / EV}, name="Dust emission into photon_IR",
+    the emission opacity rt_kappa_adaptive_IR_band(Td, Td, 1, 1)): the dust's IR absorption opacity at
+    T_rad = T_dust (Kirchhoff on the tracked band), all of it into the IR band"""
+    power = 4 * SIGMA_SB * coefficients(DUST_ABSORBER, IR).expr("chi_E", T_dust) * rho * T_dust**4
+    e = GIZMO_RT.emission(DUST_EMISSION)
+    rows = {e.source: -1}
+    rows.update({b.species: rsol / EV * e.fraction[b.name] for b in GIZMO_BANDS if e.fraction[b.name] != 0})
+    return Transfer(power, rows, name=DUST_EMISSION,
                     bibliography=["GIZMO rt_utilities.cc dust_dEdt and dust_dE_cooling"])
 
 
@@ -260,7 +322,7 @@ def gas_dust_collisions():
 
 def compton_teff(band):
     """evaluate_Compton_heating_cooling_rate's effective photon temperature of a band (cooling.cc 2387-2440)"""
-    return {EUV: 2340 * hnu_EUV, FUV: 24400.0, NUV: 12000.0, ONIR: 2800.0, IR: T_rad}[band]
+    return GIZMO_RT.compton_temperature(_band(band))
 
 
 def compton_off_bands(bands):
@@ -293,7 +355,8 @@ def G_LW_of_bands():
     band_energy_over_step) as the Lyman-Werner proxy plus the UV background's G_LW_bg, within [1e-10, 1e10], plus the
     IR band's tail above 11.2 eV"""
     G = sp.Min(sp.Max(band_energy_over_step(FUV) * EV / U_HABING + G_LW_bg, 1e-10), 1e10)
-    return G + band_energy_eV(IR) * EV * blackbody_fraction(11.2, 500.0, T_rad) / U_HABING
+    euv, ir = GIZMO_BANDS.by_species(EUV), GIZMO_BANDS.by_species(IR)
+    return G + band_energy_eV(IR) * EV * blackbody_fraction(LW_THRESHOLD, euv.E_hi, ir.T_rad) / U_HABING
 
 
 def background_temperature():
@@ -301,7 +364,7 @@ def background_temperature():
     energy-weighted"""
     e_cmb = 0.262 * (T_CMB / 2.73) ** 4
     e_ir = band_energy_eV(IR)
-    return (e_ir * T_rad + e_cmb * T_CMB) / (e_ir + e_cmb)
+    return (e_ir * GIZMO_BANDS.by_species(IR).T_rad + e_cmb * T_CMB) / (e_ir + e_cmb)
 
 
 def ir_self_absorption():
@@ -325,7 +388,8 @@ def recombination_return_fraction():
     from 0 to 1 at an empty band without a background; here the guard (1e-30 erg/s) is added to both heatings, so the
     share is 1 rather than 0 where neither heats, and smooth"""
     S = uvb_shielding(nH_gizmo_cooling, gamma_12_UVB)
-    heat_rhd = eps_HI * C_LIGHT * sigma_HI * n_(EUV)
+    c = coefficients(H_ABSORBER, EUV)
+    heat_rhd = c.heat * EV_EXACT * C_LIGHT * c.sigma_N * n_(EUV)
     return (1 - S) * (heat_rhd + 1e-30) / (eps_H0_UVB * S + heat_rhd + 1e-30)
 
 
@@ -339,7 +403,8 @@ def ir_radiation_temperature(absorbers, dust_emitters, gas_emitters, prior_sourc
     cannot weight it directly. prior_sources add to the band before the kick's IR update (GIZMO's direct donation),
     so count with its initial photons"""
     A, D, G, P = sp.symbols("A_IR D_IR G_IR P_IR")
-    n0 = n_Htot * sp.Symbol("x_photon_IR_initial") + dt * sp.Max(P, 0)
+    T_rad = GIZMO_BANDS.by_species(IR).T_rad
+    n0 = n_Htot * sp.Symbol(f"x_{IR}_initial") + dt * sp.Max(P, 0)
     n1 = n_(IR)
     a_dt = sp.Min(sp.Max(-dt * A, 0) / (n1 + 1e-300), 700)
     unabsorbed = sp.Min(n0 * sp.exp(-a_dt), n1)

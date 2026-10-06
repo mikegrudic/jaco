@@ -2,6 +2,8 @@
 
 from dataclasses import dataclass, replace
 
+import sympy as sp
+
 from ..declarations import Species
 
 UNITS = ("photons", "energy")
@@ -29,6 +31,10 @@ class Band:
           tables in T_rad.
     slope: float
         Index of u_E for a "ppl" band.
+    temperature: str, optional
+        Name of a "tracked" band's radiation temperature symbol; T_rad_<name> by default.
+    doc: str, optional
+        Description of the band's species.
     """
 
     name: str
@@ -37,6 +43,8 @@ class Band:
     unit: str = "energy"
     shape: str = "ppl"
     slope: float = -1.0
+    temperature: str = None
+    doc: str = ""
 
     def __post_init__(self):
         if not 0 < self.E_lo < self.E_hi:
@@ -50,6 +58,13 @@ class Band:
     def species(self):
         return f"photon_{self.name}"
 
+    @property
+    def T_rad(self):
+        """The radiation temperature symbol of a tracked band, else None"""
+        if self.shape != "tracked":
+            return None
+        return sp.Symbol(self.temperature or f"T_rad_{self.name}")
+
     def contains(self, E):
         return self.E_lo <= E < self.E_hi
 
@@ -59,7 +74,8 @@ class Band:
     def declaration(self):
         """The radiation Species of the band"""
         what = "photons" if self.unit == "photons" else "energy [eV]"
-        return Species(self.species, "radiation", f"{what} per H nucleus in {self.E_lo:g}-{self.E_hi:g} eV", floor=0.0)
+        doc = self.doc or f"{what} per H nucleus in {self.E_lo:g}-{self.E_hi:g} eV"
+        return Species(self.species, "radiation", doc, floor=0.0)
 
 
 class BandSet:
@@ -109,6 +125,13 @@ class BandSet:
             if b.name == name:
                 return i
         raise KeyError(f"no band {name!r} in {self.names}")
+
+    def by_species(self, species):
+        """The band whose species is species"""
+        for b in self.bands:
+            if b.species == species:
+                return b
+        raise KeyError(f"no band with species {species!r} in {self.names}")
 
     def band_at(self, E):
         """The band containing photon energy E, or None"""

@@ -1,5 +1,8 @@
 """Band specs of models.
 
+GIZMO_STARFORGE: GIZMO's STARFORGE bands as they are (one ionizing band, photoelectric, NUV, optical/NIR, IR at the
+radiation temperature T_rad). GIZMO's own coefficients for them are overrides in the model (starforge radiation).
+
 STARFORGE_RT: GIZMO's STARFORGE bands with the ionizing band split at the He I threshold. Each ionizing sub-band's
 slope is fitted to the stellar spectrum GIZMO assumes for its ionizing band (rt_get_sigma: a 4e4 K blackbody), matching
 the H photoionization heat per ionization G_HI and the mean photon energy nu_eff in the sub-band jointly."""
@@ -34,7 +37,7 @@ def starforge_rt(T_eff=GIZMO_T_EFF, opacity="exact"):
     """BandSet EUV_H, EUV_He (photons), FUV, NUV, ONIR (energy, E u_E = const), IR (energy, tracked at T_rad)"""
     return BandSet([*(f.band for f in ionizing_fits(T_eff, opacity)),
                     Band("FUV", 8.0, 13.6), Band("NUV", 3.444, 8.0), Band("ONIR", 0.4133, 3.444),
-                    Band("IR", 0.001, 0.4133, shape="tracked")])
+                    Band("IR", 0.001, 0.4133, shape="tracked", temperature="T_rad")])
 
 
 @dataclass(frozen=True)
@@ -83,3 +86,12 @@ def combined_ionizing_residuals(bands, reference=Blackbody(GIZMO_T_EFF), absorbe
 
 
 STARFORGE_RT = starforge_rt()
+
+GIZMO_STARFORGE = BandSet([
+    Band("EUV", 13.6, 500.0, unit="photons", doc="ionizing photons (13.6-500 eV) per H nucleus"),
+    Band("FUV", 8.0, 13.6, doc="photoelectric band (8-13.6 eV) energy per H nucleus [eV]"),
+    Band("NUV", 3.444, 8.0, doc="NUV band (3.444-8 eV) energy per H nucleus [eV]"),
+    Band("ONIR", 0.4133, 3.444, doc="optical/NIR band (0.4133-3.444 eV) energy per H nucleus [eV]"),
+    Band("IR", 0.001, 0.4133, shape="tracked", temperature="T_rad",
+         doc="IR band (0.001-0.4133 eV) energy per H nucleus [eV]"),
+])

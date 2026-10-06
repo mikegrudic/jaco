@@ -8,9 +8,10 @@ import numpy as np
 import pytest
 import sympy as sp
 
-from jaco.bands import (Absorber, Band, BandSet, Blackbody, Continuum, Line, PowerLaw, Projector, SIGMA_HI, SIGMA_HEI,
-                        SIGMA_HEII, STARFORGE_RT, Spectral, TTable, ThermalEmission, band_structure,
-                        combined_ionizing_residuals, fit_slope, hardening_mismatch, integrate, ionizing_fits, planck)
+from jaco.bands import (Absorber, Band, BandSet, Blackbody, Continuum, Line, PowerLaw, Projector, RoutedEmission,
+                        SIGMA_HI, SIGMA_HEI, SIGMA_HEII, STARFORGE_RT, Spectral, TTable, ThermalEmission,
+                        band_structure, combined_ionizing_residuals, fit_slope, hardening_mismatch, integrate,
+                        ionizing_fits, planck)
 from jaco.bands.projection import mean_photon_energy, ppl_absorption, spectrum_absorption
 from jaco.bands.spectra import SIGMA_SB, power_integral
 from jaco.model import Model
@@ -392,3 +393,54 @@ def test_legacy_rt_model_band_structure():
     assert not s.diagonal
     assert {("photon_EUV", "photon_ONIR"), ("photon_FUV", "photon_IR"), ("photon_NUV", "photon_IR"),
             ("photon_ONIR", "photon_IR")} <= set(s.pairs)
+
+
+# --- what a host code's legacy bands need ------------------------------------------------------------------------
+
+def test_band_overrides_and_compton_temperature():
+    hnu, k_B = sp.Symbol("hnu_EUV"), 8.617333262e-5
+    bands = BandSet([Band("EUV", 13.6, 500.0, unit="photons", slope=-3.0), Band("FUV", 8.0, 13.6),
+                     Band("IR", 0.001, 0.4133, shape="tracked", temperature="T_rad")])
+    proj = Projector(bands, band_overrides={"EUV": {"hnu": hnu, "T_compton": 2340 * hnu}})
+    assert proj.mean_photon_energy("EUV") == hnu and proj.compton_temperature("EUV") == 2340 * hnu
+    mean_E = integrate(lambda E: E * E**-1.0, 8.0, 13.6) / integrate(lambda E: E**-1.0, 8.0, 13.6)
+    assert proj.compton_temperature("FUV") == pytest.approx(mean_E / (4 * k_B), rel=1e-12)
+    T_C = Projector(BandSet([Band("BB", 1e-6, 1e3, shape="tracked")]), T_grid=T_SMALL).compton_temperature("BB")
+    zeta4, zeta5 = np.pi**4 / 90, 1.0369277551433699  # a whole blackbody: <E>_u = 4 zeta(5)/zeta(4) k T
+    assert T_C(1e3) == pytest.approx(zeta5 / zeta4 * 1e3, rel=1e-6)
+    assert bands["IR"].T_rad == sp.Symbol("T_rad") and bands["FUV"].T_rad is None
+    assert Band("x", 1.0, 2.0, shape="tracked").T_rad == sp.Symbol("T_rad_x")
+    with pytest.raises(KeyError):
+        Projector(bands, band_overrides={"EUV": {"sigma": 1.0}})
+
+
+def test_override_only_declarations():
+    """An absorber without a spectrum has exactly the coefficients given; a routed emitter the fractions given, the
+    rest escaping; a tracked band's coefficient expression evaluated at another temperature is its Kirchhoff value"""
+    T_rad, Td, x = sp.symbols("T_rad Td x")
+    bands = BandSet([Band("NUV", 3.444, 8.0), Band("IR", 0.001, 0.4133, shape="tracked", temperature="T_rad")])
+    kappa_ir = 3.0 * T_rad**2 / (1 + Td)
+    proj = Projector(bands, [Absorber("dust", None, heat_to="dust heat")], [RoutedEmission("lines")],
+                     overrides={("dust", "NUV"): {"chi_F": 480.0, "chi_E": 240.0}, ("dust", "IR"): {"chi_E": kappa_ir},
+                                ("lines", "NUV"): {"fraction": 1 - x}, ("lines", "IR"): {"fraction": x / 2}})
+    c = proj.absorption("dust", "NUV")
+    assert (c.chi_F, c.chi_E, c.sigma_N) == (480.0, 240.0, None) and c.heat_to == "dust heat"
+    ir = proj.absorption("dust", "IR")
+    assert ir.T_band == T_rad and ir.expr("chi_E") == kappa_ir and ir.expr("chi_E", Td) == 3.0 * Td**2 / (1 + Td)
+    e = proj.emission("lines")
+    assert e.fraction == {"NUV": 1 - x, "IR": x / 2} and sp.simplify(e.escape - x / 2) == 0
+    assert Projector(bands, emitters=[RoutedEmission("none")]).emission("none").escape == 1
+
+
+def test_gizmo_starforge_bands():
+    """GIZMO's five bands, declared as the legacy model declares its band species, and GIZMO's constants for them"""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        from jaco.models.starforge import radiation as rt
+        from jaco.models.starforge_legacy_RT import BAND_SPECIES
+    assert rt.GIZMO_BANDS.species == ("photon_EUV", "photon_FUV", "photon_NUV", "photon_ONIR", "photon_IR")
+    assert [d.doc for d in rt.GIZMO_BANDS.declarations()] == [d.doc for d in BAND_SPECIES.values()]
+    assert rt.DUST_BAND_OPACITY == {rt.FUV: (720.0, 1e-4), rt.NUV: (480.0, 0.0), rt.ONIR: (180.0, 0.0)}
+    c = rt.coefficients(rt.H_ABSORBER, rt.EUV)
+    assert c.sigma_N == rt.sigma_HI and c.heat * rt.EV_EXACT == rt.eps_HI and rt.hnu(rt.EUV) == rt.hnu_EUV
+    assert [rt.compton_teff(b) for b in rt.BANDS] == [2340 * rt.hnu_EUV, 24400.0, 12000.0, 2800.0, sp.Symbol("T_rad")]

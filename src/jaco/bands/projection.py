@@ -19,7 +19,7 @@ import numpy as np
 import sympy as sp
 
 from .band import BandSet
-from .interaction import Absorber, Line, Continuum, ThermalEmission
+from .interaction import Absorber, Line, Continuum, RoutedEmission, ThermalEmission
 from .spectra import PowerLaw, K_B_EV, planck, integrate, power_integral, support
 
 DEFAULT_T_GRID = tuple(np.logspace(0.0, 8.0, 321))  # K, 0.025 dex
@@ -226,6 +226,7 @@ class AbsorptionCoefficients:
     heat_to: str
     remainder_to: str = None
     overridden: frozenset = frozenset()
+    T_band: object = None  # the band's radiation temperature symbol (tracked bands)
 
     @property
     def excess(self):
@@ -235,11 +236,16 @@ class AbsorptionCoefficients:
         return self.E_abs - self.E_th
 
     def expr(self, name, T=None):
-        """sympy form of one coefficient (T: the band's radiation temperature symbol, for a tracked band)"""
-        return symbolic(getattr(self, name), T, f"{name}_{self.process}_{self.band}")
+        """sympy form of one coefficient at radiation temperature T (default: the band's own, for a tracked band).
+        At an emitter's temperature, a tracked band's chi_E is its Kirchhoff emission opacity"""
+        value = getattr(self, name)
+        if isinstance(value, sp.Basic):
+            return value.xreplace({self.T_band: T}) if T is not None and self.T_band is not None else value
+        return symbolic(value, self.T_band if T is None else T, f"{name}_{self.process}_{self.band}")
 
 
 EMISSION_FIELDS = ("fraction", "photons_per_eV", "planck_mean")
+BAND_FIELDS = ("hnu", "T_compton")
 
 
 @dataclass(frozen=True)
@@ -359,6 +365,8 @@ class Projector:
         e.g. a legacy model's constants. Absorption coefficients are named as in AbsorptionCoefficients; emission ones
         are "fraction", "photons_per_eV" and "planck_mean", and an overridden fraction makes escape 1 - sum(fractions).
         An override may couple an absorber to a band it does not overlap (the other coefficients are then 0).
+    band_overrides: dict, optional
+        band -> {"hnu": value, "T_compton": value}: the band's mean photon energy [eV] and Compton temperature [K].
     opacity: str
         "exact" (default): in a "ppl" band an opacity is the declared function, by quadrature; "edges": the power law
         through its values at the band's edges (where it is positive at both). Tracked bands always use the
@@ -374,6 +382,7 @@ class Projector:
     absorbers: tuple = ()
     emitters: tuple = ()
     overrides: dict = field(default_factory=dict)
+    band_overrides: dict = field(default_factory=dict)
     opacity: str = "exact"
     kirchhoff: str = "band"
     T_grid: tuple = DEFAULT_T_GRID
@@ -403,17 +412,39 @@ class Projector:
             if unknown:
                 raise KeyError(f"override ({process}, {band}): unknown coefficients {sorted(unknown)}; "
                                f"allowed {allowed}")
+        self.band_overrides = {k: dict(v) for k, v in (self.band_overrides or {}).items()}
+        for band, values in self.band_overrides.items():
+            self.bands[band]  # noqa: B018
+            unknown = set(values) - set(BAND_FIELDS)
+            if unknown:
+                raise KeyError(f"band override {band}: unknown {sorted(unknown)}; allowed {BAND_FIELDS}")
         self._cache = {}
 
     def mean_photon_energy(self, band):
         """<h nu>_b [eV], number-weighted: a float, or a TTable in T_rad for a tracked band"""
         b = self.bands[band]
+        if "hnu" in self.band_overrides.get(band, {}):
+            return self.band_overrides[band]["hnu"]
         if b.shape == "ppl":
             return ppl_mean_photon_energy(b.E_lo, b.E_hi, b.slope)
         T = np.asarray(self.T_grid)
         f = _scaled_planck(b.E_lo)
         return TTable(T, integrate(f, b.E_lo, b.E_hi, T) / integrate(lambda E, t: f(E, t) / E, b.E_lo, b.E_hi, T),
                       f"hnu_{b.name}")
+
+    def compton_temperature(self, band):
+        """T_C = <E>_u / (4 k_B) [K], the energy-weighted mean photon energy over 4 k_B: gas at T_C neither gains nor
+        loses energy by Compton scattering of the band (non-relativistic). A float, or a TTable in T_rad for a tracked
+        band"""
+        b = self.bands[band]
+        if "T_compton" in self.band_overrides.get(band, {}):
+            return self.band_overrides[band]["T_compton"]
+        if b.shape == "ppl":
+            return power_integral(b.slope + 1, b.E_lo, b.E_hi) / power_integral(b.slope, b.E_lo, b.E_hi) / (4 * K_B_EV)
+        T = np.asarray(self.T_grid)
+        f = _scaled_planck(b.E_lo)
+        mean = integrate(lambda E, t: E * f(E, t), b.E_lo, b.E_hi, T) / integrate(f, b.E_lo, b.E_hi, T)
+        return TTable(T, mean / (4 * K_B_EV), f"T_compton_{b.name}")
 
     def absorption(self, process, band):
         """AbsorptionCoefficients of absorber process in band, or None where it neither absorbs nor scatters there"""
@@ -424,7 +455,9 @@ class Projector:
 
     def _absorption(self, process, band):
         a, b = self.absorbers[process], self.bands[band]
-        if b.shape == "ppl":
+        if a.cross_section is None:
+            raw = None
+        elif b.shape == "ppl":
             raw = ppl_absorption(a, b.E_lo, b.E_hi, b.slope, self.opacity)
         else:
             raw = tracked_absorption(a, b.E_lo, b.E_hi, self.T_grid)
@@ -434,10 +467,10 @@ class Projector:
         if raw is None:
             if not over:
                 return None
-            raw = dict.fromkeys(ABSORPTION_FIELDS, 0.0)
+            raw = dict.fromkeys(ABSORPTION_FIELDS, None if a.cross_section is None else 0.0)
         raw = {**raw, **over}  # never modify the cached projection
         return AbsorptionCoefficients(process, band, **raw, E_th=a.E_th, heat_to=a.heat_to,
-                                      remainder_to=a.remainder_to, overridden=frozenset(over))
+                                      remainder_to=a.remainder_to, overridden=frozenset(over), T_band=b.T_rad)
 
     def absorptions(self):
         """(process, band) -> AbsorptionCoefficients for every pair that absorbs"""
@@ -464,6 +497,9 @@ class Projector:
             res = continuum_emission(e, self.bands, self.T_grid)
         elif isinstance(e, ThermalEmission):
             res = thermal_emission(e, self.bands, self.T_grid, self.kirchhoff, self.opacity)
+        elif isinstance(e, RoutedEmission):
+            names = self.bands.names
+            res = EmissionFractions(e.name, e.source, dict.fromkeys(names, 0), dict.fromkeys(names), 1)
         else:
             raise TypeError(f"unknown emitter {e!r}")
         over = {b: v for (p, b), v in self.overrides.items() if p == process}

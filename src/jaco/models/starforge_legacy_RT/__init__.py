@@ -52,8 +52,9 @@ photodissociation do not take from the bands.
 """
 
 import sympy as sp
+from jaco.bands import Projector, RoutedEmission
 from jaco.model import Rule
-from jaco.declarations import Parameter, Species, Variable, Output
+from jaco.declarations import Parameter, Variable, Output
 from jaco.process import Process
 from ..starforge.starforge import GIZMO_FAMILY, SHARED_SPECIES  # noqa: F401  (GIZMO_FAMILY: the host-code family)
 from ..starforge.symbols import z, nH_gizmo_cooling, n_Htot, T
@@ -67,13 +68,7 @@ T_bg, f_IR_selfabs, f_recNUV = sp.Symbol("T_bg"), sp.Symbol("f_IR_selfabs"), sp.
 DUST_TEMPERATURE_FLOOR = 2.73  # GIZMO's: max(MinGasTemp, T_CMB) under GALSF; the RT tests run MinGasTemp = 2.73
 MAX_DUST_TEMP = 1.0e4  # GIZMO's MAX_DUST_TEMP
 
-BAND_SPECIES = {
-    EUV: Species(EUV, "radiation", "ionizing photons (13.6-500 eV) per H nucleus", floor=0.0),
-    FUV: Species(FUV, "radiation", "photoelectric band (8-13.6 eV) energy per H nucleus [eV]", floor=0.0),
-    NUV: Species(NUV, "radiation", "NUV band (3.444-8 eV) energy per H nucleus [eV]", floor=0.0),
-    ONIR: Species(ONIR, "radiation", "optical/NIR band (0.4133-3.444 eV) energy per H nucleus [eV]", floor=0.0),
-    IR: Species(IR, "radiation", "IR band (0.001-0.4133 eV) energy per H nucleus [eV]", floor=0.0),
-}
+BAND_SPECIES = {b.species: b.declaration() for b in rt.GIZMO_BANDS}
 RT_PARAMETERS = [
     Parameter("rsol", "", 1e-4, "reduced speed of light of the bands, c_tilde / c (RT_SPEEDOFLIGHT_REDUCTION)"),
     Parameter("sigma_HI", "cm^2", 0.0, "band-averaged H photoionization cross-section (rt_ion_sigma_HI)"),
@@ -145,18 +140,24 @@ NUV_ROUTE = {"Metal line cooling": 1, "Nebular forbidden-line cooling": 1, "H-e-
              "He+-e- Line Cooling": 1, **{r: f_recNUV for r in RECOMBINATION}, **{f: ABOVE_1E5K for f in FREE_FREE}}
 IR_ROUTE = {"GIZMO C+, [CI] and CO cooling": 1, "GIZMO H2 + HD cooling": 1, "Inverse Compton cooling (CMB)": 1,
             "Inverse Compton cooling (RT bands)": 1, **{f: 1 - ABOVE_1E5K for f in FREE_FREE}}
-NUV_TO_IR = sp.Piecewise((1, sp.Symbol("T_rad") > 1e4), (0, True))  # where the IR band is hotter than 1e4 K
+NUV_TO_IR = sp.Piecewise((1, rt.GIZMO_BANDS.by_species(IR).T_rad > 1e4), (0, True))  # IR band hotter than 1e4 K
+
+
+def _band(species):
+    return rt.GIZMO_BANDS.by_species(species).name
+
+
+ROUTED = sorted(set(NUV_ROUTE) | set(IR_ROUTE))
+COOLING_ROUTES = Projector(
+    rt.GIZMO_BANDS, emitters=[RoutedEmission(p) for p in ROUTED],
+    overrides={**{(p, _band(NUV)): {"fraction": w * (1 - NUV_TO_IR)} for p, w in NUV_ROUTE.items()},
+               **{(p, _band(IR)): {"fraction": IR_ROUTE.get(p, 0) + NUV_ROUTE.get(p, 0) * NUV_TO_IR} for p in ROUTED}})
 
 
 def _route_cooling(p):
     lost = -p.heat * rt.rsol / rt.EV  # radiated energy, at c_tilde, in the bands' eV
-    w_nuv, w_ir = NUV_ROUTE.get(p.name, 0), IR_ROUTE.get(p.name, 0)
-    rows = {}
-    if w_nuv != 0:
-        rows[NUV] = lost * w_nuv * (1 - NUV_TO_IR)
-    if w_ir != 0 or w_nuv != 0:
-        rows[IR] = lost * (w_ir + w_nuv * NUV_TO_IR)
-    return p.with_rows(rows)
+    f = COOLING_ROUTES.emission(p.name).fraction
+    return p.with_rows({b.species: lost * f[b.name] for b in rt.GIZMO_BANDS if f[b.name] != 0})
 
 
 GIZMO_COOLING_RADIATION = Rule("GIZMO's cooling radiation into the NUV and IR bands", _route_cooling,
@@ -197,8 +198,7 @@ DERIVED = {
 def _outputs():
     # GIZMO's direct donation (here the dust's re-emission of what it absorbs) is in the IR band before the kick's
     # update counts it at T_rad; its second copy is the update's dust emission: the copy takes the first's weight
-    T_new, sums = rt.ir_radiation_temperature(IR_ABSORBERS, ["Dust emission into photon_IR"],
-                                              sorted(set(NUV_ROUTE) | set(IR_ROUTE)), prior_sources=[DONATION_COPY])
+    T_new, sums = rt.ir_radiation_temperature(IR_ABSORBERS, [rt.DUST_EMISSION], ROUTED, prior_sources=[DONATION_COPY])
     return [
         Output("T_rad_new", T_new, units="K", sums=sums,
                doc="IR radiation temperature after the step, GIZMO's photon-number weighting"),

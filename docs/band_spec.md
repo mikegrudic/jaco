@@ -33,13 +33,14 @@ proj.mean_photon_energy("EUV_He")                  # <h nu>_b
 
 | Object | What it is |
 |---|---|
-| `Band(name, E_lo, E_hi, unit, shape, slope)` | `unit` "photons" or "energy" (what the species `photon_<name>` counts); `shape` "ppl" (fixed slope) or "tracked" (blackbody at T_rad). |
-| `BandSet` | Ordered, non-overlapping, gaps allowed; `index`, `band_at(E)`, `gaps`, `split`, `replace`, `declarations()` (radiation `Species`). |
-| `Absorber(name, cross_section, absorber, E_th, heat_to, heat_yield, remainder_to, scattering)` | Per absorbed photon: `E_th` to chemistry, `Y(E)(E - E_th)` to `heat_to`, the rest to `remainder_to`. Scattering enters the flux mean only. |
-| `Line(name, E0, source)`, `Continuum(name, j, source, E_range)`, `ThermalEmission(name, kappa, source)` | Emitters; `j(E)` or `j(E, T)`; thermal is `4 pi kappa(E) B_E(T)`. `source` is the row losing the energy. |
+| `Band(name, E_lo, E_hi, unit, shape, slope, temperature, doc)` | `unit` "photons" or "energy" (what the species `photon_<name>` counts); `shape` "ppl" (fixed slope) or "tracked" (blackbody at `T_rad`, the symbol named `temperature`); `doc` describes the species. |
+| `BandSet` | Ordered, non-overlapping, gaps allowed; `index`, `by_species`, `band_at(E)`, `gaps`, `split`, `replace`, `declarations()` (radiation `Species`). |
+| `Absorber(name, cross_section, absorber, E_th, heat_to, heat_yield, remainder_to, scattering)` | Per absorbed photon: `E_th` to chemistry, `Y(E)(E - E_th)` to `heat_to`, the rest to `remainder_to`. Scattering enters the flux mean only. `cross_section=None`: every coefficient is an override. |
+| `Line(name, E0, source)`, `Continuum(name, j, source, E_range)`, `ThermalEmission(name, kappa, source)`, `RoutedEmission(name, source)` | Emitters; `j(E)` or `j(E, T)`; thermal is `4 pi kappa(E) B_E(T)`; routed: band fractions given as overrides. `source` is the row losing the energy. |
 | `PowerLaw`, `Spectral`, `Blackbody`, `planck`, `SIGMA_HI/HEI/HEII` | Spectral functions of E [eV]; Verner et al. (1996) fits. A `PowerLaw` gets closed forms. |
-| `Projector(bands, absorbers, emitters, overrides, opacity="exact", kirchhoff="band", T_grid)` | Projections, cached. Ppl bands give floats, tracked bands and emitter temperatures give `TTable`s (log-log in T). `.expr(...)`/`symbolic` give sympy (`Float`, or a `piecewise_linear` in T). |
+| `Projector(bands, absorbers, emitters, overrides, band_overrides, opacity="exact", kirchhoff="band", T_grid)` | Projections, cached. Ppl bands give floats, tracked bands and emitter temperatures give `TTable`s (log-log in T). `.expr(name, T)`/`symbolic` give sympy (`Float`, a `piecewise_linear` in T, or an override expression with the band's T_rad replaced by T). Band level: `mean_photon_energy`, `compton_temperature` (T_C = ⟨E⟩_u / 4k), each overridable. |
 | `fit_slope(band, reference, targets, absorbers, opacity, weights, report)` | Slope of a ppl band matching chosen band means of a reference spectrum. |
+| `GIZMO_STARFORGE` (`jaco.bands.specs`) | GIZMO's five STARFORGE bands as they are; the legacy model's band set. |
 | `STARFORGE_RT`, `starforge_rt(T_eff, opacity)` (`jaco.bands.specs`) | GIZMO's STARFORGE bands, ionizing band split at 24.59 eV, ionizing slopes fitted to a 4e4 K blackbody; `ionizing_fits`, `hardening_mismatch`, `combined_ionizing_residuals` report the fit. |
 | `band_structure(model or processes, bands)` | Which processes make a band's row depend on another band; `.diagonal`, `.metadata()`. |
 
@@ -173,11 +174,60 @@ absorption), and cooling routed into NUV/IR whose rate reads other bands (f_recN
 3. **Flux mean.** Under a fixed slope χ_F = χ_E + scattering. There is no Rosseland or diffusion-limit correction
    (the paper's χ_F,diff).
 
+## The legacy model on the band layer
+
+`starforge_legacy_RT` and `starforge_legacy_RT_EUV` take their bands from `GIZMO_STARFORGE` and GIZMO's coefficients
+from one `Projector`, `radiation.GIZMO_RT`, whose absorbers and emitters declare no spectra and whose overrides are
+GIZMO's constants. The generated code is byte-identical (golden hashes unchanged).
+
+| GIZMO quantity | Now |
+|---|---|
+| band species, order, docs, edges (13.6, 500 in the IR tail and G_LW), T_rad | `GIZMO_STARFORGE` (`Band.doc`, `Band.temperature`) |
+| σ_HI, ε_HI (rt_ion_sigma_HI, rt_ion_G_HI) | override (H photoionization, EUV): `sigma_N`, `heat` = ε_HI / eV (exact Rational eV, so ε_HI stays a bare symbol) |
+| hν_EUV (rt_nu_eff_eV) | band override EUV `hnu`; `band_energy_eV` uses it for any photons band |
+| DUST_BAND_OPACITY (720/480/180), albedo 1/2 | override (dust, FUV/NUV/ONIR): `chi_F` = κ, `chi_E` = κ/2; `DUST_BAND_OPACITY` is now derived |
+| IR dust and gas opacities (rt_kappa_adaptive_IR_band) | override (dust, IR) and (gas, IR): `chi_E` = the existing expressions |
+| dust IR emission opacity κ(T_d, T_d) | the (dust, IR) `chi_E` at T_rad = T_d (`expr("chi_E", Td)`: Kirchhoff on the tracked band) |
+| all dust emission into IR | `RoutedEmission` "Dust emission into photon_IR", fraction 1 in IR |
+| Compton temperatures (2340 hν_EUV, 24400, 12000, 2800 K, T_rad) | band override `T_compton` |
+| CoolingRate's routing of cooling into NUV/IR (f_recNUV, the 1e5 K free-free split, NUV→IR above T_rad = 1e4 K) | `RoutedEmission` per routed process in `starforge_legacy_RT.COOLING_ROUTES`, fraction overrides |
+
+Kept in `radiation.py`, as GIZMO's composition laws and scheme: rt_kappa's max(0.02 + 0.35 x_e, κ max(Z floor, Z f_d))
+and the PE band's Z floor; the start-of-step dust temperature in the kick (an `xreplace` of the override); the kick
+factors; the donation to ONIR; the IR double-count copy; the gas IR absorption's kick share; 2.16e-35 (Compton).
+
+Gaps found, i.e. what the band layer could not express from spectra and what had to be added:
+
+1. **Tracked bands are whole blackbodies in GIZMO.** GIZMO's IR band holds a full blackbody at T_rad; its edges are
+   nominal, and its tail above 13.6 eV photoionizes and above 11.2 eV adds to G_LW. The band layer confines a band's
+   spectrum to its edges, so a band cannot couple outside them. The tail coupling is hand-written with the EUV band's
+   coefficients and GIZMO's blackbody_lum_frac fit.
+2. **Products into a band.** An absorber's products go only to heat rows. GIZMO donates the ionizing photon's hν_EUV
+   to ONIR (on top of ε_HI to the gas) and copies the dust-absorbed FUV/NUV/ONIR energy into IR a second time. Both
+   create energy and stay explicit processes; a conserving model would express reprocessing as absorption into a
+   reservoir plus emission.
+3. **Non-additive opacity laws and composition scaling.** Absorbers add; GIZMO takes max(gas floor, dust), floors
+   Z f_dust in one band, and scales by dust survival f_d(T_d). The band layer holds the κ per unit absorber; the law
+   that combines and scales them stays in the model.
+4. **State-dependent opacities.** GIZMO's IR opacities are tables in (T_rad, T_d) with composition zones, plus a gas
+   opacity in x_e, x_H+, ρ, u. A band layer κ(E) has no matter-state dependence; these are override expressions.
+   Added: `AbsorptionCoefficients.expr(name, T)` evaluates a tracked band's coefficient at another temperature
+   (Kirchhoff emission at T_d).
+5. **Band-level quantities.** Only (process, band) overrides existed. Added `band_overrides` for ⟨hν⟩ (a runtime
+   parameter here) and a Compton temperature, which the layer lacked entirely (now projected as ⟨E⟩_u / 4k).
+   GIZMO's constants sit below the fixed-slope projections: FUV 24400 vs 30600 K, NUV 12000 vs 15700 K, ONIR 2800 vs
+   4100 K; for the tracked IR band, T_rad vs 0.998/0.958/0.71 T_rad at T_rad = 10/100/1000 K (the band's upper edge
+   truncates a hot blackbody).
+6. **Declarations without spectra.** GIZMO's band constants have no σ(E) behind them. Added `Absorber(cross_section=
+   None)` (coefficients only from overrides; those not given are None) and `RoutedEmission` (fractions only).
+7. **Units.** The layer's energies are eV, GIZMO's ε_HI is erg; an exact Rational eV keeps ε_HI a bare symbol through
+   the round trip. Coefficients that are runtime parameters (σ_HI, ε_HI, hν_EUV, computed by GIZMO from T_eff) enter
+   as symbol overrides: the layer has no notion of a coefficient projected at run time.
+
 ## Next steps
 
-1. Port the legacy RT model onto a 5-band spec (GIZMO's single EUV band, FUV, NUV, ONIR, IR) with overrides carrying
-   GIZMO's constants: `DUST_BAND_OPACITY` per band, and σ_HI, ε_HI, hν_EUV as runtime `Parameter` symbols. Check it
-   against the golden hashes. `starforge_RT` then uses `STARFORGE_RT` without overrides.
+1. Done: the legacy RT models on `GIZMO_STARFORGE` with overrides (above). Next, `starforge_RT` on `STARFORGE_RT`
+   without overrides.
 2. Process factories: an absorber becomes one `Reaction`/`Transfer` per overlapping band (`row_factors` rsol, and
    ⟨hν⟩_b or E_abs by the band's unit). An emitter becomes rows f_b × its heat on its source process (an `Output`
    while the band is not solved).
