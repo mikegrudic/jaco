@@ -69,9 +69,21 @@ def clumping_estimator(gradient):
 
 # GIZMO's: on the full gradient norm
 clumping_factor = clumping_estimator(grad_v)
-# STARFORGE's: on the trace-free part only, so that homologous expansion or compression (e.g. SN ejecta) is not
-# counted as sub-grid turbulence
+
+# STARFORGE's: on the trace-free part only, so that homologous expansion or compression is not counted as sub-grid
+# turbulence, and only in cold gas. Modelling choice: the excess C_2 - 1 is tapered by a logistic in log T centred on
+# CLUMPING_TAPER_T_MID with width CLUMPING_TAPER_WIDTH_DEX (f = 0.98 at 2000 K, 0.05 at 1e4 K), smooth for Newton.
+CLUMPING_TAPER_T_MID = 5000.0  # K
+CLUMPING_TAPER_WIDTH_DEX = 0.1
+
+
+def cold_gas_taper(T_gas=T):
+    """1 / (1 + exp((log10 T - log10 T_mid) / w)): ~1 in cold gas, ~0 in warm and hot gas"""
+    return 1 / (1 + sp.exp((sp.log(T_gas, 10) - sp.log(CLUMPING_TAPER_T_MID, 10)) / CLUMPING_TAPER_WIDTH_DEX))
+
+
 clumping_factor_tracefree = clumping_estimator(grad_v_tf)
+clumping_factor_starforge = 1 + (clumping_factor_tracefree - 1) * cold_gas_taper()
 
 # GIZMO's density conventions (STARFORGE_LEGACY): CoolingRate and simple_chemistry.cc take nHcgs = 0.76 rho/m_p as the
 # H density; update_explicit_molecular_fraction takes rho/m_p. jaco's n_Htot is the H density, X rho/m_H.
