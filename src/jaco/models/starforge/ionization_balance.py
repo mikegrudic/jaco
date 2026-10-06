@@ -19,7 +19,11 @@ from .cosmic_ray_ionization import cosmic_ray_ionization
 from .metal_electrons import f_Cplus, x_C_gas, x_e_ions, alkali_electrons, Oplus_electrons
 
 C2 = sp.Symbol("C_2")
-x_Mg = x_("Mg")  # total Mg per H, the model's x_Mg parameter
+# Gas-phase fraction of Mg, held constant: undepleted, as GIZMO's heavy-ion cap assumes.
+# TODO: depletion from Jenkins 2009 (2009ApJ...700.1299J), Eq. 10 with the Mg row of Table 4 (0.54 at F* = 0, 0.054
+# at F* = 1). Its F*-<n(H)> fit (Sec. 10.2) is in sight-line mean densities: do not feed it local cell densities.
+F_GAS_MG = 1
+x_Mg = F_GAS_MG * x_("Mg")  # gas-phase Mg per H; the model's x_Mg parameter is the total
 K_CT_HPLUS_MG = 1.1e-9  # H+ + Mg -> Mg+ + H (UMIST 2022; Prasad & Huntress 1980)
 K_CT_MOLION_MG = 1.0e-9  # H3+ + Mg -> Mg+ + H2 + H (UMIST 2022; Prasad & Huntress 1980)
 GAMMA_MG_DRAINE = 6.59e-11  # Mg photoionization in the Draine (1978) field, 1.7 Habing (Heays+17)
