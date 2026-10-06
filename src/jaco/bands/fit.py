@@ -54,7 +54,7 @@ class SlopeFit:
         return "\n".join(lines)
 
 
-def fit_slope(band, reference, targets, absorbers=(), opacity="edges", weights=None, report=(),
+def fit_slope(band, reference, targets, absorbers=(), opacity="exact", weights=None, report=(),
               bounds=(-40.0, 10.0)):
     """The slope of band's power-law spectrum that best reproduces the targets of the reference spectrum.
 

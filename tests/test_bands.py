@@ -9,7 +9,8 @@ import pytest
 import sympy as sp
 
 from jaco.bands import (Absorber, Band, BandSet, Blackbody, Continuum, Line, PowerLaw, Projector, SIGMA_HI, SIGMA_HEI,
-                        SIGMA_HEII, Spectral, TTable, ThermalEmission, band_structure, fit_slope, integrate, planck)
+                        SIGMA_HEII, STARFORGE_RT, Spectral, TTable, ThermalEmission, band_structure,
+                        combined_ionizing_residuals, fit_slope, hardening_mismatch, integrate, ionizing_fits, planck)
 from jaco.bands.projection import mean_photon_energy, ppl_absorption, spectrum_absorption
 from jaco.bands.spectra import SIGMA_SB, power_integral
 from jaco.model import Model
@@ -187,11 +188,16 @@ GIZMO_LIKE = BandSet([Band("IR", 0.001, 0.4133, shape="tracked"), Band("ONIR", 0
                       Band("LW", 11.2, 13.6), Band("EUV", 13.6, 500.0, unit="photons")])  # gap 8-11.2 eV
 
 
-def test_thermal_emission_closure():
-    """Band fractions plus the escaping remainder sum to one, and the band powers 4 pi chi_B,b B_b to the total
-    4 pi kappa_P sigma T^4 / pi less the escape"""
+@pytest.mark.parametrize("kirchhoff", ["band", "planck"])
+def test_thermal_emission_closure(kirchhoff):
+    """Band fractions plus the escaping remainder sum to one, and the band powers 4 pi chi_B,b B_b plus the escape
+    make the total 4 pi kappa_planck sigma T^4 / pi. With "planck" the total is the exact Planck mean's, integrated
+    independently of the bands; with "band" a ppl band emits at its energy-mean opacity chi_E,b and a tracked band at
+    its Planck mean, which is the same thing for a blackbody spectrum"""
     kappa = Spectral(lambda E: 3.0 / E + 0.5)
-    e = Projector(GIZMO_LIKE, emitters=[ThermalEmission("dust emission", kappa)]).emission("dust emission")
+    proj = Projector(GIZMO_LIKE, [Absorber("dust", kappa)], [ThermalEmission("dust emission", kappa)],
+                     kirchhoff=kirchhoff)
+    e = proj.emission("dust emission")
     T = e.escape.T
     total = sum(f.values for f in e.fraction.values()) + e.escape.values
     assert np.allclose(total, 1, rtol=1e-10)
@@ -201,6 +207,13 @@ def test_thermal_emission_closure():
     assert np.allclose(power[hot], expected[hot], rtol=1e-8, atol=0)
     i = np.searchsorted(T, 5e4)
     assert 0.01 < e.escape.values[i] < 0.2 and e.fraction["IR"](100.0) > 0.99 and e.escape(1.0) > 0.99
+    exact = Projector(GIZMO_LIKE, emitters=[ThermalEmission("dust emission", kappa)], kirchhoff="planck")
+    exact = exact.emission("dust emission")
+    assert np.allclose(e.planck_mean["IR"].values, exact.planck_mean["IR"].values, rtol=1e-12, atol=0)
+    if kirchhoff == "band":
+        for b in ("ONIR", "NUV", "LW", "EUV"):
+            assert np.all(e.planck_mean[b].values == proj.absorption("dust", b).chi_E)
+        assert not np.allclose(e.kappa_planck.values, exact.kappa_planck.values, rtol=1e-3)
 
 
 def test_planck_mean_survives_underflow():
@@ -314,24 +327,37 @@ def test_euv_slope_fit(opacity):
     print(f"\nopacity {opacity}:\n" + "\n".join(f.table() for f in [*fits.values(), joint]))
 
 
-def test_euv_split_reproduces_gizmo():
-    """Two sub-bands cut at the He I threshold, each with the slope that matches the blackbody's mean photon energy in
-    it, give GIZMO's band-averaged sigma_HI and G_HI to ~2% and nu_eff exactly: refining the spec fixes what one slope
-    cannot"""
-    bb = Blackbody(4e4)
-    bands = BandSet([Band("EUV", 13.6, 500.0, unit="photons")]).split("EUV", [24.59], names=["EUV_H", "EUV_He"])
-    bands = BandSet([fit_slope(b, bb, ["mean_photon_energy"]).band for b in bands])
-    proj = Projector(bands, [HI])
-    N = np.array([integrate(lambda E: bb(E) / E, b.E_lo, b.E_hi) for b in bands])
-    U = np.array([integrate(bb, b.E_lo, b.E_hi) for b in bands])
-    c = [proj.absorption("H photoionization", b) for b in bands.names]
-    sigma = np.sum(N * [x.sigma_N for x in c]) / N.sum()
-    G = np.sum(N * [x.sigma_N * x.excess for x in c]) / np.sum(N * [x.sigma_N for x in c])
-    ref = spectrum_absorption(HI, 13.6, 500.0, bb)
-    assert sigma == pytest.approx(ref["sigma_N"], rel=0.01)
-    assert G == pytest.approx(ref["E_abs"] - 13.6, rel=0.03)
-    assert U.sum() / N.sum() == pytest.approx(mean_photon_energy(13.6, 500.0, bb), rel=1e-9)
-    assert sum(proj.mean_photon_energy(b) * n for b, n in zip(bands.names, N)) == pytest.approx(U.sum(), rel=1e-9)
+def test_starforge_rt_spec():
+    """STARFORGE_RT: the ionizing band split at 24.59 eV, each sub-band's slope fitted to GIZMO's 4e4 K blackbody
+    (G_HI and nu_eff jointly). Per sub-band G_HI and nu_eff within 1%, sigma_HI within 1%; over 13.6-500 eV, with
+    each sub-band holding the blackbody's photons in it, GIZMO's sigma_HI, G_HI and nu_eff within 0.6%"""
+    assert STARFORGE_RT.names == ("EUV_H", "EUV_He", "FUV", "NUV", "ONIR", "IR")
+    assert [b.unit for b in STARFORGE_RT] == ["photons"] * 2 + ["energy"] * 4
+    assert STARFORGE_RT["IR"].shape == "tracked" and STARFORGE_RT["EUV_H"].E_hi == STARFORGE_RT["EUV_He"].E_lo == 24.59
+    for f in ionizing_fits():
+        assert all(abs(res) < 0.01 for _, _, res in f.rows.values()), f.table()
+    ionizing = [STARFORGE_RT["EUV_H"], STARFORGE_RT["EUV_He"]]
+    assert all(abs(r) < 0.006 for r in combined_ionizing_residuals(ionizing))
+    print("\n" + "\n".join(f.table() for f in ionizing_fits()))
+    print("over 13.6-500 eV: sigma_HI, G_HI, nu_eff residuals",
+          ", ".join(f"{r:+.2%}" for r in combined_ionizing_residuals(ionizing)))
+
+
+def test_ionizing_hardening_mismatch():
+    """A photons band loses its mean photon energy hnu per absorption while the products receive E_abs < hnu: the
+    cross-section takes the soft photons, so the true spectrum hardens and a fixed slope cannot. The mismatch is mostly
+    the blackbody's own (absorbed photons are softer than the mean), the fixed slope adds <= 1.3 points; the split
+    halves it against one band"""
+    rows = [hardening_mismatch(STARFORGE_RT[b]) for b in ("EUV_H", "EUV_He")]
+    one = fit_slope(Band("EUV", 13.6, 500.0, unit="photons"), Blackbody(4e4), ["mean_photon_energy"], [HI]).band
+    single = hardening_mismatch(one)
+    print("\nband      hnu [eV]  E_abs [eV]  (hnu - E_abs)/hnu   blackbody: hnu  E_abs  mismatch")
+    for r in rows + [single]:
+        print(f"{r.band:8s} {r.hnu:9.3f} {r.E_abs:11.3f} {r.mismatch:14.2%}   {r.hnu_reference:15.3f} "
+              f"{r.E_abs_reference:6.3f} {r.mismatch_reference:8.2%}")
+    for r in rows:
+        assert 0.03 < r.mismatch_reference < r.mismatch < r.mismatch_reference + 0.015
+    assert single.mismatch > 2 * max(r.mismatch for r in rows)
 
 
 # --- band-band structure -------------------------------------------------------------------------------------------

@@ -3,9 +3,9 @@ absorber chi ~ E^-2 and its Kirchhoff emission, on N bands log-spaced over 0.01-
 against a 512-band reference.
 
 1. Thermal relaxation: gas at 3000 K with heat capacity a T0^3 and no radiation, in a closed cell. The gas temperature
-   trajectory converges at second order in the band width. Emission into a band either at its exact Planck mean
-   (the default projection) or at its energy mean (chi_B,b := chi_E,b, Kirchhoff per band, the paper's choice): the
-   first has half the transient error but an equilibrium bias at coarse bands, the second the exact equilibrium.
+   trajectory converges at second order in the band width. Emission into a band at its energy mean (chi_B,b :=
+   chi_E,b, Kirchhoff per band, the default and the paper's choice) or at its exact Planck mean: the first reaches
+   the exact equilibrium, the second has half the transient error but an equilibrium bias at coarse bands.
 2. Absorption of a 6000 K blackbody through a column of optical depth 1 at 1 eV.
 
 Run with -s to print the tables."""
@@ -33,16 +33,16 @@ def band_set(n):
     return BandSet([Band(f"b{i}", lo, hi) for i, (lo, hi) in enumerate(zip(e[:-1], e[1:]))])
 
 
-def relax(n, kirchhoff="planck", steps_per_decade=250):
+def relax(n, kirchhoff="band", steps_per_decade=250):
     """Gas temperature at TAUS. Bands: dU_b/dtau = s_b(T) - chi_E,b U_b with emission s_b = 4 pi/c chi_B,b B_b(T);
     gas: C_v dT/dtau = -sum_b dU_b/dtau - escape(T). Two-stage L-stable SDIRK; each stage needs only a scalar Newton
     solve in T, the bands coupling through the gas alone"""
     proj = Projector(band_set(n), [Absorber("absorption", KAPPA)], [ThermalEmission("emission", KAPPA, "heat")],
-                     T_grid=T_GRID)
+                     T_grid=T_GRID, kirchhoff=kirchhoff)
     names = proj.bands.names
     chi = np.array([proj.absorption("absorption", b).chi_E for b in names])
     e = proj.emission("emission")
-    chi_B = np.array([e.planck_mean[b].values for b in names]) if kirchhoff == "planck" else chi[:, None]
+    chi_B = np.array([e.planck_mean[b].values for b in names])
     source = 4 * np.pi / C_LIGHT * chi_B * np.array([e.band_planck[b].values for b in names])
     escape = 4 * np.pi / C_LIGHT * e.escape.values * e.kappa_planck.values * SIGMA_SB * np.asarray(T_GRID) ** 4 / np.pi
     logT = np.log10(T_GRID)
@@ -101,13 +101,13 @@ def test_reference_is_converged(reference):
 def test_relaxation_converges(reference):
     scale = T0 - reference[-1]
     rows = {}
-    for kirchhoff in ("planck", "band"):
+    for kirchhoff in ("band", "planck"):
         for n in (4, 8, 16):
             err = np.abs(relax(n, kirchhoff) - reference) / scale
             rows[kirchhoff, n] = (err.max(), TAUS[err.argmax()], err[-1])
     print("\nrelaxation, |T - T_ref| / (T0 - T_eq): max over the trajectory (at tau), and at equilibrium")
     for (k, n), (m, at, final) in rows.items():
-        print(f"  emission at chi_B={'Planck mean' if k == 'planck' else 'chi_E':12s} {n:3d} bands: "
+        print(f"  emission at chi_B={'Planck mean' if k == 'planck' else 'chi_E,b':12s} {n:3d} bands: "
               f"max {m:.2e} (tau {at:.2g})  equilibrium {final:.1e}")
     for k in ("planck", "band"):
         m = [rows[k, n][0] for n in (4, 8, 16)]

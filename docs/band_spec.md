@@ -1,6 +1,8 @@
 # Radiation bands as a spec (`jaco.bands`)
 
 Status: core layer, phase P2. Nothing in `jaco.models` uses it yet; the generated code is unchanged.
+Decided 2026-10-06 (see "Decisions"): STARFORGE_RT splits the ionizing band at 24.59 eV, in-band opacities are exact
+quadrature by default, thermal emission into a ppl band is Kirchhoff per band by default.
 
 Processes declare which photon energies they interact with: a cross-section sigma(E) or opacity kappa(E) for an
 absorber, a spectrum j(E) for an emitter. A `BandSet` turns the declarations into per-band coefficients at
@@ -9,7 +11,7 @@ code-generation time. Refining a band (splitting FUV at 11.2 eV, EUV at the He t
 ## API
 
 ```python
-from jaco.bands import Band, BandSet, Absorber, ThermalEmission, Line, Continuum, Projector, SIGMA_HI, fit_slope
+from jaco.bands import Band, BandSet, Absorber, ThermalEmission, Line, Projector, SIGMA_HI, STARFORGE_RT
 
 bands = BandSet([
     Band("EUV", 13.6, 500.0, unit="photons", slope=-3.70),  # fixed-slope spectrum u_E ~ E^slope
@@ -17,15 +19,16 @@ bands = BandSet([
     Band("IR", 0.001, 0.4133, shape="tracked"),                # dilute blackbody at the per-cell T_rad
 ])
 bands = bands.split("FUV", [11.2], names=["FUV_lo", "LW"])     # refinement: only the spec changes
+bands = STARFORGE_RT                                           # EUV_H, EUV_He, FUV, NUV, ONIR, IR
 
 proj = Projector(bands,
                  absorbers=[Absorber("H photoionization", SIGMA_HI, absorber="H", E_th=13.6),
                             Absorber("dust", kappa_dust, heat_to="dust heat", scattering=kappa_scat)],
                  emitters=[ThermalEmission("dust emission", kappa_dust, source="dust heat"), Line("Halpha", 1.89)],
-                 overrides={("H photoionization", "EUV"): {"sigma_N": sp.Symbol("sigma_HI")}})
-c = proj.absorption("H photoionization", "EUV")   # AbsorptionCoefficients, or None if no overlap
+                 overrides={("H photoionization", "EUV_H"): {"sigma_N": sp.Symbol("sigma_HI")}})
+c = proj.absorption("H photoionization", "EUV_H") # AbsorptionCoefficients, or None if no overlap
 e = proj.emission("dust emission")                 # EmissionFractions
-proj.mean_photon_energy("EUV")                     # <h nu>_b
+proj.mean_photon_energy("EUV_He")                  # <h nu>_b
 ```
 
 | Object | What it is |
@@ -35,8 +38,9 @@ proj.mean_photon_energy("EUV")                     # <h nu>_b
 | `Absorber(name, cross_section, absorber, E_th, heat_to, heat_yield, remainder_to, scattering)` | Per absorbed photon: `E_th` to chemistry, `Y(E)(E - E_th)` to `heat_to`, the rest to `remainder_to`. Scattering enters the flux mean only. |
 | `Line(name, E0, source)`, `Continuum(name, j, source, E_range)`, `ThermalEmission(name, kappa, source)` | Emitters; `j(E)` or `j(E, T)`; thermal is `4 pi kappa(E) B_E(T)`. `source` is the row losing the energy. |
 | `PowerLaw`, `Spectral`, `Blackbody`, `planck`, `SIGMA_HI/HEI/HEII` | Spectral functions of E [eV]; Verner et al. (1996) fits. A `PowerLaw` gets closed forms. |
-| `Projector(bands, absorbers, emitters, overrides, opacity, T_grid)` | Projections, cached. Ppl bands give floats, tracked bands and emitter temperatures give `TTable`s (log-log in T). `.expr(...)`/`symbolic` give sympy (`Float`, or a `piecewise_linear` in T). |
+| `Projector(bands, absorbers, emitters, overrides, opacity="exact", kirchhoff="band", T_grid)` | Projections, cached. Ppl bands give floats, tracked bands and emitter temperatures give `TTable`s (log-log in T). `.expr(...)`/`symbolic` give sympy (`Float`, or a `piecewise_linear` in T). |
 | `fit_slope(band, reference, targets, absorbers, opacity, weights, report)` | Slope of a ppl band matching chosen band means of a reference spectrum. |
+| `STARFORGE_RT`, `starforge_rt(T_eff, opacity)` (`jaco.bands.specs`) | GIZMO's STARFORGE bands, ionizing band split at 24.59 eV, ionizing slopes fitted to a 4e4 K blackbody; `ionizing_fits`, `hardening_mismatch`, `combined_ionizing_residuals` report the fit. |
 | `band_structure(model or processes, bands)` | Which processes make a band's row depend on another band; `.diagonal`, `.metadata()`. |
 
 ## Projection
@@ -58,15 +62,22 @@ I_p(x, y) = ∫_x^y E^p dE (log form at p = −1),
 E_abs = I_{α+s}(lo, c) / I_{α+s−1}(lo, c). With lo = a this is He, Wibking & Krumholz (2024) Eq. 30. Otherwise
 Gauss-Legendre quadrature in ln E (8 nodes per 0.1 in ln E), which matches the closed forms to 1e-9 or better.
 
-`opacity="edges"` (the default, the paper's PPL) replaces σ and σ_s inside a ppl band by the power law through their
-values at the band's edges, then uses the closed forms; `"exact"` projects the declared function. Tracked bands always
+`opacity="exact"` (default) projects the declared function. `"edges"` (the paper's PPL) replaces σ and σ_s inside a
+ppl band by the power law through their values at the band's edges, then uses the closed forms. Tracked bands always
 use the declared function.
 
 Emission: `fraction[b]` = ∫_b j / ∫ j, `photons_per_eV[b]` = ∫_b j/E / ∫ j, and `escape` (energy in no band) is
-integrated over the gaps independently, so Σ fraction + escape = 1 is a check, not an identity. A thermal emitter also
-gets per band `planck_mean` χ_B,b(T) = ∫_b κB / ∫_b B (computed with the band's lower-edge Wien factor taken out, so it
-stays finite where B underflows), `band_planck` B_b(T), and the total `kappa_planck`. A band's thermal emission is
-4π χ_B,b B_b.
+integrated over the gaps independently, so for a line or continuum Σ fraction + escape = 1 is a check, not an identity.
+A thermal emitter's band b emits 4π χ_B,b B_b(T), with `band_planck` B_b(T) and `planck_mean` χ_B,b:
+
+- `kirchhoff="band"` (default, the paper's choice): χ_B,b = χ_E,b, the band's energy-mean opacity of κ under its
+  fixed-slope spectrum (same `opacity` model), so emission and absorption in the band balance exactly at
+  u_b = 4π B_b / c. The total is the sum over the bands plus the gaps; it depends on the band set.
+- `kirchhoff="planck"`: the exact Planck mean ∫_b κB / ∫_b B, the total ∫κB independently of the bands.
+
+A tracked band's spectrum is a blackbody, where the two coincide (its exact Planck mean either way, computed with the
+band's lower-edge Wien factor taken out so that it stays finite where B underflows). `kappa_planck` is the emitted
+power over 4π∫B, so the emitter's total is 4π κ_planck σT⁴/π under either choice.
 
 Overrides: `{(process, band): {coefficient: value}}`, numbers or sympy expressions, replace projected values; an
 override may couple an absorber to a band it does not overlap; an overridden emission fraction sets escape to
@@ -78,10 +89,22 @@ GIZMO's ionizing band (rt_get_sigma, T_eff = 4e4 K, 13.6-500 eV). Replicating it
 cross-section reproduces its printout, σ_HI = 3.368e-18 cm², G_HI = 2.99 eV, ν_eff = 18.6 eV. Quadrature with
 Verner (1996): 3.370e-18, 3.012, 18.635.
 
-One slope cannot match both G_HI and ν_eff: a power-law spectrum fixes ν_eff by the slope alone, and G_HI
-needs a slope a full unit shallower.
+STARFORGE_RT (decided): EUV_H [13.6, 24.59] and EUV_He [24.59, 500] eV, each slope fitted to the blackbody restricted
+to the sub-band by least squares on ln G_HI and ln ν_eff (H photoionization only, as in GIZMO without
+RT_CHEM_PHOTOION_HE). Residuals, `opacity="exact"`:
 
-| Fit | opacity | slope | G_HI | ν_eff | σ_HI |
+| Sub-band | slope | G_HI | ν_eff | σ_HI (not fitted) |
+|---|---|---|---|---|
+| EUV_H | −2.114 | −0.09% (2.699 vs 2.702 eV) | +0.43% (17.46 vs 17.38 eV) | −0.33% |
+| EUV_He | −6.315 | −0.95% (13.99 vs 14.13 eV) | +0.84% (29.22 vs 28.97 eV) | +0.62% |
+| 13.6-500 eV, each sub-band holding the blackbody's photons | | −0.11% | +0.50% | −0.30% |
+
+With `opacity="edges"` the slopes are −2.103 and −6.235 and the combined residuals −0.38% (G_HI), +0.57% (ν_eff),
+−1.04% (σ_HI).
+
+A single band cannot do this: ν_eff depends on the slope alone, and G_HI needs a slope a full unit shallower.
+
+| Single 13.6-500 eV band fit | opacity | slope | G_HI | ν_eff | σ_HI |
 |---|---|---|---|---|---|
 | ν_eff | exact | −3.70 | −17.4% | 0 | +8.5% |
 | G_HI | exact | −2.73 | 0 | +14.9% | −5.8% |
@@ -89,54 +112,69 @@ needs a slope a full unit shallower.
 | ν_eff | edges | −3.70 | −21.3% | 0 | +3.5% |
 | G_HI | edges | −2.48 | 0 | +21.7% | −15.2% |
 | G_HI and ν_eff, least squares in log | edges | −2.91 | −8.7% | +11.0% | −7.7% |
-| two bands cut at 24.59 eV, each fitted to its own ν_eff | edges / exact | −2.27, −6.61 | −2.3% / −1.9% | 0 | +0.1% / +0.7% |
+
+Hardening mismatch (`hardening_mismatch`). A photons band loses its mean photon energy ⟨hν⟩_b per absorption; the
+products receive the mean absorbed photon energy E_abs = 13.6 eV + G_HI. Since σ ∝ E⁻³ takes the soft photons,
+E_abs < ⟨hν⟩_b, and the energy difference is lost from the band without going anywhere. The true spectrum hardens as
+it is absorbed; a fixed slope cannot.
+
+| Band | ⟨hν⟩_b | E_abs | (⟨hν⟩ − E_abs)/⟨hν⟩ | same, 4e4 K blackbody in the band |
+|---|---|---|---|---|
+| EUV_H | 17.46 | 16.30 | 6.6% | 6.2% |
+| EUV_He | 29.22 | 27.59 | 5.6% | 4.3% |
+| single 13.6-500 eV band, ν_eff fitted | 18.64 | 16.09 | 13.7% | 10.9% |
+
+Most of the mismatch belongs to the blackbody itself (absorbed photons are softer than the band's mean), not to the
+fixed slope, which adds 0.4 and 1.3 points. The split halves it against one band. Removing it needs a second moment
+per band (photon number and energy, i.e. a free slope); not done, pending a decision.
 
 Band convergence, after the paper's §4.1.2: χ ∝ E^−2 with its Kirchhoff emission, N bands log-spaced over 0.01-10 eV
 (plus two closing bands below and above), against 512 bands (256 vs 512 bands differ by < 1e-4).
 
-| N | relaxation, emission at Planck mean: max error / at equilibrium | relaxation, emission at χ_E,b (Kirchhoff per band) | absorbed fraction of a 6000 K blackbody at τ(1 eV) = 1 |
+| N | relaxation, `kirchhoff="band"` (default): max error / at equilibrium | relaxation, `kirchhoff="planck"` | absorbed fraction of a 6000 K blackbody at τ(1 eV) = 1 |
 |---|---|---|---|
-| 4 | 5.6e-2 / 3.4e-2 | 1.2e-1 / 4e-6 | +43% |
-| 8 | 2.5e-2 / 9.2e-4 | 4.8e-2 / 3e-6 | +9.4% |
-| 16 | 6.5e-3 / 3e-7 | 1.2e-2 / 3e-6 | +2.4% |
+| 4 | 1.2e-1 / 5e-7 | 5.6e-2 / 3.4e-2 | +43% |
+| 8 | 4.8e-2 / 2e-7 | 2.5e-2 / 9.2e-4 | +9.4% |
+| 16 | 1.2e-2 / 6e-8 | 6.5e-3 / 3e-6 | +2.4% |
 | 32 | | | +0.6% |
 
-The relaxation error is |T − T_ref| / (T0 − T_eq), for gas at 3000 K with C_v = a T0³ and no radiation initially.
-All columns converge at second order. About half the absorbed-fraction error is the fixed slope. The rest is one mean
-opacity inside an exponential: weighting χ_E,b by the true blackbody gives +19% / +4.4% / +1.2% / +0.3%.
+The relaxation error is |T − T_ref| / (T0 − T_eq), for gas at 3000 K with C_v = a T0³ and no radiation initially;
+the reference is 512 bands with the default emission. All columns converge at second order. Kirchhoff per band
+reaches the exact equilibrium at any band count, at twice the transient error. About half the absorbed-fraction error
+is the fixed slope. The rest is one mean opacity inside an exponential: weighting χ_E,b by the true blackbody gives
++19% / +4.4% / +1.2% / +0.3%.
 
 The legacy RT model is not band-diagonal (`band_structure`): EUV→ONIR (donation), FUV/NUV/ONIR→IR (the copied dust
 absorption), and cooling routed into NUV/IR whose rate reads other bands (f_recNUV, G_0, T_bg, Compton off every band).
 
+## Decisions (2026-10-06)
+
+1. **EUV: split at 24.59 eV.** `STARFORGE_RT` = EUV_H, EUV_He (photons), FUV, NUV, ONIR (energy), IR (tracked). Each
+   ionizing slope matches the 4e4 K blackbody's G_HI and ν_eff in its sub-band jointly; all residuals < 1%.
+2. **In-band opacity: exact quadrature by default.** The projection runs once at codegen, so quadrature is free, and
+   it keeps a split band consistent with its parent for any σ(E). `opacity="edges"` (the paper's PPL) remains an
+   option.
+3. **Thermal emission into ppl bands: Kirchhoff per band by default** (χ_B,b := χ_E,b), for the exact
+   radiation-matter equilibrium at any band count (the dust-IR loop equilibrates in thick cells). The exact Planck
+   mean remains as `kirchhoff="planck"`.
+4. **Photon versus energy bookkeeping: measured, not changed.** The per-sub-band mismatch is 6.6% (EUV_H) and 5.6%
+   (EUV_He) of ⟨hν⟩_b, against 13.7% for one band (table above). A second moment per band is not added; pending a
+   decision on these numbers.
+
 ## Open choices
 
-1. **EUV.** Options: (a) match ν_eff, so the stellar photon count and energy agree, with G_HI 17-21% low;
-   (b) match G_HI; (c) the joint fit; (d) split at 24.59 eV, which matches all three within 2% and is the cut He
-   photoionization needs anyway. I recommend (d); the spec cost is one band.
-2. **Opacity inside a ppl band: "edges" or "exact".** "edges" follows the decided design and the paper. It is
-   split-invariant only for true power laws, and on a wide band it is not small: on the single EUV band at fixed
-   slope it lowers σ_N and G by ~5% against "exact". QUOKKA needs edge values because it evaluates opacities at run
-   time. Here the projection runs once at codegen, where quadrature costs nothing. Recommend "exact" as the default.
-3. **Thermal emission: exact Planck mean, or χ_B,b := χ_E,b.** The exact Planck mean (current) gets the emitted power
-   right and halves the transient error, but its radiation-matter equilibrium is wrong at coarse bands (3.4% at 4).
-   Kirchhoff per band (the paper) gives the exact equilibrium, but its total cooling then depends on the band count.
-   For the dust-IR loop, where T_d and T_rad equilibrate in thick cells, the second may matter more. Both are one
-   switch.
-4. **Photon versus energy bookkeeping.** A fixed slope cannot harden. A photons band loses ⟨hν⟩_b of energy per
-   absorption while the products take E_abs (EUV: 18.6 vs 16.0-16.1 eV). An energy band has the converse error on
-   photon number. GIZMO has the same mismatch (G_HI vs ν_eff − 13.6). Accept it, or say which unit each band conserves.
-5. **Emitted photons in a photons band:** f_b P / ⟨hν⟩_b (conserves energy) or `photons_per_eV` (conserves photons).
+1. **Emitted photons in a photons band:** f_b P / ⟨hν⟩_b (conserves energy) or `photons_per_eV` (conserves photons).
    Both are provided.
-6. **Tables.** `TTable.expr` inlines a log-log `piecewise_linear` (default grid 1-1e8 K at 0.025 dex, 321 points).
+2. **Tables.** `TTable.expr` inlines a log-log `piecewise_linear` (default grid 1-1e8 K at 0.025 dex, 321 points).
    For many tables, a 1-D `Table` atom in `jaco_tables.hdf5` would be leaner.
-7. **Flux mean.** Under a fixed slope χ_F = χ_E + scattering. There is no Rosseland or diffusion-limit correction
+3. **Flux mean.** Under a fixed slope χ_F = χ_E + scattering. There is no Rosseland or diffusion-limit correction
    (the paper's χ_F,diff).
 
 ## Next steps
 
-1. Port the legacy RT model onto a 5-band spec (EUV, FUV, NUV, ONIR, IR) with overrides carrying GIZMO's constants:
-   `DUST_BAND_OPACITY` per band, and σ_HI, ε_HI, hν_EUV as runtime `Parameter` symbols. Check it against the golden
-   hashes.
+1. Port the legacy RT model onto a 5-band spec (GIZMO's single EUV band, FUV, NUV, ONIR, IR) with overrides carrying
+   GIZMO's constants: `DUST_BAND_OPACITY` per band, and σ_HI, ε_HI, hν_EUV as runtime `Parameter` symbols. Check it
+   against the golden hashes. `starforge_RT` then uses `STARFORGE_RT` without overrides.
 2. Process factories: an absorber becomes one `Reaction`/`Transfer` per overlapping band (`row_factors` rsol, and
    ⟨hν⟩_b or E_abs by the band's unit). An emitter becomes rows f_b × its heat on its source process (an `Output`
    while the band is not solved).

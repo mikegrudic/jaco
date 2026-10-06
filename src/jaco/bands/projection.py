@@ -19,11 +19,12 @@ import numpy as np
 import sympy as sp
 
 from .band import BandSet
-from .interaction import Line, Continuum, ThermalEmission
+from .interaction import Absorber, Line, Continuum, ThermalEmission
 from .spectra import PowerLaw, K_B_EV, planck, integrate, power_integral, support
 
 DEFAULT_T_GRID = tuple(np.logspace(0.0, 8.0, 321))  # K, 0.025 dex
-OPACITY_MODELS = ("edges", "exact")
+OPACITY_MODELS = ("exact", "edges")
+KIRCHHOFF_MODELS = ("band", "planck")
 TINY = 1e-300
 
 
@@ -164,7 +165,7 @@ def _edge_absorber(absorber, a, c):
 
 
 @lru_cache(maxsize=None)
-def ppl_absorption(absorber, E_lo, E_hi, slope, opacity="edges"):
+def ppl_absorption(absorber, E_lo, E_hi, slope, opacity="exact"):
     """Absorption means on a fixed-slope band, u_E = E^slope (dict of floats, or None)"""
     if opacity not in OPACITY_MODELS:
         raise ValueError(f"opacity model must be one of {OPACITY_MODELS}")
@@ -247,9 +248,10 @@ class EmissionFractions:
 
     fraction: band -> share of the emitted energy
     photons_per_eV: band -> photons emitted into the band per eV emitted in total
-    escape: share in no band (1 - sum of fraction, computed independently)
-    For ThermalEmission also: planck_mean (band -> int_b kappa B / int_b B), band_planck (band -> int_b B_E dE
-    [erg s^-1 cm^-2 sr^-1]) and kappa_planck (int kappa B / int B over all energies).
+    escape: share in no band
+    For ThermalEmission also: planck_mean (band -> chi_B,b, the opacity of the band's emission 4 pi chi_B,b B_b),
+    band_planck (band -> B_b = int_b B_E dE [erg s^-1 cm^-2 sr^-1]) and kappa_planck (the emitted power over
+    4 pi int B, so that the emitter's total is 4 pi kappa_planck sigma T^4 / pi).
     """
 
     process: str
@@ -272,27 +274,44 @@ def _thermal_range(bands, T):
 
 
 @lru_cache(maxsize=None)
-def thermal_emission(emitter, bands, T_grid):
-    """EmissionFractions of a ThermalEmission over a BandSet, tables over T_grid"""
+def thermal_emission(emitter, bands, T_grid, kirchhoff="band", opacity="exact"):
+    """EmissionFractions of a ThermalEmission over a BandSet, tables over T_grid.
+
+    kirchhoff "band": a ppl band emits 4 pi chi_E,b B_b(T), chi_E,b its energy-mean opacity under the band's spectrum
+    (opacity model as given), so the band's emission and absorption balance at u_b = 4 pi B_b / c; the total is the
+    sum over the bands and the gaps. "planck": the exact Planck mean int_b kappa B / int_b B, the total
+    int kappa B independently of the bands. A tracked band's spectrum is a blackbody, where the two coincide.
+    """
+    if kirchhoff not in KIRCHHOFF_MODELS:
+        raise ValueError(f"kirchhoff must be one of {KIRCHHOFF_MODELS}")
     T = np.asarray(T_grid)
     j = lambda E, t: emitter.kappa(E) * planck(E, t)  # noqa: E731
     E_lo, E_hi = _thermal_range(bands, T)
-    total = integrate(j, E_lo, E_hi, T)
     B_total = integrate(planck, E_lo, E_hi, T)
-    frac, photons, pmean, bplanck = {}, {}, {}, {}
+    gaps = sum((integrate(j, lo, hi, T) for lo, hi in bands.gaps(E_lo, E_hi)), np.zeros_like(T))
+    power, photons, pmean, bplanck = {}, {}, {}, {}
+    as_absorber = Absorber(emitter.name, emitter.kappa)
     for b in bands:
-        jb = integrate(j, b.E_lo, b.E_hi, T)
-        frac[b.name] = TTable(T, jb / total, f"f_{emitter.name}_{b.name}")
-        photons[b.name] = TTable(T, integrate(lambda E, t: j(E, t) / E, b.E_lo, b.E_hi, T) / total,
-                                 f"photons_{emitter.name}_{b.name}")
-        scaled = _scaled_planck(b.E_lo)
-        pm = (integrate(lambda E, t: emitter.kappa(E) * scaled(E, t), b.E_lo, b.E_hi, T)
-              / integrate(scaled, b.E_lo, b.E_hi, T))
-        pmean[b.name] = TTable(T, pm, f"kappaB_{emitter.name}_{b.name}")
-        bplanck[b.name] = TTable(T, integrate(planck, b.E_lo, b.E_hi, T), f"B_{b.name}")
-    escape = sum((integrate(j, lo, hi, T) for lo, hi in bands.gaps(E_lo, E_hi)), np.zeros_like(T)) / total
-    return EmissionFractions(emitter.name, emitter.source, frac, photons, TTable(T, escape, f"escape_{emitter.name}"),
-                             pmean, bplanck, TTable(T, total / B_total, f"kappaP_{emitter.name}"))
+        B_b = integrate(planck, b.E_lo, b.E_hi, T)
+        if kirchhoff == "band" and b.shape == "ppl":
+            raw = ppl_absorption(as_absorber, b.E_lo, b.E_hi, b.slope, opacity)
+            chi = np.full_like(T, raw["chi_E"] if raw is not None else 0.0)
+            power[b.name] = chi * B_b
+            photons[b.name] = chi * integrate(lambda E, t: planck(E, t) / E, b.E_lo, b.E_hi, T)
+        else:
+            scaled = _scaled_planck(b.E_lo)
+            chi = (integrate(lambda E, t: emitter.kappa(E) * scaled(E, t), b.E_lo, b.E_hi, T)
+                   / integrate(scaled, b.E_lo, b.E_hi, T))
+            power[b.name] = integrate(j, b.E_lo, b.E_hi, T)
+            photons[b.name] = integrate(lambda E, t: j(E, t) / E, b.E_lo, b.E_hi, T)
+        pmean[b.name] = TTable(T, chi, f"kappaB_{emitter.name}_{b.name}")
+        bplanck[b.name] = TTable(T, B_b, f"B_{b.name}")
+    total = sum(power.values()) + gaps if kirchhoff == "band" else integrate(j, E_lo, E_hi, T)
+    frac = {b: TTable(T, p / total, f"f_{emitter.name}_{b}") for b, p in power.items()}
+    photons = {b: TTable(T, n / total, f"photons_{emitter.name}_{b}") for b, n in photons.items()}
+    escape = TTable(T, gaps / total, f"escape_{emitter.name}")
+    return EmissionFractions(emitter.name, emitter.source, frac, photons, escape, pmean, bplanck,
+                             TTable(T, total / B_total, f"kappaP_{emitter.name}"))
 
 
 @lru_cache(maxsize=None)
@@ -341,8 +360,12 @@ class Projector:
         are "fraction", "photons_per_eV" and "planck_mean", and an overridden fraction makes escape 1 - sum(fractions).
         An override may couple an absorber to a band it does not overlap (the other coefficients are then 0).
     opacity: str
-        "edges": in a "ppl" band an opacity is the power law through its values at the band's edges (where it is
-        positive at both); "exact": the declared function, by quadrature. Tracked bands always use the declared one.
+        "exact" (default): in a "ppl" band an opacity is the declared function, by quadrature; "edges": the power law
+        through its values at the band's edges (where it is positive at both). Tracked bands always use the
+        declared one.
+    kirchhoff: str
+        Thermal emission into a "ppl" band: "band" (default) at the band's energy-mean opacity chi_E,b; "planck" at its
+        exact Planck mean. See thermal_emission.
     T_grid: sequence of float
         Temperatures [K] of the tables (tracked bands' T_rad, emitters' temperature).
     """
@@ -351,7 +374,8 @@ class Projector:
     absorbers: tuple = ()
     emitters: tuple = ()
     overrides: dict = field(default_factory=dict)
-    opacity: str = "edges"
+    opacity: str = "exact"
+    kirchhoff: str = "band"
     T_grid: tuple = DEFAULT_T_GRID
 
     def __post_init__(self):
@@ -363,6 +387,8 @@ class Projector:
             raise ValueError(f"processes both absorb and emit: {sorted(set(self.absorbers) & set(self.emitters))}")
         if self.opacity not in OPACITY_MODELS:
             raise ValueError(f"opacity model must be one of {OPACITY_MODELS}")
+        if self.kirchhoff not in KIRCHHOFF_MODELS:
+            raise ValueError(f"kirchhoff must be one of {KIRCHHOFF_MODELS}")
         self.T_grid = tuple(float(t) for t in self.T_grid)
         self.overrides = {k: dict(v) for k, v in (self.overrides or {}).items()}
         for (process, band), values in self.overrides.items():
@@ -437,7 +463,7 @@ class Projector:
         elif isinstance(e, Continuum):
             res = continuum_emission(e, self.bands, self.T_grid)
         elif isinstance(e, ThermalEmission):
-            res = thermal_emission(e, self.bands, self.T_grid)
+            res = thermal_emission(e, self.bands, self.T_grid, self.kirchhoff, self.opacity)
         else:
             raise TypeError(f"unknown emitter {e!r}")
         over = {b: v for (p, b), v in self.overrides.items() if p == process}
