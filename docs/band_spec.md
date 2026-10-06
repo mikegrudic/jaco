@@ -157,9 +157,12 @@ absorption), and cooling routed into NUV/IR whose rate reads other bands (f_recN
 3. **Thermal emission into ppl bands: Kirchhoff per band by default** (χ_B,b := χ_E,b), for the exact
    radiation-matter equilibrium at any band count (the dust-IR loop equilibrates in thick cells). The exact Planck
    mean remains as `kirchhoff="planck"`.
-4. **Photon versus energy bookkeeping: measured, not changed.** The per-sub-band mismatch is 6.6% (EUV_H) and 5.6%
-   (EUV_He) of ⟨hν⟩_b, against 13.7% for one band (table above). A second moment per band is not added; pending a
-   decision on these numbers.
+4. **Photon versus energy bookkeeping: photons exact, hardening booked.** The per-sub-band mismatch is 6.6% (EUV_H)
+   and 5.6% (EUV_He) of ⟨hν⟩_b, against 13.7% for one band (table above). Photons bands conserve photon number
+   exactly (ionizations set Strömgren radii). The deferred energy, ⟨hν⟩_b − E_abs per absorption (the energy the true
+   spectrum would keep as hardening and deliver downstream), is an explicit term in the energy ledger: an Output, so
+   that closed-box ledgers close with it. No second moment. Check: HII_region with the ionizing range split into ~8
+   sub-bands as a converged reference for the 2-band ionization-front temperature and radius.
 
 ## Open choices
 
