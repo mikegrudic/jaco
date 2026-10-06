@@ -1,8 +1,11 @@
 """What a process declares about the photons it absorbs or emits, independently of any band set."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
-from .spectra import as_spectral, support
+import numpy as np
+import sympy as sp
+
+from .spectra import PowerLaw, Spectral, as_spectral, support
 
 HEAT_ROWS = ("heat", "dust heat")
 
@@ -34,6 +37,17 @@ class Absorber:
         Row taking (1 - Y)(E - E_th); required with heat_yield.
     scattering: number or callable of E, optional
         Scattering cross-section or opacity, in the flux mean (momentum) only.
+    scale: expression, optional
+        A state-dependent factor A of the cross-section, in declared symbols (e.g. the dust-to-gas ratio times a
+        survival fraction of T_d): the band means sigma_N, chi_E and chi_F are the projection of cross_section times A.
+    scattering_scale: expression, optional
+        The same for scattering (e.g. x_e for electron scattering); scale by default.
+    state: str, optional
+        Name of one state variable s (e.g. "Td") on which the cross-section depends otherwise than by a factor:
+        cross_section (and scattering) are then functions of (E, s), and the band means are tables in s over
+        state_grid (with T_rad, 2-D tables for a tracked band).
+    state_grid: sequence of float, optional
+        Values of s, log-uniformly spaced, positive; required with state.
     """
 
     name: str
@@ -44,12 +58,32 @@ class Absorber:
     heat_yield: object = None
     remainder_to: str = None
     scattering: object = None
+    scale: object = 1
+    scattering_scale: object = None
+    state: str = None
+    state_grid: tuple = None
 
     def __post_init__(self):
-        if self.cross_section is not None:
-            object.__setattr__(self, "cross_section", as_spectral(self.cross_section))
-        if self.scattering is not None:
-            object.__setattr__(self, "scattering", as_spectral(self.scattering))
+        for attr in ("cross_section", "scattering"):
+            f = getattr(self, attr)
+            if f is None:
+                continue
+            if self.state is not None and not isinstance(f, (PowerLaw, Spectral)) and callable(f):
+                f = Spectral(f, temperature_dependent=True)  # f(E, s)
+            object.__setattr__(self, attr, as_spectral(f))
+        object.__setattr__(self, "scale", sp.sympify(self.scale))
+        if self.scattering_scale is not None:
+            object.__setattr__(self, "scattering_scale", sp.sympify(self.scattering_scale))
+        if self.state is not None:
+            grid = np.asarray(self.state_grid if self.state_grid is not None else (), dtype=float)
+            if grid.ndim != 1 or len(grid) < 2 or np.any(grid <= 0):
+                raise ValueError(f"absorber {self.name}: state {self.state} needs a positive state_grid")
+            steps = np.diff(np.log(grid))
+            if not np.allclose(steps, steps[0], rtol=1e-8) or steps[0] <= 0:
+                raise ValueError(f"absorber {self.name}: state_grid must be increasing and log-uniform")
+            object.__setattr__(self, "state_grid", tuple(float(x) for x in grid))
+        elif self.state_grid is not None:
+            raise ValueError(f"absorber {self.name}: state_grid without a state")
         if self.heat_yield is not None:
             object.__setattr__(self, "heat_yield", as_spectral(self.heat_yield))
             if self.remainder_to is None:
@@ -65,6 +99,23 @@ class Absorber:
 
     def sigma(self, E):
         return self.cross_section(E) * (E >= self.E_min)
+
+    @property
+    def state_symbol(self):
+        return sp.Symbol(self.state) if self.state is not None else None
+
+    @property
+    def scattering_factor(self):
+        return self.scale if self.scattering_scale is None else self.scattering_scale
+
+    def at_state(self, s):
+        """The absorber with its state fixed at s: cross-section and scattering functions of E alone, no scale"""
+        def fix(f):
+            if not isinstance(f, Spectral) or not f.temperature_dependent:
+                return f
+            return Spectral(lambda E, f=f, s=s: f(E, s), E_min=f.E_min)
+        return replace(self, cross_section=fix(self.cross_section), scattering=fix(self.scattering), scale=1,
+                       scattering_scale=None, state=None, state_grid=None)
 
 
 @dataclass(frozen=True)

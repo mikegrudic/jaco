@@ -35,9 +35,10 @@ proj.mean_photon_energy("EUV_He")                  # <h nu>_b
 |---|---|
 | `Band(name, E_lo, E_hi, unit, shape, slope, temperature, doc)` | `unit` "photons" or "energy" (what the species `photon_<name>` counts); `shape` "ppl" (fixed slope) or "tracked" (blackbody at `T_rad`, the symbol named `temperature`); `doc` describes the species. |
 | `BandSet` | Ordered, non-overlapping, gaps allowed; `index`, `by_species`, `band_at(E)`, `gaps`, `split`, `replace`, `declarations()` (radiation `Species`). |
-| `Absorber(name, cross_section, absorber, E_th, heat_to, heat_yield, remainder_to, scattering)` | Per absorbed photon: `E_th` to chemistry, `Y(E)(E - E_th)` to `heat_to`, the rest to `remainder_to`. Scattering enters the flux mean only. `cross_section=None`: every coefficient is an override. |
+| `Absorber(name, cross_section, absorber, E_th, heat_to, heat_yield, remainder_to, scattering, scale, scattering_scale, state, state_grid)` | Per absorbed photon: `E_th` to chemistry, `Y(E)(E - E_th)` to `heat_to`, the rest to `remainder_to`. Scattering enters the flux mean only. `cross_section=None`: every coefficient is an override. State dependence: see below. |
 | `Line(name, E0, source)`, `Continuum(name, j, source, E_range)`, `ThermalEmission(name, kappa, source)`, `RoutedEmission(name, source)` | Emitters; `j(E)` or `j(E, T)`; thermal is `4 pi kappa(E) B_E(T)`; routed: band fractions given as overrides. `source` is the row losing the energy. |
 | `PowerLaw`, `Spectral`, `Blackbody`, `planck`, `SIGMA_HI/HEI/HEII` | Spectral functions of E [eV]; Verner et al. (1996) fits. A `PowerLaw` gets closed forms. |
+| `DustModel`, `read_draine(path)`, `draine_mw31()`, `band_means(dust, bands)` (`jaco.bands.dust`) | Dust κ_abs(E), κ_sca(E) per gram of dust from Draine's `kext_albedo_*.all` tables; `.absorber(per="gas"|"dust", scale=...)`. |
 | `Projector(bands, absorbers, emitters, overrides, band_overrides, opacity="exact", kirchhoff="band", T_grid)` | Projections, cached. Ppl bands give floats, tracked bands and emitter temperatures give `TTable`s (log-log in T). `.expr(name, T)`/`symbolic` give sympy (`Float`, a `piecewise_linear` in T, or an override expression with the band's T_rad replaced by T). Band level: `mean_photon_energy`, `compton_temperature` (T_C = ⟨E⟩_u / 4k), each overridable. |
 | `fit_slope(band, reference, targets, absorbers, opacity, weights, report)` | Slope of a ppl band matching chosen band means of a reference spectrum. |
 | `GIZMO_STARFORGE` (`jaco.bands.specs`) | GIZMO's five STARFORGE bands as they are; the legacy model's band set. |
@@ -53,7 +54,8 @@ absorber sigma(E) (zero below max(E_th, its own support)):
 |---|---|---|
 | `sigma_N` | ∫σ u/E / ∫u/E | absorptions per absorber: c σ_N n_γ |
 | `chi_E` | ∫σ u / ∫u | absorbed power per absorber: c χ_E u_b |
-| `chi_F` | ∫(σ + σ_s) u / ∫u | momentum (fixed slope: the flux has u's shape) |
+| `chi_S` | ∫σ_s u / ∫u | scattering part of the flux mean |
+| `chi_F` | χ_E + χ_S | momentum (fixed slope: the flux has u's shape) |
 | `E_abs` | ∫σ u / ∫σ u/E | mean energy of an absorbed photon; `excess` = E_abs − E_th |
 | `heat`, `remainder` | ∫σ Y (E−E_th) u/E / ∫σ u/E, and excess − heat | E_th + heat + remainder = E_abs exactly |
 
@@ -174,6 +176,49 @@ absorption), and cooling routed into NUV/IR whose rate reads other bands (f_recN
 3. **Flux mean.** Under a fixed slope χ_F = χ_E + scattering. There is no Rosseland or diffusion-limit correction
    (the paper's χ_F,diff).
 
+## State-dependent opacities
+
+- **Separable:** `Absorber(..., scale=A, scattering_scale=A_s)`, with A a sympy expression in declared symbols (e.g.
+  Z_d f_surv(T_d); x_e for electron scattering). The projected numbers stay those of κ(E). `expr()` multiplies σ_N
+  and χ_E by A, and χ_S by A_s (default A). χ_F is χ_E A + χ_S A_s. Energies per photon (E_abs, heat) are not scaled.
+- **Tabulated in one variable:** `Absorber(..., state="Td", state_grid=<log-uniform>)` with `cross_section` (and
+  `scattering`) functions of (E, s). Each coefficient becomes a `TTable` in s on a ppl band, and a `Table2D` in
+  (T_rad, s) on a tracked band. A `Table2D` is a jaco `Table` of log10 values on log10 axes: bilinear in log-log,
+  clamped, with derivatives for Newton. `expr(name, T, s)` evaluates at any temperature and state, e.g. the Kirchhoff
+  emission opacity of a tracked band at (T_d, T_d), or the start-of-step opacity at s = T_d,initial. Combine with
+  `scale` for the separable part.
+- **Jumps:** a table cannot represent a discontinuity in s; it ramps the jump over one grid cell. The projector
+  bisects every grid cell whose change in χ_E or χ_S stands out (above 2% and twice its neighbours') down to 2^-32 of
+  the cell. A change that survives is a jump: it is recorded in `AbsorptionCoefficients.discontinuities` as
+  (coefficient, s, factor) and raises a `DiscontinuityWarning` (`Projector(discontinuities="raise"|"ignore")`). A
+  switch smoothed in the declaration (e.g. dust_opacity.py's smoothsteps) is continuous and is not reported.
+
+### Dust: Draine MW R_V = 3.1 against GIZMO
+
+`jaco.bands.draine_mw31()` reads Draine's `kext_albedo_WD_MW_3.1_60_D03.all`. Its home is `jaco/bands/data/`,
+stored unmodified, with provenance in `data/README.md`. **It is not in the repository yet.** Downloading it was refused
+in this session (curl was denied), and a summarizing web fetch cannot transcribe its rows faithfully. Fetch it with
+`curl -o src/jaco/bands/data/kext_albedo_WD_MW_3.1_60_D03.all https://www.astro.princeton.edu/~draine/dust/extcurvs/kext_albedo_WD_MW_3.1_60_D03.all`.
+Then `pytest -s tests/test_band_state.py::test_draine_mw31_against_gizmo` checks the file (dust-to-gas 1/165.3,
+A_V/N_H = 5.3e-22) and prints the comparison below for both band sets.
+
+Provisional numbers from Hensley & Draine (2022) astrodust+PAH, the table that ships with meshoid. It is a newer model
+of the same diffuse ISM dust (Md/MH = 0.00708, M_gas/M_H = 1.4, so dust-to-gas 1/198). It stops at 12.4 eV; above
+that (the top of the FUV band) its values are clamped. Band means per gram of gas, fixed slope E u_E = const, against
+rt_kappa (extinction; GIZMO absorbs half):
+
+| Band | χ_E | χ_F | albedo | χ_F / GIZMO | χ_E / (GIZMO / 2) | same under a 4e4 K blackbody | under 6000 K |
+|---|---|---|---|---|---|---|---|
+| FUV 8-13.6 | 374 | 469 | 0.20 | 0.65 (720) | 1.04 | 0.67 / 1.08 | 0.46 / 0.67 |
+| NUV 3.444-8 | 183 | 305 | 0.40 | 0.63 (480) | 0.76 | 0.66 / 0.83 | 0.54 / 0.55 |
+| ONIR 0.4133-3.444 | 24.3 | 68.1 | 0.64 | 0.38 (180) | 0.27 | 0.81 / 0.58 | 0.51 / 0.34 |
+
+FUV, NUV and ONIR have the same edges and slopes in STARFORGE_RT, so its numbers are the same. Its IR band's Planck
+mean absorption at T_rad = 10/30/100 K is 0.019/0.16/1.9 cm²/g, 0.16/0.22/0.36 of the Semenov table GIZMO uses at
+solar metallicity. Two conclusions. GIZMO's constant albedo 1/2 is wrong in every band (0.2 in the FUV, 0.64 in the
+optical). And the ONIR mean depends on the assumed in-band spectrum by a factor of 2: the flat spectrum weights the
+near-IR, where κ is small, as much as the optical.
+
 ## The legacy model on the band layer
 
 `starforge_legacy_RT` and `starforge_legacy_RT_EUV` take their bands from `GIZMO_STARFORGE` and GIZMO's coefficients
@@ -210,7 +255,8 @@ Gaps found, i.e. what the band layer could not express from spectra and what had
    Z f_dust in one band, and scales by dust survival f_d(T_d). The band layer holds the κ per unit absorber; the law
    that combines and scales them stays in the model.
 4. **State-dependent opacities.** GIZMO's IR opacities are tables in (T_rad, T_d) with composition zones, plus a gas
-   opacity in x_e, x_H+, ρ, u. A band layer κ(E) has no matter-state dependence; these are override expressions.
+   opacity in x_e, x_H+, ρ, u. A band layer κ(E) had no matter-state dependence; these are override expressions.
+   Since added: separable scales and one-variable state tables (see "State-dependent opacities").
    Added: `AbsorptionCoefficients.expr(name, T)` evaluates a tracked band's coefficient at another temperature
    (Kirchhoff emission at T_d).
 5. **Band-level quantities.** Only (process, band) overrides existed. Added `band_overrides` for ⟨hν⟩ (a runtime

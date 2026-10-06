@@ -33,6 +33,7 @@ Issues = "https://github.com/mikegrudic/jaco/issues"
 [tool.setuptools.package-data]
 "jaco.models.starforge" = ["spcool_tables.hdf5"]
 "jaco.codegen" = ["*.h"]
+"jaco.bands" = ["data/*"]
 
 [tool.pytest.ini_options]
 markers = [
