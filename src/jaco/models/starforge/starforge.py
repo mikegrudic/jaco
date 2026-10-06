@@ -10,12 +10,12 @@ STARFORGE in addition: the H2/H- reaction network with the heat of H2 formation 
 cosmic-ray ionization of H with radiative, grain-assisted and charge-transfer sinks, and the C+, Mg+ and molecular-ion
 balances for the other free electrons (ionization_balance.py); C+ (on the Tielens C+/CO interpolation), [CI] 609 um on
 neutral carbon and Whitworth & Jaffa CO cooling; H2/HD cooling with number-weighted colliders; clumping on every
-two-body rate.
+two-body rate, estimated from the trace-free velocity gradient.
 """
 
 import sympy as sp
 from jaco.model import Model
-from jaco.declarations import Species
+from jaco.declarations import Parameter, Species
 from jaco.processes import CollisionalIonization, GasPhaseRecombination, FreeFreeEmission, ThermalTerm
 from jaco.symbols import x_
 from .line_cooling import LineCoolingSimple, CI_cooling
@@ -29,7 +29,7 @@ from .metal_line_cooling import metal_line_cooling
 from .ionization_balance import ionization_processes
 from .nebular_cooling import nebular_cooling
 from .compton import compton_cooling
-from .symbols import T, n_Htot, G_0, clumping_factor, PARAMETERS
+from .symbols import T, n_Htot, G_0, clumping_factor, clumping_factor_tracefree, PARAMETERS
 
 # Solve variables in index order (GIZMO's jaco.cc assumes u, T first, abundances after) and the subset that gets a
 # backward-Euler term; the ions are solved in steady state
@@ -37,8 +37,18 @@ SOLVE_VARS = ("u", "T", "H+", "He+", "He++", "H_2")
 TIME_DEPENDENT = ("T", "H_2")
 GIZMO_FAMILY = "starforge"  # host-code family macro JACO_FAMILY_STARFORGE, shared by both models
 DEUTERIUM_PER_H = 2.527e-5  # Cooke, Pettini & Steidel 2018
-# Expressions of the solve variables, substituted before code generation so their derivatives enter the Jacobian
-DERIVED = {"C_2": clumping_factor, "C_3": clumping_factor**3}  # <n^3>/<n>^3 = C_2^3, lognormal
+
+
+def clumping(C_2):
+    """C_2 and C_3 = C_2^3 (<n^3>/<n>^3 of a lognormal), as expressions of the solve variables, substituted before code
+    generation so their derivatives enter the Jacobian"""
+    return {"C_2": C_2, "C_3": C_2**3}
+
+
+DERIVED = clumping(clumping_factor)  # GIZMO's estimator, on the full velocity gradient (starforge_legacy)
+STARFORGE_DERIVED = clumping(clumping_factor_tracefree)
+STARFORGE_PARAMETERS = PARAMETERS + [
+    Parameter("∇v_tf", "s^-1", 1e-14, "Frobenius norm of the trace-free velocity gradient, for the clumping factor")]
 
 pdv_work = ThermalTerm(sp.Symbol("pdv_work"), name="PdV work")
 
@@ -94,9 +104,9 @@ def make_model():
             "HD": 2 * DEUTERIUM_PER_H * x_("H_2"),  # all D in HD in proportion to the molecular fraction 2 x_H2
             **carbon_abundances(),
         },
-        derived=DERIVED,
+        derived=STARFORGE_DERIVED,
         intermediates=intermediates,
         fixed_electrons=fixed_electrons,  # free electrons beyond the solved H and He ions
-        parameters=PARAMETERS,
+        parameters=STARFORGE_PARAMETERS,
         species=STARFORGE_SPECIES,
     )

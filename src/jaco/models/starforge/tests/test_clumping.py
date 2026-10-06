@@ -12,7 +12,7 @@ from jaco.symbols import n_, x_
 from ..starforge import make_model
 from ...starforge_legacy import make_model as make_legacy
 from ..ionization_balance import ion_abundances
-from ..symbols import clumping_factor, T, grad_v, dx, x_solar
+from ..symbols import clumping_factor, T, grad_v, grad_v_tf, dx, x_solar
 
 C2, C3 = sp.Symbol("C_2"), sp.Symbol("C_3")
 ONE_BODY = {"Cosmic ray heating", "Photoelectric Heating", "Inverse Compton cooling (CMB)", "Photodissociation of H_2",
@@ -102,3 +102,11 @@ def test_clumping_estimator_is_gizmos():
     dv_kms = gv * dxv / 1e5
     expected = 1 + (0.5 * dv_kms / (0.111 * np.sqrt(Tv) / np.sqrt(3))) ** 2
     assert float(clumping_factor.subs({T: Tv, grad_v: gv, dx: dxv})) == pytest.approx(expected, rel=1e-12)
+
+
+def test_clumping_gradient_each_model():
+    """STARFORGE estimates C_2 from the trace-free velocity gradient, so homologous flow is not sub-grid turbulence;
+    STARFORGE_LEGACY keeps GIZMO's full norm"""
+    sf, legacy = make_model().derived["C_2"].free_symbols, make_legacy().derived["C_2"].free_symbols
+    assert grad_v_tf in sf and grad_v not in sf
+    assert grad_v in legacy and grad_v_tf not in legacy
