@@ -12,8 +12,9 @@ import itertools
 import numpy as np
 import pytest
 import sympy as sp
-from ..ionization_balance import ion_abundances, solved_electrons, K_CT_HPLUS_MG, alpha_rr_Mgplus, beta_molion, x_Mg
-from ..metal_electrons import x_e_ions, alkali_electrons, Oplus_electrons, metal_electrons
+from ..ionization_balance import (ion_abundances, solved_electrons, K_CT_HPLUS_MG, alpha_rr_Mgplus, beta_molion, x_Mg,
+                                  Oplus_electrons)
+from ..metal_electrons import x_e_ions, alkali_electrons, metal_electrons
 from ..grain_assisted_recombination import alpha_grain
 from ..symbols import T, n_Htot, G_0, NH, Z_dust, f_dust, ISRF, x_, cosmicray_ionization_rate_H as zeta
 from jaco.processes.recombination import hydrogenic_recombination_rate

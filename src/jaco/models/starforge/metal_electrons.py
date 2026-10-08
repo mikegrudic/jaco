@@ -24,17 +24,17 @@ HYDROGEN_MASSFRAC = 0.76
 x_e_ions = x_("H+") + x_("He+") + 2 * x_("He++")
 
 
-def G0_carbon():
-    """get_FUV_G0 mode 1: the FUV field further shielded by C and H2 (Gong+2017 Eq. 9)"""
-    tau_C = sp.Min(NH * X_H * x_C_tot * 1.6e-17, 100.0)
+def G0_carbon(x_C=x_C_tot):
+    """get_FUV_G0 mode 1: the FUV field further shielded by C (abundance x_C per H) and H2 (Gong+2017 Eq. 9)"""
+    tau_C = sp.Min(NH * X_H * x_C * 1.6e-17, 100.0)
     r_H2 = sp.Min(2.8e-22 * x_H2 * NH * HYDROGEN_MASSFRAC, 100.0)
     return G_0 * sp.exp(-tau_C) * sp.exp(-r_H2) / (1 + r_H2)
 
 
-def f_Cplus(x_e, n_H=n_Htot, clumping=1):
+def f_Cplus(x_e, n_H=n_Htot, clumping=1, x_C=x_C_tot):
     """Fraction of gas-phase C in C+ (f_Cplus): photo- and CR ionization against radiative, dielectronic, grain-assisted
-    and H2 recombination, the two-body rates times clumping"""
-    ionization = 3.43e-10 * G0_carbon() + 520 * 2 * x_H2 * zeta + 3.85 * zeta
+    and H2 recombination, the two-body rates times clumping; x_C is the carbon that shields its photoionization"""
+    ionization = 3.43e-10 * G0_carbon(x_C) + 520 * 2 * x_H2 * zeta + 3.85 * zeta
     a, b = sp.sqrt(T / 6.67e-3), sp.sqrt(T / 1.943e6)
     g = 0.7849 + 0.1597 * sp.exp(-49550 / T)
     k_rr = 2.995e-9 / (a * (1 + a) ** (1 - g) * (1 + b) ** (1 + g))

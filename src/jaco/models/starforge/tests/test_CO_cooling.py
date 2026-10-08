@@ -15,12 +15,13 @@ import pytest
 import sympy as sp
 from jaco.symbols import n_, x_, boltzmann_cgs, protonmass_cgs
 from ..starforge import make_model
+from ..gas_phase import x_gas
 from ..symbols import T, grad_v, n_Htot, z, G_0
 
 X_WJ18 = 0.70  # H mass fraction of WJ18's gas
 M_PARTICLE, M_H2 = 3.97e-24, 4.77e-24  # g: WJ18 Sec. 1
 LO_COEFF, HI_COEFF = 4.63e8, 4.58e-45  # Eq. 37 (cgs)
-X_C = 2.0e-4  # gas-phase carbon per H nucleus
+X_C_TOT = 2.7e-4  # carbon per H nucleus, gas and dust
 C2 = sp.Symbol("C_2")
 
 
@@ -42,7 +43,7 @@ def model():
 
 def state(T_gas, n_H, x_H2, div_v):
     """Numerical values of every symbol the CO cooling and the model's carbon partition read"""
-    return {T: T_gas, n_Htot: n_H, x_("H_2"): x_H2, n_("H_2"): x_H2 * n_H, sp.Symbol("x_C,tot"): X_C, G_0: 1.0,
+    return {T: T_gas, n_Htot: n_H, x_("H_2"): x_H2, n_("H_2"): x_H2 * n_H, sp.Symbol("x_C,tot"): X_C_TOT, G_0: 1.0,
             grad_v: div_v, C2: 1.0, z: 0.0}
 
 
@@ -55,7 +56,7 @@ def jaco_cooling(model, vals):
 def model_n_CO(model, vals):
     """n_CO the WJ18 evaluation is given: the gas-phase carbon outside C+ times the molecular fraction 2 x_H2"""
     x_Cplus = float(model.fixed["C+"].subs(vals))
-    return (X_C - x_Cplus) * 2 * vals[x_("H_2")] * vals[n_Htot]
+    return (float(x_gas("C").subs(vals)) - x_Cplus) * 2 * vals[x_("H_2")] * vals[n_Htot]
 
 
 # (T, n_H, |div v| in s^-1): optically thin (LO), LVG (HI) and in between

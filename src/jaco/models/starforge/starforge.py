@@ -10,7 +10,8 @@ STARFORGE in addition: the H2/H- reaction network with the heat of H2 formation 
 cosmic-ray ionization of H with radiative, grain-assisted and charge-transfer sinks, and the C+, Mg+ and molecular-ion
 balances for the other free electrons (ionization_balance.py); C+ (on the Tielens C+/CO interpolation), [CI] 609 um on
 neutral carbon and Whitworth & Jaffa CO cooling; H2/HD cooling with number-weighted colliders; clumping on every
-two-body rate, estimated from the trace-free velocity gradient and tapered off above ~5000 K.
+two-body rate, estimated from the trace-free velocity gradient and tapered off above ~5000 K. The cooling and the
+electron budget see the same gas-phase (undepleted) abundances (gas_phase.py).
 """
 
 import sympy as sp
@@ -29,6 +30,7 @@ from .metal_line_cooling import metal_line_cooling
 from .ionization_balance import ionization_processes
 from .nebular_cooling import nebular_cooling
 from .compton import compton_cooling
+from .gas_phase import x_gas
 from .symbols import T, n_Htot, G_0, clumping_factor, clumping_factor_starforge, PARAMETERS
 
 # Solve variables in index order (GIZMO's jaco.cc assumes u, T first, abundances after) and the subset that gets a
@@ -82,11 +84,10 @@ def shared_processes():
 
 
 def carbon_abundances():
-    """C+ and CO from GIZMO's cooling-curve interpolation, fco/(1 - fco) ~ (n / 340 G0)^2 / sqrt(T) (Tielens); the
-    carbon outside C+ is in CO in proportion to the molecular fraction 2 x_H2"""
-    x_C_tot = sp.Symbol("x_C,tot")
+    """C+ and CO of the gas-phase carbon from GIZMO's cooling-curve interpolation, fco/(1 - fco) ~ (n / 340 G0)^2 /
+    sqrt(T) (Tielens); the carbon outside C+ is in CO in proportion to the molecular fraction 2 x_H2"""
     f_Cp = 1 / (1 + (n_Htot / (340 * sp.Max(sp.Rational(1, 10), G_0)))**2 / sp.sqrt(sp.Max(T, 10)))
-    return {"C+": x_C_tot * f_Cp, "CO": sp.Max(1e-30, x_C_tot * (1 - f_Cp) * 2 * x_("H_2"))}
+    return {"C+": x_gas("C") * f_Cp, "CO": sp.Max(1e-30, x_gas("C") * (1 - f_Cp) * 2 * x_("H_2"))}
 
 
 def make_model():
