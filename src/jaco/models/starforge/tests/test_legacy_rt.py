@@ -225,27 +225,27 @@ def test_dust_band_absorption_is_the_kicks(models, band, over):
 
 
 @pytest.mark.parametrize("over", [{}, {"e-": 0.9, "H+": 0.9}, {"rho": 2.3e-18}])
-def test_ir_band_gets_the_donations_twice(models, over):
-    """rt_update_driftkick: each donor band adds its absorbed energy de_abs to the IR band and to E_abs_tot_toIR; the
-    IR band, last, reads its energy (now with the donations) as e0 and adds E_abs_tot_toIR dt again in total_de_dt,
-    keeping both (its own absorption it re-emits but for the gas share). Transcribed over a step that ends at the
-    state's donor energies: the IR band gains twice what the donors lose, as the model's copy plus the dust's
-    re-emission of what it absorbs from them"""
+def test_ir_band_gets_the_donations_once(models, over):
+    """rt_update_driftkick (gizmo_jaco_dev 6d472eda, 924-927): each donor band adds its absorbed energy de_abs to
+    E_abs_tot_toIR and donates nothing directly (a donation to the IR band is reset to none); the IR band, last, adds
+    E_abs_tot_toIR dt as a source in total_de_dt and re-emits what of it it absorbs but for the gas share. Transcribed
+    over a step that ends at the state's donor energies: the IR band gains what the donors lose, here the dust's
+    re-emission of what it absorbs from them, and nothing else carries the donations to the band"""
     rt_model, _, _ = models
     v = state(**over)
     d = v[dt]
-    E_abs_tot_toIR, first_copy = 0.0, 0.0
+    E_abs_tot_toIR = 0.0
     for b in (FUV, NUV, ONIR):  # donors first, an exponential absorption each at c_tilde
         a = v[S("rsol")] * C_LIGHT * 0.5 * gizmo_kappa_band(*rt.DUST_BAND_OPACITY[b], v) * v[S("rho")]
         e1 = u_band(v, b)
-        de_abs = e1 * math.expm1(min(a * d, rt.KICK_EXPONENT_CAP))  # from the e0 that ends at e1
-        E_abs_tot_toIR += de_abs / d
-        first_copy += de_abs
-    kick_gain = first_copy + E_abs_tot_toIR * d  # no IR absorption: its re-emission returns it but for the gas share
-    copy = value(process(rt_model, "GIZMO's second copy of the donated dust absorption in photon_IR").network[IR].rhs, v)
+        E_abs_tot_toIR += e1 * math.expm1(min(a * d, rt.KICK_EXPONENT_CAP)) / d  # from the e0 that ends at e1
+    kick_gain = E_abs_tot_toIR * d  # no IR absorption: its re-emission returns it but for the gas share
     absorbed = sum(value(process(rt_model, f"Dust absorption of {b}").network["dust heat"].rhs, v) for b in (FUV, NUV, ONIR))
-    model_gain = (copy * EV + v[S("rsol")] * absorbed) * d  # the dust balance re-emits what it absorbs
+    model_gain = v[S("rsol")] * absorbed * d  # the dust balance re-emits what it absorbs
     assert model_gain == pytest.approx(kick_gain, rel=1e-9)
+    sources = {p.name for p in rt_model.subprocesses if IR in p.network}
+    sources -= {"Dust absorption of photon_IR", "Gas absorption of photon_IR", "Dust emission into photon_IR"}
+    assert sources == set(NUV_ROUTE) | set(IR_ROUTE)  # besides the dust, only the gas's cooling return adds to it
 
 
 def _near_switch(Td):
@@ -320,8 +320,9 @@ def test_dust_emission_and_ir_rows(models):
 @pytest.mark.parametrize("rho_", [2.3e-22, 2.3e-18, 2.3e-14])
 def test_gas_share_is_two_half_kicks(models, rho_):
     """rt_update_driftkick, twice per step: each half-step kick absorbs e0 (1 - exp(-a dt/2)) of the IR band and gives
-    the gas its opacity share fgas of that (DtInternalEnergy), re-emitting the rest; the model's gas heating over the
-    step is that, to first order in fgas, from optically thin (the rate) to thick (2 fgas e0 per step)"""
+    the gas its opacity share fgas of that, straight into its internal energy, re-emitting the rest; the model's gas
+    heating over the step is that, to first order in fgas, from optically thin (the rate) to thick (2 fgas e0 per
+    step)"""
     rt_model, _, _ = models
     v = state(Td=60.0, T_rad=45.0, rho=rho_)
     c = cell_of(v)
@@ -517,31 +518,42 @@ def test_derived_inputs_are_gizmos(over):
 
 
 def test_ir_radiation_temperature_output(models):
-    """T_rad_new = E_final / (survivors/T_rad + rest x (dust share/Td + gas share/T)), survivors = (E_0 + direct
-    donation) exp(-a dt), a the absorption rate, within the range of the three temperatures (GIZMO's photon-number
-    weighting, rt_update_driftkick and rt_cooling_radiation_to_bands)"""
+    """T_rad_new = E_final / (survivors/T_rad + rest x (dust share/Td + gas share/T)), survivors = E_0 exp(-a dt), a
+    the absorption rate, within the range of the three temperatures (GIZMO's photon-number weighting,
+    rt_update_driftkick and rt_cooling_radiation_to_bands)"""
     rt_model, _, _ = models
-    expr, sums = rt.ir_radiation_temperature(["a"], ["d"], ["g"], ["p"])
+    expr, sums = rt.ir_radiation_temperature(["a"], ["d"], ["g"])
     v = state(300.0, Td=60.0, T_rad=40.0)
     n0, d = v[S("x_photon_IR_initial")] * v[n_Htot], v[dt]
-    for k, D, G, P in ((1e-13, 3e-12, 1e-12, 0), (1e-13, -3e-12, 1e-12, 0), (1e-13, 3e-12, -1e-11, 0), (0, 0, 0, 0),
-                       (1e-13, 3e-12, 1e-12, 2e-12), (1e-9, 3e-12, 1e-12, 2e-12), (1e-9, 3e-12, 0, 0)):
-        n1 = (n0 + d * (max(D, 0) + max(G, 0) + P)) / (1 + k * d)  # the implicit step, A = -k n1
-        vals = {**v, n_(IR): n1, S("A_IR"): -k * n1, S("D_IR"): D, S("G_IR"): G, S("P_IR"): P}
-        kept = (n0 + d * P) * math.exp(-k * d)
+    for k, D, G in ((1e-13, 3e-12, 1e-12), (1e-13, -3e-12, 1e-12), (1e-13, 3e-12, -1e-11), (0, 0, 0),
+                    (1e-9, 3e-12, 1e-12), (1e-9, 3e-12, 0)):
+        n1 = (n0 + d * (max(D, 0) + max(G, 0))) / (1 + k * d)  # the implicit step, A = -k n1
+        vals = {**v, n_(IR): n1, S("A_IR"): -k * n1, S("D_IR"): D, S("G_IR"): G}
+        kept = n0 * math.exp(-k * d)
         Dp, Gp = max(D, 0), max(G, 0)
         weights = kept / 40.0 + ((n1 - kept) * (Dp / 60.0 + Gp / 300.0) / (Dp + Gp) if Dp + Gp else 0)
         assert value(expr, vals) == pytest.approx(min(max(n1 / weights, 40.0), 300.0), rel=1e-12)
     n1 = (n0 + 1e-3 * d) / (1 + 1e-9 * d)
-    vals = {**v, n_(IR): n1, S("A_IR"): -1e-9 * n1, S("D_IR"): 1e-3, S("G_IR"): 0, S("P_IR"): 0}
+    vals = {**v, n_(IR): n1, S("A_IR"): -1e-9 * n1, S("D_IR"): 1e-3, S("G_IR"): 0}
     assert value(expr, vals) == pytest.approx(60.0, rel=1e-3)  # thick: the band at the dust temperature
+    # The kick's IR update (rt_update_driftkick, gizmo_jaco_dev 6d472eda, 846-857) with dust alone (no gas opacity),
+    # no injection and no transport: the donors' E_abs_tot_toIR dt joins the band's own absorbed energy, re-emitted at
+    # T_dust; none of it is in e0, counted at T_rad. The dust re-emits all it absorbs: E_final = e0 + E_abs_tot_toIR dt
+    for k, donated in ((1e-13, 0.0), (1e-13, 0.5 * n0), (1e-11, 2.0 * n0), (1e-9, 0.3 * n0)):
+        f_unabsorbed = math.exp(-k * d)
+        e_absorbed = donated + n0 * (1 - f_unabsorbed)
+        e_unabsorbed = n0 * f_unabsorbed
+        gizmo = (e_unabsorbed + e_absorbed) / (e_unabsorbed / 40.0 + e_absorbed / 60.0)
+        e_final = n0 + donated
+        vals = {**v, n_(IR): e_final, S("A_IR"): -k * e_final, S("D_IR"): k * e_final + donated / d, S("G_IR"): 0}
+        assert value(expr, vals) == pytest.approx(gizmo, rel=1e-12)
     out = next(o for o in rt_model.outputs if o.name == "T_rad_new")
     groups = {k: {p for (p, row), _ in terms} for k, terms in out.sums}
+    assert set(groups) == {"A_IR", "D_IR", "G_IR"}
     assert groups["A_IR"] == {"Dust absorption of photon_IR", "Gas absorption of photon_IR"}
     assert groups["D_IR"] == {"Dust emission into photon_IR"}
-    assert groups["P_IR"] == {"GIZMO's second copy of the donated dust absorption in photon_IR"}
     emitters = {p.name for p in rt_model.subprocesses if IR in p.network} - groups["A_IR"] - groups["D_IR"]
-    assert groups["G_IR"] == emitters - groups["P_IR"]  # every other process that adds to the band is the gas's
+    assert groups["G_IR"] == emitters  # every other process that adds to the band is the gas's
 
 
 def test_declarations(models):

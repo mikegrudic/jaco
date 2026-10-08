@@ -25,9 +25,9 @@
     "jaco_tables.h": "fa75f46b3d66447a0886285a72fd10bb8082e533355346ab9c77807a1488235d",
     "jaco_tables.hdf5": "5d1570183d8e8b38afbd975f9a21b0b24dc0d838244ea41593b60fd96cccfdcb",
     "jaco_util.cc": "c48b87c7528c030f3073a5fa91ce387b4bdbd4a51b0baec5bd519a10eefcf8cd",
-    "microphysics_func_jac.cc": "c7f48b3968d6a09f139de8c91610489194bde9c9ff55eea1111b337d9045cc3a",
+    "microphysics_func_jac.cc": "b41e8253bc7dd182b3030490d707710693684397d66dc01359043e8294403a5e",
     "microphysics_func_jac.h": "3e4346a6af73bcbadad1403e06a8940db0d24f90aa7a92a41621c453dce3e566",
-    "microphysics_outputs.cc": "5d33f1fac9b745305aec66082d80804da3d4ed39f9af742453e8b707ecf6ee49"
+    "microphysics_outputs.cc": "a9ced0783532c95f962438b3cc2853ec1cc07b49e6d1c10098157370041c1d56"
   },
   "starforge_legacy_RT_EUV": {
     "jaco_eos.cc": "f709d75a2e027284e76621f73369fff68a6ecb1cfe57f5670cedec4da582803d",

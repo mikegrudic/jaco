@@ -185,22 +185,11 @@ def dust_band_power(band):
 
 def dust_band_absorption(band):
     """Dust absorption of a non-ionizing band (dust_band_power), the band losing it at c_tilde (the kick,
-    rt_update_driftkick); the kick donates it to the IR band through the dust, which here re-emits it in its
-    balance"""
+    rt_update_driftkick); the kick passes it to the IR band once, as a source of the IR band's update that the dust
+    re-emits (E_abs_tot_toIR), as the dust balance here re-emits it"""
     return Transfer(dust_band_power(band), {band: -rsol / EV, "dust heat": 1}, name=f"Dust absorption of {band}",
                     bibliography=["GIZMO rt_utilities.cc rt_kappa, rt_absorb_frac_albedo, rt_update_driftkick and "
                                   "dust_dE_cooling"])
-
-
-def legacy_ir_donation_copy():
-    """GIZMO's kick puts the energy the dust absorbs from the photoelectric, NUV and optical bands into the IR band twice:
-    each donor band adds it to the IR band's energy directly, and the IR band, updated last, reads that energy and adds
-    the same amount again as a source rate (E_abs_tot_toIR in its total_de_dt; rt_update_driftkick). This process is
-    the second copy, energy GIZMO creates: the IR band gains, at c_tilde, what the dust absorbs from those bands
-    (dust_band_power), with nothing taken from anywhere. Remove it (Model.without) for the conserving coupling"""
-    power = sum(dust_band_power(b) for b in (FUV, NUV, ONIR))
-    return Transfer(power, {IR: rsol / EV}, name="GIZMO's second copy of the donated dust absorption in photon_IR",
-                    bibliography=["GIZMO rt_utilities.cc rt_update_driftkick"])
 
 
 def dust_ir_absorption():
@@ -213,7 +202,8 @@ def dust_ir_absorption():
 
 def kick_gas_share():
     """The share 2 (1 - exp(-x/2)) / x of the gas IR absorption rate GIZMO's two half-step kicks give the gas: each
-    absorbs at most the band's energy, e0 (1 - exp(-x/2)), and gives the gas its opacity share of that. x = c_tilde
+    absorbs at most the band's energy, e0 (1 - exp(-x/2)), and gives the gas its opacity share of that, straight into
+    its internal energy (rt_update_driftkick). x = c_tilde
     kappa rho dt at the dust's absorption opacity (which dominates the band's) and the start-of-step dust temperature,
     so a function of parameters only"""
     a = rsol * C_LIGHT * ir_dust_opacity(T_dust_initial, T_rad) * rho * dt
@@ -223,8 +213,8 @@ def kick_gas_share():
 
 def gas_ir_absorption():
     """Gas absorption of the IR band at the non-dust absorption opacity (rt_kappa_adaptive_IR_band flags -1, -1), as
-    GIZMO's kick and dust balance take it: the kick heats the gas (DtInternalEnergy) with its share of the energy the
-    band absorbs, at c_tilde/c of the physical rate and at most the band's energy per half-step kick
+    GIZMO's kick and dust balance take it: each half-step kick heats the gas with its share of the energy the band
+    absorbs, at c_tilde/c of the physical rate (1:1 with the band's loss) and at most the band's energy per kick
     (kick_gas_share); rt_eqm_dust_temp counts the whole absorption at the true c as the dust's heating (its absorbed
     power is the band's at the gas and dust absorption opacity, flags -1, 0), while the kick re-emits only the dust's
     share into the band: the dust balance's re-emission of the gas share is taken back from the band. Reproduced,
@@ -329,17 +319,17 @@ def recombination_return_fraction():
     return (1 - S) * (heat_rhd + 1e-30) / (eps_H0_UVB * S + heat_rhd + 1e-30)
 
 
-def ir_radiation_temperature(absorbers, dust_emitters, gas_emitters, prior_sources=()):
+def ir_radiation_temperature(absorbers, dust_emitters, gas_emitters):
     """(Output expression, sums) of the IR band's radiation temperature after the step, by GIZMO's photon-number
     weighting of what the band keeps and gains (the kick's absorption/re-emission update in rt_update_driftkick and
     the cooling return's in rt_cooling_radiation_to_bands, in one): the band's initial photons that survive absorption
     at T_rad, the rest of the final band at the dust and gas temperatures in proportion to their (positive) emission.
     The surviving share is the kick's exp(-a dt), a the absorption rate at the end of the step: the gross absorption
     and emission of the implicit step can exceed the band's energy many times over in an optically thick cell, so they
-    cannot weight it directly. prior_sources add to the band before the kick's IR update (GIZMO's direct donation),
-    so count with its initial photons"""
-    A, D, G, P = sp.symbols("A_IR D_IR G_IR P_IR")
-    n0 = n_Htot * sp.Symbol("x_photon_IR_initial") + dt * sp.Max(P, 0)
+    cannot weight it directly. Not reproduced: the kick also counts the gas's opacity share of the absorbed energy,
+    which goes to the gas, as photons at max(T_rad, T) (a share below 1e-2 outside dense ionized gas)"""
+    A, D, G = sp.symbols("A_IR D_IR G_IR")
+    n0 = n_Htot * sp.Symbol("x_photon_IR_initial")
     n1 = n_(IR)
     a_dt = sp.Min(sp.Max(-dt * A, 0) / (n1 + 1e-300), 700)
     unabsorbed = sp.Min(n0 * sp.exp(-a_dt), n1)
@@ -348,5 +338,5 @@ def ir_radiation_temperature(absorbers, dust_emitters, gas_emitters, prior_sourc
     T_new = n1 / (count + 1e-300)
     expr = sp.Max(sp.Min(T, T_dust, T_rad), sp.Min(sp.Max(T, T_dust, T_rad), T_new))
     sums = {"A_IR": {(p, IR): 1 for p in absorbers}, "D_IR": {(p, IR): 1 for p in dust_emitters},
-            "G_IR": {(p, IR): 1 for p in gas_emitters}, "P_IR": {(p, IR): 1 for p in prior_sources}}
+            "G_IR": {(p, IR): 1 for p in gas_emitters}}
     return expr, sums

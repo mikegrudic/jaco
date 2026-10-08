@@ -44,11 +44,10 @@ Deviations from GIZMO, each forced by doing the coupling in one implicit step:
 
 Reproduced as GIZMO does them, though they do not conserve energy: the gas absorption of the IR band heats the gas at
 c_tilde/c of the physical rate, at most its share of the band's energy per half-step kick, and is counted in full in
-the dust balance as well, though the band gets only the dust's share back (radiation.gas_ir_absorption); the kick
-puts the dust-absorbed energy of the photoelectric, NUV and optical bands into the IR band twice
-(radiation.legacy_ir_donation_copy, a separate process: Model.without removes it); photoheating takes eps_HI per
-photoionization while the band loses hnu_EUV to the optical band; photoelectric heating and H2
-photodissociation do not take from the bands.
+the dust balance as well, though the band gets only the dust's share back (radiation.gas_ir_absorption); photoheating
+takes eps_HI per photoionization while the band loses hnu_EUV to the optical band; photoelectric heating and H2
+photodissociation do not take from the bands. The dust-absorbed energy of the photoelectric, NUV and optical bands
+reaches the IR band once, as the dust's emission (GIZMO's E_abs_tot_toIR).
 """
 
 import sympy as sp
@@ -175,14 +174,12 @@ RADIATION_PROCESSES = [
     rt.photoionization(donation=ONIR),
     rt.ir_tail_photoionization(),
     *[rt.dust_band_absorption(b) for b in (FUV, NUV, ONIR)],
-    rt.legacy_ir_donation_copy(),
     rt.dust_ir_absorption(),
     rt.gas_ir_absorption(),
     rt.dust_ir_emission(),
     rt.compton_off_bands(BANDS),
 ]
 IR_ABSORBERS = ["Dust absorption of photon_IR", "Gas absorption of photon_IR"]
-DONATION_COPY = "GIZMO's second copy of the donated dust absorption in photon_IR"
 DERIVED = {
     "f_d": dust_survival(T_dust),
     "G_0": rt.G0_of_band(),
@@ -195,10 +192,10 @@ DERIVED = {
 
 
 def _outputs():
-    # GIZMO's direct donation (here the dust's re-emission of what it absorbs) is in the IR band before the kick's
-    # update counts it at T_rad; its second copy is the update's dust emission: the copy takes the first's weight
+    # the kick's IR update counts the donor bands' dust absorption (E_abs_tot_toIR) with the band's own absorbed
+    # energy, re-emitted at T_dust, none of it at T_rad: here both leave the dust balance as its emission
     T_new, sums = rt.ir_radiation_temperature(IR_ABSORBERS, ["Dust emission into photon_IR"],
-                                              sorted(set(NUV_ROUTE) | set(IR_ROUTE)), prior_sources=[DONATION_COPY])
+                                              sorted(set(NUV_ROUTE) | set(IR_ROUTE)))
     return [
         Output("T_rad_new", T_new, units="K", sums=sums,
                doc="IR radiation temperature after the step, GIZMO's photon-number weighting"),
