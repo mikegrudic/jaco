@@ -1,27 +1,34 @@
-"""Implementation of CO cooling following Whitworth & Jaffa 2018A&A...611A..20W"""
+"""CO rotational cooling, Whitworth & Jaffa (2018, A&A 611, A20; WJ18), Eqs. 15-18.
 
-# TODO: write test against their plots
-from jaco.processes import collisional_thermal_term
+WJ18 calibrate on Goldsmith & Langer (1978) for gas with all of its H in H2: their n_H2 = rho / m_H2 stands for the mass
+density (Sec. 1) and their X_CO is n_CO / n_H2. Here that n_H2 is n_Htot / 2 in the rates and in X_CO alike, whatever
+the molecular fraction of the gas being cooled; its CO abundance is the model's (carbon_abundances). WJ18's |div v| is
+the model's velocity-gradient norm.
+"""
+
+import sympy as sp
+from jaco.processes import ThermalTerm
+from jaco.symbols import n_
 from .symbols import T, grad_v, x_, n_Htot, cmb_bath_factor, lowtemp_truncation
 
-# Eq. 37
-lam_CO_lo = 2.16e-27
-lam_CO_hi = 2.21e-28
-beta_0 = 1.23
-beta_nH2 = 0.0533
-beta_T = 0.164
+KMS_PER_PC = 1e5 / 3.085678e18  # 1 km/s/pc in s^-1
+# Eq. 14
+LAMBDA_LO = 2.16e-27  # erg s^-1
+LAMBDA_HI = 2.21e-28  # erg s^-1
+BETA_0, BETA_NH2, BETA_T = 1.23, 0.0533, 0.164
 
-# note we are letting 'lambda' be the usual thing defined cm^3 erg s^-1, not their erg s^-1
-lambda_CO_lo = lam_CO_lo * T**1.5
-# LVG limit: grad_v is in s^-1 (CGS), 3.241e-14 = 1 km/s/pc in s^-1
-# using n_H here because they are really using n_H_2 as a proxy for mass density, in practice
-lambda_CO_hi = lam_CO_hi * (x_("CO") * 3.241e-14 / grad_v) ** -1 * T**4 / (0.5 * n_Htot) ** 2
-beta = 1.23 * (0.5 * n_Htot) ** beta_nH2 * T**beta_T
-lambda_CO = (lambda_CO_lo ** (-1 / beta) + lambda_CO_hi ** (-1 / beta)) ** -beta
+n_H2_wj18 = n_Htot / 2  # WJ18's n_H2: all H nuclei in H2
+X_CO = x_("CO") * n_Htot / n_H2_wj18
 
-CO_cooling = collisional_thermal_term(
-    ("CO", "H_2"),
-    -lambda_CO * cmb_bath_factor * lowtemp_truncation,
+# Eqs. 15-17 divided by n_H2, so per n_CO n_H2 (cm^3 erg s^-1)
+lambda_CO_lo = LAMBDA_LO * T**1.5
+lambda_CO_hi = LAMBDA_HI * (X_CO * KMS_PER_PC / grad_v) ** -1 * T**4 / n_H2_wj18**2
+beta = BETA_0 * n_H2_wj18**BETA_NH2 * T**BETA_T
+lambda_CO = (lambda_CO_lo ** (-1 / beta) + lambda_CO_hi ** (-1 / beta)) ** -beta  # Eq. 18
+
+CO_cooling = ThermalTerm(
+    -lambda_CO * n_("CO") * n_H2_wj18 * cmb_bath_factor * lowtemp_truncation,
     name="CO Cooling",
     bibliography=["2018A&A...611A..20W"],
+    clumping=sp.Symbol("C_2"),
 )

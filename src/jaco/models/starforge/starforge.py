@@ -82,10 +82,11 @@ def shared_processes():
 
 
 def carbon_abundances():
-    """C+ and CO from GIZMO's cooling-curve interpolation, fco/(1 - fco) ~ (n / 340 G0)^2 / sqrt(T) (Tielens)"""
+    """C+ and CO from GIZMO's cooling-curve interpolation, fco/(1 - fco) ~ (n / 340 G0)^2 / sqrt(T) (Tielens); the
+    carbon outside C+ is in CO in proportion to the molecular fraction 2 x_H2"""
     x_C_tot = sp.Symbol("x_C,tot")
     f_Cp = 1 / (1 + (n_Htot / (340 * sp.Max(sp.Rational(1, 10), G_0)))**2 / sp.sqrt(sp.Max(T, 10)))
-    return {"C+": x_C_tot * f_Cp, "CO": sp.Max(1e-30, x_C_tot * (1 - f_Cp) * x_("H_2"))}
+    return {"C+": x_C_tot * f_Cp, "CO": sp.Max(1e-30, x_C_tot * (1 - f_Cp) * 2 * x_("H_2"))}
 
 
 def make_model():
