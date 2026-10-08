@@ -1,0 +1,5 @@
+# Fe+ a6D 7/2 -> a6D 9/2 (26 um), Hollenbach & McKee 1989, ApJ 342, 306 (1989ApJ...342..306H), as tabulated by Maio et al.
+# 2007, MNRAS 379, 963 (2007MNRAS.379..963M; arXiv:0704.2182, Appendix B) and Grassi et al. 2014, MNRAS 439, 2386
+# (2014MNRAS.439.2386G; arXiv:1311.1070, Table B4), which agree. Columns as glover_jappsen_2007_table5.txt.
+# coolant  transition  g_j  g_i  lambda_ji(um)  E_ji/k(K)  A_ji(s^-1)
+Fe+  1->0  8  10  25.99  553.58  2.13e-3

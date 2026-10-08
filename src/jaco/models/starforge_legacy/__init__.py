@@ -14,7 +14,8 @@ gizmo_jaco_dev e5865f97. What separates it from STARFORGE (jaco.models.starforge
 - Free electrons: find_abundances_and_rates' metal budget (937-948), whose heavy-ion term is its cosmic-ray ionization
   of the neutrals; no explicit cosmic-ray ionization of H.
 - C+, [CI] 609 um and CO cooling: Lambda_Metals_Neutral (1158-1176), [CI] weighted by the C+ fraction, HM79 CO with an
-  LVG cap; carbon counted as atoms in the EOS and the metal-line tables.
+  LVG cap; carbon counted as atoms in the EOS and the metal-line tables. STARFORGE has the fine-structure lines of C+,
+  C, O, Si+ and Fe+ from levels in statistical equilibrium with the CMB, on gas-phase abundances, and WJ18 CO.
 - H2/HD cooling: colliders weighted by the fixed mass fractions X_H, Y_He, HD/H2 = min(0.00126, 4e-5 x_H0 / x_H2)
   (1177-1192).
 

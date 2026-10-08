@@ -1,15 +1,13 @@
 """Low-temperature metal and molecular cooling.
 
 STARFORGE_LEGACY against a transcription of GIZMO's COOL_LOW_TEMPERATURES block (cooling.cc, detailed branch: C+ with
-[CI] 609 um, HM79 CO with its LVG cap, H2/HD with mass-fraction collider weights), per nHcgs^2; STARFORGE's [CI] on
-neutral carbon."""
+[CI] 609 um, HM79 CO with its LVG cap, H2/HD with mass-fraction collider weights), per nHcgs^2."""
 
 import numpy as np
 import pytest
 import sympy as sp
 from jaco.symbols import n_
 from ..gizmo_lowtemp import gizmo_carbon_cooling, gizmo_H2_cooling
-from ..line_cooling import CI_cooling
 from ..symbols import T, n_Htot, x_, G_0, NH, grad_v, X_H, z, x_solar
 
 y, C2 = sp.Symbol("y"), sp.Symbol("C_2")
@@ -58,12 +56,3 @@ def test_legacy_matches_gizmo(Tv, nH, xHp, xe, xH2, G0, column, gv):
     factor = (Tv - 2.73) / (Tv + 2.73)  # truncation is 1 below 10^4.5 K
     assert -float(gizmo_carbon_cooling.heat.subs(vals)) == pytest.approx(nH**2 * metals * factor, rel=1e-10)
     assert -float(gizmo_H2_cooling.heat.subs(vals)) == pytest.approx(nH**2 * molecules * factor, rel=1e-10)
-
-
-def test_starforge_CI_on_neutral_carbon():
-    """Hocuk+16 rate 2.08e-29 exp(-23.6/T) per neutral H nucleus at solar C, on the carbon not in C+ or CO"""
-    Tv, n, xHp = 20.0, 300.0, 1e-6
-    xC, xCp, xCO = x_solar("C"), 0.2 * x_solar("C"), 0.5 * x_solar("C")
-    vals = {T: Tv, n_Htot: n, x_("H+"): xHp, sp.Symbol("x_C,tot"): xC, x_("C+"): xCp, x_("CO"): xCO, C2: 1.0, z: 0.0}
-    expected = 2.08e-29 * np.exp(-23.6 / Tv) * (xC - xCp - xCO) / x_solar("C") * n**2 * (1 - xHp) * (Tv - 2.73) / (Tv + 2.73)
-    assert -float(CI_cooling.heat.subs(vals)) == pytest.approx(expected, rel=1e-12)

@@ -8,7 +8,8 @@ from ..starforge import make_model
 from ..symbols import n_Htot, X_H, T, G_0, Z_dust, f_dust
 from ...starforge_legacy import make_model as make_legacy, GIZMO_CLUMPING, GIZMO_DENSITY
 
-SF_ONLY = {"[CI] 609 um cooling", "CO Cooling", "C+-e- Line Cooling", "C+-H Line Cooling", "H2 + HD Line Cooling",
+SF_ONLY = {"[CII] fine-structure cooling", "[CI] fine-structure cooling", "[OI] fine-structure cooling",
+           "[SiII] fine-structure cooling", "[FeII] fine-structure cooling", "CO Cooling", "H2 + HD Line Cooling",
            "Grain-assisted recombination of H+", "Charge transfer of H+ to Mg", "Direct ionization of H by cosmic rays",
            "Formation of H_2 on dust grains"}
 LEGACY_ONLY = {"GIZMO C+, [CI] and CO cooling", "GIZMO H2 + HD cooling", "GIZMO H2 network"}

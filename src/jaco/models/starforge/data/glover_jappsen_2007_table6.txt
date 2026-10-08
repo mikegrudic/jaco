@@ -1,0 +1,75 @@
+# Glover & Jappsen 2007, ApJ 666, 1 (2007ApJ...666....1G; arXiv:0705.0182v2), Table 6, pp. 51-53 of the arXiv preprint:
+# "Collisional de-excitation rates for atomic fine-structure coolants" (cm^3 s^-1). Transcribed as printed, except the
+# two rows marked "corrected" (see README.md). T is the gas temperature in K and T2 = T / 100 K.
+#
+# coolant  collider  transition  T-range  refs  form  coefficients
+#   forms: const a          = a
+#          lin a b          = a + b T
+#          pow a b          = a T^b
+#          pow2 a b         = a T2^b
+#          powT0 a b T0     = a (T / T0)^b
+#          exp1 a b T0      = a + b exp(-T / T0)
+#          exp2 a b c T0    = a + b exp(-T / T0) + c exp(-2 T / T0)
+#          quadpow a b c d  = (a + b T + c T^2) T^d
+#          lnpoly a c0 c1 c2 c3 c4 = a T^-0.5 exp(c0 + c1 ln T + c2 (ln T)^2 + c3 (ln T)^3 + c4 (ln T)^4)
+#   T-range: all, T<=X, T>X or X<T<=Y
+C    o-H2  1->0  all           1     exp2     8.7e-11 -6.6e-11 6.6e-11 218.3
+C    o-H2  2->0  all           1     exp1     1.2e-10 -6.1e-11 387.3
+C    o-H2  2->1  all           1     exp1     2.9e-10 -1.9e-10 348.9
+C    p-H2  1->0  all           1     exp2     7.9e-11 -8.7e-11 1.3e-10 126.4
+C    p-H2  2->0  all           1     exp2     1.1e-10 -8.6e-11 8.7e-11 223.0
+C    p-H2  2->1  all           1     exp2     2.7e-10 -2.6e-10 1.8e-10 250.7
+C    H     1->0  all           2     pow2     1.6e-10 0.14
+C    H     2->0  all           2     pow2     9.2e-11 0.26
+C    H     2->1  all           2     pow2     2.9e-10 0.26
+C    H+    1->0  T<=5000       3     quadpow  9.6e-11 -1.8e-14 1.9e-18 0.45
+C    H+    1->0  T>5000        3     pow      8.9e-10 0.117
+C    H+    2->0  T<=5000       3     quadpow  3.1e-12 -6.0e-16 3.9e-20 1
+C    H+    2->0  T>5000        3     pow      2.3e-9 0.0965
+C    H+    2->1  T<=5000       3     quadpow  1.0e-10 -2.2e-14 1.7e-18 0.70
+C    H+    2->1  T>5000        3     pow      9.2e-9 0.0535
+C    e-    1->0  T<=1000       4     lnpoly   2.88e-6 -9.25141 -7.73782e-1 3.61184e-1 -1.50892e-2 -6.56325e-4
+# corrected: printed -4.44600e2
+C    e-    1->0  T>1000        4     lnpoly   2.88e-6 4.44600e2 -2.27913e2 4.2595e1 -3.47620e0 1.0508e-1
+C    e-    2->0  T<=1000       4     lnpoly   1.73e-6 -7.69735 -1.30743 0.697638 -0.111338 0.705277e-2
+C    e-    2->0  T>1000        4     lnpoly   1.73e-6 3.50609e2 -1.87474e2 3.61803e1 -3.03283e0 9.38138e-2
+C    e-    2->1  T<=1000       4     lnpoly   1.73e-6 -7.4387 -0.57443 0.358264 -4.18166e-2 2.35272e-3
+C    e-    2->1  T>1000        4     lnpoly   1.73e-6 3.86186e2 -2.02192e2 3.85049e1 -3.19268e0 9.78573e-2
+O    o-H2  1->0  all           5     pow      2.7e-11 0.362
+O    o-H2  2->0  all           5     pow      5.49e-11 0.317
+O    o-H2  2->1  all           5     pow      2.74e-14 1.060
+O    p-H2  1->0  all           5     pow      3.46e-11 0.316
+O    p-H2  2->0  all           5     pow      7.07e-11 0.268
+O    p-H2  2->1  all           5     pow      3.33e-15 1.360
+O    H     1->0  all           5     pow2     9.2e-11 0.67
+O    H     2->0  all           5     pow2     4.3e-11 0.80
+O    H     2->1  all           5     pow2     1.1e-10 0.44
+O    H+    1->0  T<=194        6     pow      6.38e-11 0.40
+O    H+    1->0  194<T<=3686   6     pow      7.75e-12 0.80
+O    H+    1->0  T>3686        6     pow      2.65e-10 0.37
+O    H+    2->0  T<=511        6     pow      6.10e-13 1.10
+O    H+    2->0  511<T<=7510   6     pow      2.12e-12 0.90
+O    H+    2->0  T>7510        6     pow      4.49e-10 0.30
+O    H+    2->1  T<=2090       6     pow      2.03e-11 0.56
+O    H+    2->1  T>2090        6     pow      3.43e-10 0.19
+O    e-    1->0  all           7     pow      5.12e-10 -0.075
+O    e-    2->0  all           7     pow      4.86e-10 -0.026
+O    e-    2->1  all           7     pow      1.08e-14 0.926
+Si   H     1->0  all           2     pow2     3.5e-10 -0.03
+Si   H     2->0  all           2     pow2     1.7e-11 0.17
+Si   H     2->1  all           2     pow2     5.0e-10 0.17
+Si   H+    1->0  all           2     const    7.2e-9
+Si   H+    2->0  all           2     const    7.2e-9
+Si   H+    2->1  all           2     const    2.2e-8
+C+   o-H2  1->0  T<=250        8,9   lin      4.7e-10 4.6e-13
+# corrected: printed 5.85e-10 T^0.07
+C+   o-H2  1->0  T>250         8,9   powT0    5.85e-10 0.07 250
+C+   p-H2  1->0  T<=250        8,9   pow      2.5e-10 0.12
+# corrected: printed 4.85e-10 T^0.07
+C+   p-H2  1->0  T>250         8,9   powT0    4.85e-10 0.07 250
+C+   H     1->0  T<=2000       2,10  pow2     8.0e-10 0.07
+C+   H     1->0  T>2000        2,10  pow2     3.1e-10 0.385
+C+   e-    1->0  T<=2000       11    pow2     3.86e-7 -0.5
+C+   e-    1->0  T>2000        11    pow2     2.43e-7 -0.345
+Si+  H     1->0  all           12    pow2     4.95e-10 0.24
+Si+  e-    1->0  all           13    pow2     1.2e-6 -0.5

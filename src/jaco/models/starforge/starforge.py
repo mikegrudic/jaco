@@ -8,10 +8,11 @@ its cooling, gas-dust coupling, cosmic-ray and photoelectric heating, CMB Compto
 
 STARFORGE in addition: the H2/H- reaction network with the heat of H2 formation and dissociation, H- in steady state;
 cosmic-ray ionization of H with radiative, grain-assisted and charge-transfer sinks, and the C+, Mg+ and molecular-ion
-balances for the other free electrons (ionization_balance.py); C+ (on the Tielens C+/CO interpolation), [CI] 609 um on
-neutral carbon and Whitworth & Jaffa CO cooling; H2/HD cooling with number-weighted colliders; clumping on every
-two-body rate, estimated from the trace-free velocity gradient and tapered off above ~5000 K. The cooling and the
-electron budget see the same gas-phase (undepleted) abundances (gas_phase.py).
+balances for the other free electrons (ionization_balance.py); the fine-structure lines of C+, C, O, Si+ and Fe+ from
+levels in statistical equilibrium (fine_structure.py; C+ and CO on the Tielens interpolation) and Whitworth & Jaffa CO
+cooling; H2/HD cooling with number-weighted colliders; clumping on every two-body rate, estimated from the trace-free
+velocity gradient and tapered off above ~5000 K. The cooling and the electron budget see the same gas-phase
+(undepleted) abundances (gas_phase.py).
 """
 
 import sympy as sp
@@ -19,7 +20,8 @@ from jaco.model import Model
 from jaco.declarations import Parameter, Species
 from jaco.processes import CollisionalIonization, GasPhaseRecombination, FreeFreeEmission, ThermalTerm
 from jaco.symbols import x_
-from .line_cooling import LineCoolingSimple, CI_cooling
+from .line_cooling import LineCoolingSimple
+from .fine_structure import fine_structure_cooling
 from .h2_chemistry import h2_chemistry_processes
 from .H2_cooling import H2_cooling
 from .CO_cooling import CO_cooling
@@ -95,7 +97,7 @@ def make_model():
     ion_processes, intermediates, fixed_electrons = ionization_processes()
     return Model(
         shared_processes()
-        + [H2_cooling, *LineCoolingSimple("C+"), CO_cooling, CI_cooling, *ion_processes]
+        + [H2_cooling, *fine_structure_cooling(), CO_cooling, *ion_processes]
         + h2_chemistry_processes(chemical_heat=True)
         + [pdv_work],
         solve_vars=SOLVE_VARS,
