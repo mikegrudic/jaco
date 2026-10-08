@@ -12,7 +12,8 @@ from jaco.symbols import n_, x_
 from ..starforge import make_model
 from ...starforge_legacy import make_model as make_legacy
 from ..ionization_balance import ion_abundances
-from ..symbols import clumping_factor, T, grad_v, dx, x_solar
+from ..symbols import (clumping_factor, clumping_factor_tracefree, cold_gas_taper, T, grad_v, grad_v_tf, dx,
+                       x_solar)
 
 C2, C3 = sp.Symbol("C_2"), sp.Symbol("C_3")
 ONE_BODY = {"Cosmic ray heating", "Photoelectric Heating", "Inverse Compton cooling (CMB)", "Photodissociation of H_2",
@@ -102,3 +103,29 @@ def test_clumping_estimator_is_gizmos():
     dv_kms = gv * dxv / 1e5
     expected = 1 + (0.5 * dv_kms / (0.111 * np.sqrt(Tv) / np.sqrt(3))) ** 2
     assert float(clumping_factor.subs({T: Tv, grad_v: gv, dx: dxv})) == pytest.approx(expected, rel=1e-12)
+
+
+def test_clumping_gradient_each_model():
+    """STARFORGE estimates C_2 from the trace-free velocity gradient, so homologous flow is not sub-grid turbulence;
+    STARFORGE_LEGACY keeps GIZMO's full norm"""
+    sf, legacy = make_model().derived["C_2"].free_symbols, make_legacy().derived["C_2"].free_symbols
+    assert grad_v_tf in sf and grad_v not in sf
+    assert grad_v in legacy and grad_v_tf not in legacy
+
+
+def test_cold_gas_taper():
+    """STARFORGE clumps cold gas only: the taper is ~1 at 100 K, ~0.05 at 1e4 K and decreasing in T"""
+    f = sp.lambdify(T, cold_gas_taper(), "numpy")
+    assert f(100.0) == pytest.approx(1, abs=1e-6)
+    assert f(2000.0) == pytest.approx(0.98, abs=0.005)
+    assert f(1e4) == pytest.approx(0.0470, abs=0.001)
+    Tg = np.logspace(0, 10, 2001)
+    assert np.all(np.diff(f(Tg)) <= 0)
+    vals = {T: 1e4, grad_v_tf: 2e-14, dx: 3e18}
+    C2 = make_model().derived["C_2"]
+    assert float(C2.subs(vals)) - 1 == pytest.approx(f(1e4) * (float(clumping_factor_tracefree.subs(vals)) - 1), rel=1e-12)
+
+
+def test_legacy_clumping_untapered():
+    """STARFORGE_LEGACY keeps GIZMO's estimator exactly"""
+    assert make_legacy().derived["C_2"] == clumping_factor

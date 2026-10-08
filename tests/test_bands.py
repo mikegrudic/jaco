@@ -383,8 +383,8 @@ def test_band_structure():
 
 @pytest.mark.slow
 def test_legacy_rt_model_band_structure():
-    """GIZMO's coupling is not band-diagonal: the ionizing band donates to the optical one, the dust-absorbed bands'
-    energy is copied into the IR band, and cooling routed into the bands depends on other bands"""
+    """GIZMO's coupling is not band-diagonal: the ionizing band donates to the optical one, and the cooling routed into
+    the bands depends on other bands (G_0, T_bg, f_IR_selfabs, f_recNUV)"""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         from jaco.models.starforge_legacy_RT import make_model
