@@ -9,7 +9,8 @@ photosphere (Rafikov 2007, eta = 1): per unit volume at most
 with nHcgs = 0.76 rho / m_p, and caps the net heating or cooling of CoolingRate, |Q| <= L. Q is every term CoolingRate
 sums, the hydrodynamic PdV work excluded. Here Q is the heat of every process of the model but PdV work and those named
 exempt: the H2/H- reactions, whose chemical heat GIZMO's CoolingRate does not have (capping it would let the gas
-dissociate H2 without paying the binding energy). Collisional ionization is capped, as GIZMO caps it.
+dissociate H2 without paying the binding energy). The energy H2 formation radiates is a separate cooling term
+(h2_chemistry/chemical_heat.py), capped. Collisional ionization is capped, as GIZMO caps it.
 
 The limit is a rule that scales the energy rows (heat, and the dust heat of gas-dust collisions) of every capped
 process by f, so their sum Q becomes Q f. Q and f are intermediates (Q_thick, f_thick), evaluated once per call and

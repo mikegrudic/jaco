@@ -6,7 +6,8 @@ x_H+, x_He+, x_He++ and x_H2 (T and H2 in time, the ions in steady state) and sh
 its cooling, gas-dust coupling, cosmic-ray and photoelectric heating, CMB Compton cooling, tabulated metal lines
 (switched by f_metal), Kim+23 nebular lines (f_neb) and the PdV term (shared_processes()).
 
-STARFORGE in addition: the H2/H- reaction network with the heat of H2 formation and dissociation, H- in steady state;
+STARFORGE in addition: the H2/H- reaction network with the heat of H2 formation and dissociation, H- in steady state,
+and the energy formation radiates as a cooling term under the optically-thick limit;
 cosmic-ray ionization of H with radiative, grain-assisted and charge-transfer sinks, and the C+, Mg+ and molecular-ion
 balances for the other free electrons (ionization_balance.py); the fine-structure lines of C+, C, O, Si+ and Fe+ from
 levels in statistical equilibrium (fine_structure.py; C+ and CO on the Tielens interpolation) and Whitworth & Jaffa CO
@@ -23,7 +24,7 @@ from jaco.processes import CollisionalIonization, GasPhaseRecombination, FreeFre
 from jaco.symbols import x_
 from .line_cooling import LineCoolingSimple
 from .fine_structure import fine_structure_cooling
-from .h2_chemistry import h2_chemistry_processes
+from .h2_chemistry import h2_chemistry_processes, h2_formation_radiation
 from .H2_cooling import H2_cooling
 from .CO_cooling import CO_cooling
 from .gas_dust_collisions import gas_dust_collisions
@@ -94,21 +95,19 @@ def carbon_abundances():
     return {"C+": x_gas("C") * f_Cp, "CO": sp.Max(1e-30, x_gas("C") * (1 - f_Cp) * 2 * x_("H_2"))}
 
 
-def make_model(chemical_heat=True, optically_thick=True, three_body_detailed_balance=False, formation_heat_closed=False):
+def make_model(chemical_heat=True, optically_thick=True, three_body_detailed_balance=False):
     """The STARFORGE model. chemical_heat: the gas takes the heat of H2 formation and pays that of dissociation;
     optically_thick: GIZMO's optically-thick limit on the cooling (optically_thick.py), which a model without a
     transported IR band needs in any gas dense enough to trap its cooling radiation; three_body_detailed_balance:
-    three-body H2 formation by detailed balance with the dissociation (h2_chemistry/detailed_balance.py);
-    formation_heat_closed: H2 formed on grains or through H- gives the gas the whole binding energy where collisions
-    de-excite it, as the 3-body channel does"""
+    three-body H2 formation by detailed balance with the dissociation (h2_chemistry/detailed_balance.py)"""
     ion_processes, intermediates, fixed_electrons = ionization_processes()
     h2_chemistry = h2_chemistry_processes(chemical_heat=chemical_heat,
-                                          three_body_detailed_balance=three_body_detailed_balance,
-                                          formation_heat_closed=formation_heat_closed)
+                                          three_body_detailed_balance=three_body_detailed_balance)
     model = Model(
         shared_processes()
         + [H2_cooling, *fine_structure_cooling(), CO_cooling, *ion_processes]
         + h2_chemistry
+        + h2_formation_radiation(h2_chemistry)
         + [pdv_work],
         solve_vars=SOLVE_VARS,
         time_dependent=TIME_DEPENDENT,
@@ -124,6 +123,6 @@ def make_model(chemical_heat=True, optically_thick=True, three_body_detailed_bal
         parameters=STARFORGE_PARAMETERS,
         species=STARFORGE_SPECIES,
     )
-    if optically_thick:  # the H2/H- reactions' chemical heat is not radiated, so it is not capped
+    if optically_thick:  # the reactions' chemical heat is not radiation; what formation radiates is capped
         model = with_optically_thick_cap(model, exempt=[p.name for p in h2_chemistry])
     return model

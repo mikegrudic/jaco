@@ -1,1 +1,1 @@
-from .H2_chemistry import h2_chemistry_processes
+from .H2_chemistry import h2_chemistry_processes, h2_formation_radiation, formation_channel

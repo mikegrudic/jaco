@@ -2,7 +2,7 @@
 
 from jaco.processes import Reaction
 from ..symbols import sp, T
-from .chemical_heat import formation_heat
+from .chemical_heat import formation_energy
 
 
 def threebody_rate(number: int):
@@ -36,7 +36,7 @@ def H2_3body_formation(chemical_heat=True, fit=5):
     return Reaction(
         "H + H + H -> H_2 + H",
         rate,
-        heat_per_reaction=formation_heat("3-body", chemical_heat),
+        heat_per_reaction=formation_energy(chemical_heat),
         name="3-body formation of H_2",
         bibliography=[bibcode],
     )

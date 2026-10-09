@@ -16,7 +16,7 @@ from jaco.processes import Reaction
 from jaco.symbols import piecewise_linear
 from jaco.eos.H2_partition_function import H2_energy_over_kbT
 from ..symbols import T, log_T, H2_BINDING_ENERGY
-from .chemical_heat import formation_heat
+from .chemical_heat import formation_energy
 from . import collisional_dissociation, three_body
 
 K_B, H_PLANCK, M_H = 1.380649e-16, 6.62607015e-27, 1.6735575e-24
@@ -64,7 +64,7 @@ def H2_3body_formation_detailed_balance(chemical_heat=True):
     s = 1 / (1 + sp.exp(-(log_T - sp.log(SWITCH_T, 10)) / SWITCH_DEX))
     ln_cold = {"H": sp.log(three_body.threebody_rate(5)[0]), "H_2": sp.log(1e-60), "He": sp.log(1e-60)}
     return [Reaction(f"H + H + {c} -> H_2 + {c}", sp.exp((1 - s) * ln_cold[c] + s * (ln_dissociation_coefficient(c) - ln_K)),
-                     heat_per_reaction=formation_heat("3-body", chemical_heat),
+                     heat_per_reaction=formation_energy(chemical_heat),
                      name=f"3-body formation of H_2 with {c} (detailed balance)",
                      bibliography=["2008MNRAS.388.1627G", "2013ApJ...773L..25F"])
             for c in ("H", "H_2", "He")]

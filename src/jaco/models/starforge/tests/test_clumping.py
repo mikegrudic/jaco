@@ -19,7 +19,7 @@ C2, C3 = sp.Symbol("C_2"), sp.Symbol("C_3")
 ONE_BODY = {"Cosmic ray heating", "Photoelectric Heating", "Inverse Compton cooling (CMB)", "Photodissociation of H_2",
             "Photodetachment of H-", "Dissociation of H_2 by cosmic rays", "Direct ionization of H by cosmic rays",
             "PdV work"}
-THREE_BODY = {"3-body formation of H_2"}
+THREE_BODY = {"3-body formation of H_2", "Radiation of 3-body formation of H_2"}
 
 ABUNDANCES = {"H": 0.6, "H+": 1e-4, "H_2": 0.2, "He": 0.094, "He+": 1e-8, "He++": 1e-12, "e-": 2e-4, "H-": 1e-10,
               "H_2+": 0.0, "HD": 1e-5, "C+": 1e-4, "CO": 5e-5, "C": 1.5e-4, "O": 5e-4, "N": 7e-5, "Ne": 9e-5, "Mg": 4e-5,
