@@ -52,7 +52,7 @@ def test_legacy_rates_at_gizmo_nHcgs(models):
 
 def test_declarations(models):
     sf, legacy = models
-    assert sf.solve_vars == legacy.solve_vars == ("u", "T", "H+", "He+", "He++", "H_2")
+    assert sf.solve_vars == legacy.solve_vars == ("u", "T", "H+", "He+", "He++", "H_2", "Td")
     assert sf.time_dependent == legacy.time_dependent == ("T", "H_2")
     assert sf.steady_state == ("H-",) and not legacy.steady_state
     assert set(sf.fixed) == {"H_2+", "HD", "C+", "CO"} and legacy.fixed == {"C+": 0, "CO": 0}

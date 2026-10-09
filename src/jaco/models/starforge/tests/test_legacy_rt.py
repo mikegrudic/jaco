@@ -558,16 +558,18 @@ def test_ir_radiation_temperature_output(models):
 
 def test_declarations(models):
     rt_model, legacy, euv = models
-    assert rt_model.solve_vars == legacy.solve_vars + (EUV, FUV, NUV, ONIR, IR, "Td")
+    gas = tuple(v for v in legacy.solve_vars if v != "Td")
+    assert rt_model.solve_vars == gas + (EUV, FUV, NUV, ONIR, IR, "Td")
     assert rt_model.time_dependent == ("T", "H+", "H_2", EUV, FUV, NUV, ONIR, IR)
     assert [v.name for v in rt_model.variables] == ["Td"] and rt_model.variables[0].row == "dust heat"
-    assert euv.solve_vars == legacy.solve_vars + (EUV,) and not euv.variables
+    assert euv.solve_vars == gas + (EUV, "Td") and [v.row for v in euv.variables] == ["dust heat"]
     params = {p.name for p in rt_model.parameters}
     assert {"rsol", "sigma_HI", "eps_HI", "hnu_EUV", "T_rad", "rho"} <= params
     assert not {"G_0", "G_0_step", "G_LW", "Td", "f_d", "T_bg", "f_IR_selfabs", "f_recNUV"} & params  # expressions now
     pe = process(rt_model, "Photoelectric Heating").heat.free_symbols
     assert S("G_0_step") in pe and S("G_0") not in pe  # the heating over the step; the closures at its end
-    assert {"Td", "G_0", "G_LW"} <= {p.name for p in euv.parameters}  # no IR band: GIZMO's non-RT dust temperature
+    euv_params = {p.name for p in euv.parameters}  # no IR band: GIZMO's non-RT dust balance (dust_balance.py)
+    assert {"G_0", "G_LW", "A_dust", "rho", "N_H_cool"} <= euv_params and "Td" not in euv_params
 
 
 @pytest.mark.slow

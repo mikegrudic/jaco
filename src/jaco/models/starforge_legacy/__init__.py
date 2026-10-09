@@ -32,6 +32,7 @@ from ..starforge.gizmo_lowtemp import gizmo_carbon_cooling, gizmo_H2_cooling
 from ..starforge.h2_chemistry.gizmo_network import GizmoH2Network
 from ..starforge.metal_electrons import metal_electrons
 from ..starforge.symbols import n_Htot, nH_gizmo_cooling, PARAMETERS
+from ..starforge.dust_balance import with_dust_balance, dust_side_beyond_truncation
 
 
 def scaled_densities(factor, exclude=frozenset()):
@@ -46,10 +47,11 @@ GIZMO_DENSITY = Rule("GIZMO's nHcgs in the rates", lambda p: p.transformed(scale
                      exempt={"GIZMO H2 network"})
 
 
-def make_model():
-    """The STARFORGE_LEGACY model"""
+def make_model(dust_balance=True):
+    """The STARFORGE_LEGACY model; dust_balance: the dust temperature solved from GIZMO's non-RT dust balance
+    (starforge/dust_balance.py), else a parameter (for a model that supplies its own balance)"""
     intermediates, fixed_electrons = metal_electrons(nH_gizmo_cooling)
-    return Model(
+    model = Model(
         shared_processes() + [gizmo_H2_cooling, gizmo_carbon_cooling, GizmoH2Network(), pdv_work],
         solve_vars=SOLVE_VARS,
         time_dependent=TIME_DEPENDENT,
@@ -61,3 +63,4 @@ def make_model():
         parameters=PARAMETERS,
         species=SHARED_SPECIES,
     )
+    return with_dust_balance(model, extra=[dust_side_beyond_truncation()]) if dust_balance else model

@@ -1,14 +1,15 @@
 """Outputs for an energy ledger of the H2 chemistry: what the collisional dissociations took from the gas and how many
 there were, the same for the formation channels that give the gas heat, the energy the formed H2 radiated (capped), the
-net H2 production of every process, the whole chemical heat of the H2/H- network, and the capped heat of the other
-processes (the formation radiation included) with the optically-thick limit's factor on it. With PdV work these heats
-are every process, so their sum is the energy row's rho du/dt. The solve is unchanged; the host integrates these over
-each step (rate * Delta_t under backward Euler)."""
+net H2 production of every process, the whole chemical heat of the H2/H- network, and the heat of every other process
+but PdV work (the radiation the optically-thick limit caps, the formation radiation included, and the gas-dust
+exchange, which passes the dust's capped radiation to the gas), with the limit's factor. With PdV work these heats are
+every process, so their sum is the energy row's rho du/dt. The solve is unchanged; the host integrates these over each
+step (rate * Delta_t under backward Euler)."""
 
 from jaco.declarations import Output
 from .h2_chemistry import h2_chemistry_processes
 from .h2_chemistry.chemical_heat import RADIATION_OF
-from .optically_thick import LIMIT_ID, F_THICK, capped_ids
+from .optically_thick import LIMIT_ID, F_THICK
 
 DISSOCIATION = tuple(f"Collisional dissociation of H_2 by {c}" for c in ("H+", "e-", "H_2", "H", "He"))
 FORMATION_CHANNELS = ("Formation of H_2 on dust grains", "3-body formation of H_2", "Associative detachment of H with H-")
@@ -38,9 +39,11 @@ def ledger_outputs(model):
                doc="heat of every H2/H- reaction"),
     ]
     if any(r.name == LIMIT_ID for r in model.rules):
+        radiative = [i for i, p in model.processes.items() if i not in set(chemistry) | {"PdV work"} and "heat" in p.network]
         outputs += [
-            Output("q_capped", heat_of=capped_ids(model, chemistry), units="erg cm^-3 s^-1",
-                   doc="heat of the processes the optically-thick limit caps, capped"),
+            Output("q_capped", heat_of=radiative, units="erg cm^-3 s^-1",
+                   doc="heat of every process but the H2/H- reactions and PdV work: the capped radiation and the "
+                       "gas-dust exchange"),
             Output("f_thick", F_THICK, doc="the optically-thick limit's factor on their heat"),
         ]
     return outputs

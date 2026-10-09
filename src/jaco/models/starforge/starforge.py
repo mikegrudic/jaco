@@ -15,6 +15,8 @@ cooling; H2/HD cooling with number-weighted colliders; clumping on every two-bod
 velocity gradient and tapered off above ~5000 K. The cooling and the electron budget see the same gas-phase
 (undepleted) abundances (gas_phase.py). Its cooling has GIZMO's optically-thick limit (optically_thick.py), which
 GIZMO's CoolingRate applies and the starforge_legacy transcription lacks.
+
+Both solve the dust temperature with the gas from GIZMO's non-RT dust balance (dust_balance.py).
 """
 
 import sympy as sp
@@ -36,6 +38,7 @@ from .nebular_cooling import nebular_cooling
 from .compton import compton_cooling
 from .gas_phase import x_gas
 from .optically_thick import with_optically_thick_cap
+from .dust_balance import with_dust_balance
 from .symbols import T, n_Htot, G_0, clumping_factor, clumping_factor_starforge, PARAMETERS
 
 # Solve variables in index order (GIZMO's jaco.cc assumes u, T first, abundances after) and the subset that gets a
@@ -123,6 +126,7 @@ def make_model(chemical_heat=True, optically_thick=True, three_body_detailed_bal
         parameters=STARFORGE_PARAMETERS,
         species=STARFORGE_SPECIES,
     )
-    if optically_thick:  # the reactions' chemical heat is not radiation; what formation radiates is capped
-        model = with_optically_thick_cap(model, exempt=[p.name for p in h2_chemistry])
+    model = with_dust_balance(model)
+    if optically_thick:  # chemical heat and the gas-dust exchange are not radiation; what formation radiates is
+        model = with_optically_thick_cap(model, exempt=[p.name for p in h2_chemistry] + ["Gas-dust collisions"])
     return model
