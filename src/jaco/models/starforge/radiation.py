@@ -31,7 +31,7 @@ from jaco.processes import Reaction, ThermalTerm, Transfer
 from jaco.symbols import n_, dt
 from .symbols import T, n_Htot, nH_gizmo_cooling, sqrt_T
 from .dust_opacity import (T_dust, T_rad, rho, Z_dust, ir_dust_opacity, ir_gas_opacity, band_dust_opacity,
-                           dust_survival)
+                           dust_survival, dust_ir_absorption_fraction)
 
 C_LIGHT = 2.9979e10  # GIZMO's C_LIGHT_CGS
 EV = 1.60217733e-12  # GIZMO's ELECTRONVOLT_IN_ERGS: the energy unit of the bands counted in eV
@@ -259,21 +259,25 @@ def dust_ir_absorption():
 
 
 def kick_gas_share():
-    """The share 2 (1 - exp(-x/2)) / x of the gas IR absorption rate GIZMO's two half-step kicks give the gas: each
-    absorbs at most the band's energy, e0 (1 - exp(-x/2)), and gives the gas its opacity share of that, straight into
-    its internal energy (rt_update_driftkick). x = c_tilde
-    kappa rho dt at the dust's absorption opacity (which dominates the band's) and the start-of-step dust temperature,
-    so a function of parameters only"""
+    """The share A(T_rad) 2 (1 - exp(-x/2)) / x of the gas IR absorption rate GIZMO's two half-step kicks give the gas:
+    each absorbs at most the band's energy, e0 (1 - exp(-x/2)), and gives the gas its opacity share of that, straight
+    into its internal energy (rt_update_driftkick). x = c_tilde kappa rho dt at the dust's absorption opacity (which
+    dominates the band's) and the start-of-step dust temperature, so a function of parameters only. GIZMO's opacity
+    share divides by the extinction kappa(0, 0), whose dust part lacks the absorption factor A(T_rad)
+    (dust_ir_absorption_fraction), so the gas gets A(T_rad) of its own absorption. Not reproduced: the gas and
+    electron-scattering opacity in that denominator (negligible in neutral gas, 6% at x_e = 0.33 in
+    test_gas_share_is_two_half_kicks)"""
     a = rsol * C_LIGHT * coefficients(DUST_ABSORBER, IR).chi_E.xreplace({T_dust: T_dust_initial}) * rho * dt
     x = sp.Min(a, 100)
-    return sp.Piecewise((1 - x / 4 + x * x / 24, x < 1e-3), (2 * (1 - sp.exp(-x / 2)) / a, True))
+    share = sp.Piecewise((1 - x / 4 + x * x / 24, x < 1e-3), (2 * (1 - sp.exp(-x / 2)) / a, True))
+    return dust_ir_absorption_fraction(T_rad) * share
 
 
 def gas_ir_absorption():
     """Gas absorption of the IR band at the non-dust absorption opacity (rt_kappa_adaptive_IR_band flags -1, -1), as
     GIZMO's kick and dust balance take it: each half-step kick heats the gas with its share of the energy the band
-    absorbs, at c_tilde/c of the physical rate (1:1 with the band's loss) and at most the band's energy per kick
-    (kick_gas_share); rt_eqm_dust_temp counts the whole absorption at the true c as the dust's heating (its absorbed
+    absorbs, at c_tilde/c of the physical rate (1:1 with the band's loss), at most the band's energy per kick and
+    A(T_rad) of it (kick_gas_share); rt_eqm_dust_temp counts the whole absorption at the true c as the dust's heating (its absorbed
     power is the band's at the gas and dust absorption opacity, flags -1, 0), while the kick re-emits only the dust's
     share into the band: the dust balance's re-emission of the gas share is taken back from the band. Reproduced,
     though the dust heating creates energy. In an optically thick cell the band is absorbed and re-emitted many times

@@ -43,11 +43,12 @@ Deviations from GIZMO, each forced by doing the coupling in one implicit step:
   process given a number row at the temperature it emits at.
 
 Reproduced as GIZMO does them, though they do not conserve energy: the gas absorption of the IR band heats the gas at
-c_tilde/c of the physical rate, at most its share of the band's energy per half-step kick, and is counted in full in
-the dust balance as well, though the band gets only the dust's share back (radiation.gas_ir_absorption); photoheating
-takes eps_HI per photoionization while the band loses hnu_EUV to the optical band; photoelectric heating and H2
-photodissociation do not take from the bands. The dust-absorbed energy of the photoelectric, NUV and optical bands
-reaches the IR band once, as the dust's emission (GIZMO's E_abs_tot_toIR).
+c_tilde/c of the physical rate, at most its share of the band's energy per half-step kick and A(T_rad) of it (GIZMO's
+share divides by the dust's IR extinction), and is counted in full in the dust balance as well, though the band gets
+only the dust's share back (radiation.gas_ir_absorption); photoheating takes eps_HI per photoionization while the band
+loses hnu_EUV to the optical band; photoelectric heating and H2 photodissociation do not take from the bands. The
+dust-absorbed energy of the photoelectric, NUV and optical bands reaches the IR band once, as the dust's emission
+(GIZMO's E_abs_tot_toIR).
 """
 
 import sympy as sp
