@@ -292,7 +292,8 @@ def test_zone_switches_are_bounded():
 
 def test_dust_emission_and_ir_rows(models):
     """Dust emission 4 sigma kappa_P(Td) rho Td^4 into the IR band at c_tilde (dust_dEdt); dust and gas absorption of the
-    IR band at kappa(Td, T_rad), the gas heated at c_tilde/c of the physical rate as GIZMO's kick does"""
+    IR band at kappa(Td, T_rad), the gas heated at c_tilde/c of the physical rate and A(T_rad) of it as GIZMO's kick
+    does. abs=0 throughout: these are cgs rates far below pytest.approx's default absolute tolerance"""
     rt_model, _, _ = models
     v = state(Td=60.0, T_rad=45.0)
     c = cell_of(v)
@@ -302,18 +303,18 @@ def test_dust_emission_and_ir_rows(models):
     gas_abs = C_LIGHT * gizmo_kappa_ir(60.0, 45.0, -1, -1, c) * v[S("rho")] * E_ir
     r = v[S("rsol")]
     p = process(rt_model, "Dust emission into photon_IR")
-    assert value(p.network["dust heat"].rhs, v) == pytest.approx(-emission, rel=1e-12)
-    assert value(p.network[IR].rhs, v) * EV == pytest.approx(r * emission, rel=1e-12)
+    assert value(p.network["dust heat"].rhs, v) == pytest.approx(-emission, rel=1e-12, abs=0)
+    assert value(p.network[IR].rhs, v) * EV == pytest.approx(r * emission, rel=1e-12, abs=0)
     p = process(rt_model, "Dust absorption of photon_IR")
-    assert value(p.network["dust heat"].rhs, v) == pytest.approx(dust_abs, rel=1e-12)
-    assert value(p.network[IR].rhs, v) * EV == pytest.approx(-r * dust_abs, rel=1e-12)
+    assert value(p.network["dust heat"].rhs, v) == pytest.approx(dust_abs, rel=1e-12, abs=0)
+    assert value(p.network[IR].rhs, v) * EV == pytest.approx(-r * dust_abs, rel=1e-12, abs=0)
     p = process(rt_model, "Gas absorption of photon_IR")
     d = v[dt]
     x = r * C_LIGHT * gizmo_kappa_ir(v[S("Td_initial")], 45.0, -1, 1, c) * v[S("rho")] * d  # the kick's dust absorption
-    share = 2 * -math.expm1(-x / 2) / x
-    assert value(p.heat, v) == pytest.approx(r * share * gas_abs, rel=1e-9)
-    assert value(p.network["dust heat"].rhs, v) == pytest.approx(gas_abs, rel=1e-12)  # rt_eqm_dust_temp counts it all
-    assert value(p.network[IR].rhs, v) * EV == pytest.approx(-r * (share + 1) * gas_abs, rel=1e-9)  # the share, and the
+    share = 2 * -math.expm1(-x / 2) / x * (1 - 0.5 / (1 + 725.0**2 / (1 + 45.0**2)))
+    assert value(p.heat, v) == pytest.approx(r * share * gas_abs, rel=1e-9, abs=0)
+    assert value(p.network["dust heat"].rhs, v) == pytest.approx(gas_abs, rel=1e-12, abs=0)  # rt_eqm_dust_temp counts it all
+    assert value(p.network[IR].rhs, v) * EV == pytest.approx(-r * (share + 1) * gas_abs, rel=1e-9, abs=0)  # the share, and the
     # dust balance's re-emission of the gas absorption, which the kick does not make
 
 
