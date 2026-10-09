@@ -135,6 +135,19 @@ def test_legacy_HD_finite_without_H2():
         assert np.isfinite(c_lambdify(args, f)(*[vals[s] for s in args]))
 
 
+@pytest.mark.parametrize("Tv", [1.0, 1.3, 1.6, 2.0])
+def test_legacy_H2_cooling_finite_in_cold_gas(Tv):
+    """The legacy H2/HD cooling and its partials stay finite in dense molecular gas down to 1 K, where the square of the
+    HM79 LTE rate underflows"""
+    from ..gizmo_lowtemp import gizmo_H2_cooling
+    e = gizmo_H2_cooling.heat
+    args = sorted(e.free_symbols, key=str)
+    vals = {T: Tv, n_Htot: 1.43e6, x_("H+"): 1e-20, x_("H_2"): 0.5, x_("e-"): 1e-12, sp.Symbol("X"): 0.7155,
+            sp.Symbol("y"): 0.0944, sp.Symbol("z"): 0.0}
+    for f in (e, sp.diff(e, T), sp.diff(e, x_("H_2"))):
+        assert np.isfinite(c_lambdify(args, f)(*[vals[s] for s in args]))
+
+
 def test_ionization_balance_start_differentiable_without_H2():
     """The Newton start of the C+/Mg+/molecular-ion fixed point has a finite derivative at x_H2 = 0"""
     from ..ionization_balance import solved_electrons

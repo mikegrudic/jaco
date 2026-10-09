@@ -53,9 +53,12 @@ def gizmo_H2_cooling_coefficient():
     Y_He = 4 * sp.Symbol("y") * X_H  # y = n_He / n_H = Y / (4 X)
     thin = (sp.Max(xH0 - 2 * x_H2, 0) * X_H * lambda_H2_thin("H") + Y_He * lambda_H2_thin("He")
             + x_H2 * X_H * lambda_H2_thin("H_2") + x_("H+") * X_H * lambda_H2_thin("H+") + x_e * X_H * lambda_H2_thin("e-"))
-    n_over_ncrit = thin * n_Htot / Lambda_H2_LTE_per_molecule()
+    LTE = Lambda_H2_LTE_per_molecule()
     f_HD = sp.Min(0.00126 * x_H2, 4.0e-5 * xH0)
-    return x_H2 * thin / (1 + n_over_ncrit) + f_HD * Lambda_HD_thin() / (1 + f_HD / (x_H2 + MIN_REAL_NUMBER) * n_over_ncrit)
+    # x / (1 + n/n_crit) with n/n_crit = thin n_H / LTE, multiplied through by LTE so that no derivative divides by LTE^2,
+    # which underflows in cold gas (as in H2_cooling_rate)
+    return (x_H2 * thin * LTE / (LTE + thin * n_Htot)
+            + f_HD * Lambda_HD_thin() * LTE / (LTE + f_HD / (x_H2 + MIN_REAL_NUMBER) * thin * n_Htot))
 
 
 gizmo_H2_cooling = ThermalTerm(
