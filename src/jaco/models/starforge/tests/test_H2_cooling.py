@@ -38,3 +38,18 @@ def test_starforge_H2_cooling(Tv, n):
     assert float(H2_cooling_rate().subs(vals)) == pytest.approx(ga08_H2_HD(Tv, n, xH, xH2, xHe, xHp, xe), rel=1e-10)
 
 
+@pytest.mark.parametrize("Tv", [1.0, 1.3, 1.6, 1.7, 2.0, 3.0])
+def test_H2_cooling_finite_in_cold_dense_gas(Tv):
+    """The rate and its partials stay finite in fully molecular gas down to 1 K, with the generated code's floating-point
+    semantics. There the HM79 LTE rate is ~3e-24 exp(-510 K / T) and its square underflows below ~1.6 K (~1.7 K when
+    denormals are flushed to zero), so n/n_crit must not be differentiated as thin / LTE."""
+    from ..H2_cooling import H2_cooling
+    from .c_semantics import c_lambdify
+    e = H2_cooling.heat
+    args = sorted(e.free_symbols, key=str)
+    n, xH2 = 1.43e6, 0.5
+    vals = {T: Tv, n_Htot: n, n_("H"): 1e-10 * n, n_("H_2"): xH2 * n, n_("He"): 0.0944 * n, n_("H+"): 1e-20 * n,
+            n_("e-"): 1e-12 * n, n_("HD"): 4e-5 * n, x_("HD"): 4e-5, x_("H_2"): xH2, C2: 1.0, sp.Symbol("z"): 0.0}
+    point = [vals[s] for s in args]
+    for f in (e, sp.diff(e, T), sp.diff(e, n_("H_2")), sp.diff(e, x_("H_2"))):
+        assert np.isfinite(c_lambdify(args, f)(*point))

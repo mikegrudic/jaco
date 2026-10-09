@@ -99,15 +99,15 @@ def H2_cooling_rate():
     """Total H2 + HD cooling per unit volume. The thin rates carry their collider densities (times the clumping factor
     C_2), so n/n_crit is the thin rate per molecule over the LTE rate per molecule; the LTE limit is linear in density
     and so unclumped. HD is excited by collisions with H nuclei."""
-    thin_cooling_total_perH2 = sp.Symbol("C_2") * sum([lambda_H2_thin(c) * n_(c) for c in ("H", "H_2", "He", "e-", "H+")])
+    C_2 = sp.Symbol("C_2")
+    thin = C_2 * sum([lambda_H2_thin(c) * n_(c) for c in ("H", "H_2", "He", "e-", "H+")])
+    LTE = Lambda_H2_LTE_per_molecule()
 
-    nH_over_ncrit = thin_cooling_total_perH2 / Lambda_H2_LTE_per_molecule()
-    n_over_ncrit_HD = x_("HD") / x_("H_2") * nH_over_ncrit
-
-    total_cooling = n_("H_2") * thin_cooling_total_perH2 / (1 + nH_over_ncrit) + sp.Symbol("C_2") * n_("HD") * n_Htot * Lambda_HD_thin() / (
-        1 + n_over_ncrit_HD
-    )
-    return total_cooling
+    # thin / (1 + n/n_crit) with n/n_crit = thin / LTE, multiplied through by LTE: the derivative of thin / LTE carries
+    # 1/LTE^2, which underflows below ~1.7 K (LTE ~ 3e-24 exp(-510 K / T)) and makes the Jacobian non-finite
+    H2 = n_("H_2") * thin * LTE / (LTE + thin)
+    HD = C_2 * n_("HD") * n_Htot * Lambda_HD_thin() * LTE / (LTE + x_("HD") / x_("H_2") * thin)
+    return H2 + HD
 
 
 H2_cooling = ThermalTerm(
