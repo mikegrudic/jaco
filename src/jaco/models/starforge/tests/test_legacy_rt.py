@@ -318,25 +318,34 @@ def test_dust_emission_and_ir_rows(models):
 
 
 @pytest.mark.parametrize("rho_", [2.3e-22, 2.3e-18, 2.3e-14])
-def test_gas_share_is_two_half_kicks(models, rho_):
-    """rt_update_driftkick, twice per step: each half-step kick absorbs e0 (1 - exp(-a dt/2)) of the IR band and gives
-    the gas its opacity share fgas of that, straight into its internal energy, re-emitting the rest; the model's gas
-    heating over the step is that, to first order in fgas, from optically thin (the rate) to thick (2 fgas e0 per
-    step)"""
+@pytest.mark.parametrize("T_rad", [45.0, 500.0])
+@pytest.mark.parametrize("neutral", [True, False])
+def test_gas_share_is_two_half_kicks(models, rho_, T_rad, neutral):
+    """rt_update_driftkick, twice per step: each half-step kick absorbs e0 (1 - exp(-a dt/2)) of the IR band, a at the
+    absorption opacity kappa(-1, 0), and gives the gas the share fgas = kappa(-1, -1) / kappa(0, 0) of that, straight
+    into its internal energy, re-emitting the rest; the model's gas heating over the step is that, to first order in
+    the gas opacity, from optically thin (the rate) to thick (2 fgas e0 per step). The dust part of the extinction
+    kappa(0, 0) lacks the absorption factor A(T_rad), so the gas gets A(T_rad) of its own absorption (0.998 at 45 K,
+    0.84 at 500 K). The model leaves the gas and electron-scattering opacity out of that denominator (kick_gas_share):
+    in neutral gas it is GIZMO's share, in the partly ionized default state GIZMO's times kappa(0, 0) over its dust part"""
     rt_model, _, _ = models
-    v = state(Td=60.0, T_rad=45.0, rho=rho_)
+    over = dict(Tv=60.0, **{"H+": 1e-6, "e-": 1e-6, "H_2": 0.49}) if neutral else {}
+    v = state(Td=60.0, T_rad=T_rad, rho=rho_, **over)
     c = cell_of(v)
     d, r = v[dt], v[S("rsol")]
-    k_dust = gizmo_kappa_ir(v[S("Td_initial")], 45.0, -1, 1, c)
-    k_gas = gizmo_kappa_ir(60.0, 45.0, -1, -1, c)
+    k_dust = gizmo_kappa_ir(v[S("Td_initial")], T_rad, -1, 1, c)
+    k_gas = gizmo_kappa_ir(60.0, T_rad, -1, -1, c)
+    k_abs, k_ext = gizmo_kappa_ir(60.0, T_rad, -1, 0, c), gizmo_kappa_ir(60.0, T_rad, 0, 0, c)
     e = u_band(v, IR)
     gas = 0.0
     for _ in range(2):
-        de_abs = e * -math.expm1(-r * C_LIGHT * (k_dust + k_gas) * rho_ * d / 2)
-        gas += de_abs * k_gas / (k_dust + k_gas)
-        e -= de_abs * k_gas / (k_dust + k_gas)
+        de_abs = e * -math.expm1(-r * C_LIGHT * k_abs * rho_ * d / 2)
+        gas += de_abs * k_gas / k_ext
+        e -= de_abs * k_gas / k_ext
+    if not neutral:
+        gas *= k_ext / gizmo_kappa_ir(60.0, T_rad, 0, 1, c)
     model = value(process(rt_model, "Gas absorption of photon_IR").heat, v) * d
-    assert model == pytest.approx(gas, rel=3 * k_gas / k_dust + 1e-6)
+    assert model == pytest.approx(gas, rel=3 * k_gas / k_dust + 1e-6, abs=0)
 
 
 def test_gas_dust_collisions_are_the_dust_balances(models):

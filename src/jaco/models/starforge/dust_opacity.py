@@ -79,12 +79,18 @@ def dust_survival(T_d):
     return sp.Max(0.5 * (1 + s / sp.sqrt(1 + s * s)) * sp.exp(-sp.Min(40, (T_d / 1500.0) ** 2 / 9)), 1e-25)
 
 
+def dust_ir_absorption_fraction(T_r):
+    """rt_kappa_adaptive_IR_band's absorption share of the dust's IR opacity (1 - albedo) at radiation temperature T_r:
+    its absorption (flags +-1) over its extinction (flag 0) opacity, 1 at low T_r and 1/2 at high"""
+    return 1 - 0.5 / (1 + 725.0**2 / (1 + T_r**2))
+
+
 def ir_dust_opacity(T_d, T_r, absorption=True):
     """The dust part of rt_kappa_adaptive_IR_band [cm^2/g]: absorption (flag -1; emission, flag 1, is this at
     T_r = T_d) or extinction (flag 0), times the metallicity and the surviving dust"""
     kappa = semenov_planck_mean(T_r, T_d)
     if absorption:
-        kappa *= 1 - 0.5 / (1 + 725.0**2 / (1 + T_r**2))
+        kappa *= dust_ir_absorption_fraction(T_r)
     return kappa * Z_dust * dust_survival(T_d)
 
 
