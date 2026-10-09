@@ -30,3 +30,24 @@ def test_matches_gizmo(collider, Tval):
         pytest.skip("below GIZMO's exp(-90) floor")
     k = sp.lambdify(T, Hminus_collisional_detachment(collider).rate_coefficient, modules="numpy")
     assert k(Tval) == pytest.approx(expected, rel=1e-10, abs=0)
+
+
+@pytest.mark.parametrize("Tval", [500.0, 2000.0, 8000.0, 3e4])
+def test_steady_state_closure_balances_in_double_precision(Tval):
+    """starforge's H- closure zeroes the H- rate equation when both are evaluated in double precision, also where the
+    collisional detachment by H is a large exponential polynomial in ln T (above 1160 K)"""
+    from jaco.models.starforge import make_model
+    from jaco.symbols import n_
+    network = make_model().network
+    row = dict.__getitem__(network, "H-").rhs
+    closure = network.fixed_species["H-"]
+    n = n_("H-")
+    symbols = sorted((row.free_symbols | closure.free_symbols) - {n}, key=str)
+    rng = np.random.default_rng(3)
+    values = [Tval if s == T else 10 ** rng.uniform(-1, 1) for s in symbols]
+    n_Htot = next(s for s in symbols if str(s) == "n_Htot")
+    n_minus = values[symbols.index(n_Htot)] * sp.lambdify(symbols, closure, "numpy")(*values)
+    residual = sp.lambdify(symbols + [n], row, "numpy")(*values, n_minus)
+    production = sp.lambdify(symbols, sum(t for t in sp.Add.make_args(row) if n not in t.free_symbols), "numpy")(*values)
+    assert np.isfinite(n_minus) and n_minus > 0
+    assert abs(residual) <= 1e-10 * abs(production)

@@ -180,7 +180,7 @@ class EquationSystem(dict):
             if n not in term.free_symbols:
                 source += term
             else:
-                sink_coeff += sp.simplify(term / n)
+                sink_coeff += term / n  # no simplify: it can rewrite a rate into a form that underflows in double precision
         if n in sink_coeff.free_symbols:
             raise ValueError(f"the rate equation of {species} is not linear in its density; it has no closed steady state")
         return sp.Max(0, -source / sink_coeff / n_Htot)
