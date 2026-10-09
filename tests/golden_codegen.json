@@ -1,13 +1,53 @@
 {
   "starforge": {
-    "jaco_eos.cc": "4fa14fccc16dbd5f024d8a92efc06409847b1fa5b81f4acf4ad2a95fa43271b2",
+    "jaco_eos.cc": "d1c57c618c30830fc2a4a426182651eb5ff020df12921a1565e0985cbc756e52",
     "jaco_interp.h": "a16bc266af3714eba8951abcc237076a257efba4846a0fd83a717f7843960573",
     "jaco_tables.h": "fa75f46b3d66447a0886285a72fd10bb8082e533355346ab9c77807a1488235d",
     "jaco_tables.hdf5": "5d1570183d8e8b38afbd975f9a21b0b24dc0d838244ea41593b60fd96cccfdcb",
     "jaco_util.cc": "c48b87c7528c030f3073a5fa91ce387b4bdbd4a51b0baec5bd519a10eefcf8cd",
-    "microphysics_func_jac.cc": "8bca1ab9cecd4aaf5e93e52fbd95ed4d7f613106ce29be2488281522971b8c13",
-    "microphysics_func_jac.h": "860848a02bb9d6c11097f180e7abc8ac23d634eddb9de0728d8b1eaed330934e",
-    "microphysics_outputs.cc": "b031d8b719831702ab0c72ca93c8078109c4a51c6d3132085288bf9b9c47438b"
+    "microphysics_func_jac.cc": "0ecdbd762d142a55f53d09ea0ffb669d589144153ec223f03332456dcfc648b5",
+    "microphysics_func_jac.h": "1e74e2a9c119000f915cacae2cfc43502addbea36ca03d742e82ee353bc445d2",
+    "microphysics_outputs.cc": "089fbd15c88bff0164ad400d1e6568724a0ef6792c5f0fdc6b173c51a3165a9f"
+  },
+  "starforge_ledger": {
+    "jaco_eos.cc": "d1c57c618c30830fc2a4a426182651eb5ff020df12921a1565e0985cbc756e52",
+    "jaco_interp.h": "a16bc266af3714eba8951abcc237076a257efba4846a0fd83a717f7843960573",
+    "jaco_tables.h": "fa75f46b3d66447a0886285a72fd10bb8082e533355346ab9c77807a1488235d",
+    "jaco_tables.hdf5": "5d1570183d8e8b38afbd975f9a21b0b24dc0d838244ea41593b60fd96cccfdcb",
+    "jaco_util.cc": "c48b87c7528c030f3073a5fa91ce387b4bdbd4a51b0baec5bd519a10eefcf8cd",
+    "microphysics_func_jac.cc": "0ecdbd762d142a55f53d09ea0ffb669d589144153ec223f03332456dcfc648b5",
+    "microphysics_func_jac.h": "8d209c3ee0e5ad238e47865b1499fa402b6bad6593b3adfd6c087e325d42be3c",
+    "microphysics_outputs.cc": "3b90349be3e5baf66320245de6968d0952dad1549eb9ac426a0233ecd3820f66"
+  },
+  "starforge_ledger_closed": {
+    "jaco_eos.cc": "d1c57c618c30830fc2a4a426182651eb5ff020df12921a1565e0985cbc756e52",
+    "jaco_interp.h": "a16bc266af3714eba8951abcc237076a257efba4846a0fd83a717f7843960573",
+    "jaco_tables.h": "fa75f46b3d66447a0886285a72fd10bb8082e533355346ab9c77807a1488235d",
+    "jaco_tables.hdf5": "5d1570183d8e8b38afbd975f9a21b0b24dc0d838244ea41593b60fd96cccfdcb",
+    "jaco_util.cc": "c48b87c7528c030f3073a5fa91ce387b4bdbd4a51b0baec5bd519a10eefcf8cd",
+    "microphysics_func_jac.cc": "abc27f10a5133179f1f01a740824295b132e181318e4cf6e797ed1b433364ae9",
+    "microphysics_func_jac.h": "92c7afee04a53d3ca5f11e6d9ff002d0458e0047676d7a139dcd20cdbd1d25d9",
+    "microphysics_outputs.cc": "ff1ae6a055b69675b43c4a53350844fdfaf1918e885f4509f03efad6c9a7d266"
+  },
+  "starforge_ledger_db_closed": {
+    "jaco_eos.cc": "d1c57c618c30830fc2a4a426182651eb5ff020df12921a1565e0985cbc756e52",
+    "jaco_interp.h": "d632ab61acfcaa3f415c7d69bbfcae56076e531bebd23554b2abee9c1b546576",
+    "jaco_tables.h": "fa75f46b3d66447a0886285a72fd10bb8082e533355346ab9c77807a1488235d",
+    "jaco_tables.hdf5": "5d1570183d8e8b38afbd975f9a21b0b24dc0d838244ea41593b60fd96cccfdcb",
+    "jaco_util.cc": "c48b87c7528c030f3073a5fa91ce387b4bdbd4a51b0baec5bd519a10eefcf8cd",
+    "microphysics_func_jac.cc": "c27b0e844a63057cd902166add32bc1e916cde2e2cff91c6967d075a3c2134bb",
+    "microphysics_func_jac.h": "c701c26464144d9928bde22eadc0ea1c1fb2bb8e587b7c21fe189371922c86ef",
+    "microphysics_outputs.cc": "b45c6b794ca53417375d35aa47f48fa94f7483420e9f3202ada38fc923b7e426"
+  },
+  "starforge_ledger_nochemheat": {
+    "jaco_eos.cc": "d1c57c618c30830fc2a4a426182651eb5ff020df12921a1565e0985cbc756e52",
+    "jaco_interp.h": "a16bc266af3714eba8951abcc237076a257efba4846a0fd83a717f7843960573",
+    "jaco_tables.h": "fa75f46b3d66447a0886285a72fd10bb8082e533355346ab9c77807a1488235d",
+    "jaco_tables.hdf5": "5d1570183d8e8b38afbd975f9a21b0b24dc0d838244ea41593b60fd96cccfdcb",
+    "jaco_util.cc": "c48b87c7528c030f3073a5fa91ce387b4bdbd4a51b0baec5bd519a10eefcf8cd",
+    "microphysics_func_jac.cc": "f2ecb03e089adaaca380c2f18671393d079d3f11770266452cd48b3eff559ff5",
+    "microphysics_func_jac.h": "4c7288acdb7e208b121ebc209c74c6279e3361a69bf06ccb584c452494a4a352",
+    "microphysics_outputs.cc": "76340eb032843b1fb88c64ce6c4123e458252eeaf3515db2314524a56be13c9b"
   },
   "starforge_legacy": {
     "jaco_eos.cc": "f709d75a2e027284e76621f73369fff68a6ecb1cfe57f5670cedec4da582803d",

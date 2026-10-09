@@ -11,6 +11,7 @@ from . import (
     collisional_dissociation,
     collisional_detachment,
     cosmic_ray_dissociation,
+    detailed_balance,
 )
 from jaco.processes import Reaction
 from ..symbols import T
@@ -20,14 +21,19 @@ r16 = Reaction(
 )  # reaction 16 in Glover & Abel 2008
 
 
-def h2_chemistry_processes(chemical_heat=True):
-    """The H2/H- reactions; chemical_heat gives the gas the heat of H2 formation and takes that of dissociation"""
+def h2_chemistry_processes(chemical_heat=True, three_body_detailed_balance=False, formation_heat_closed=False):
+    """The H2/H- reactions; chemical_heat gives the gas the heat of H2 formation and takes that of dissociation;
+    three_body_detailed_balance replaces Forrey's three-body rate by detailed_balance.py's; formation_heat_closed gives
+    formation on grains and through H- the whole binding energy where collisions de-excite the molecule
+    (chemical_heat.formation_heat)"""
+    three_body_formation = (detailed_balance.H2_3body_formation_detailed_balance(chemical_heat)
+                            if three_body_detailed_balance else [three_body.H2_3body_formation(chemical_heat)])
     return [
-        grain_formation.grain_formation(chemical_heat),
-        three_body.H2_3body_formation(chemical_heat),
+        grain_formation.grain_formation(chemical_heat, closed=formation_heat_closed),
+        *three_body_formation,
         collisional_detachment.Hminus_collisional_detachment("H"),
         collisional_detachment.Hminus_collisional_detachment("e-"),
-        associative_detachment.associative_detachment("H", "H-", chemical_heat),
+        associative_detachment.associative_detachment("H", "H-", chemical_heat, closed=formation_heat_closed),
         *[collisional_dissociation.H2_collisional_dissociation(c, chemical_heat=chemical_heat)
           for c in ("H+", "e-", "H_2", "H", "He")],
         mutual_neutralization.mutual_neutralization("H+", "H-"),

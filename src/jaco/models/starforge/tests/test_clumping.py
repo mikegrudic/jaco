@@ -26,7 +26,8 @@ ABUNDANCES = {"H": 0.6, "H+": 1e-4, "H_2": 0.2, "He": 0.094, "He+": 1e-8, "He++"
               "Si": 3e-5, "S": 1e-5, "Ca": 2e-6, "Fe": 3e-5}
 PARAMS = {"T": 100.0, "n_Htot": 0.1, "G_0": 1.0, "G_LW": 1.0, "N_H": 1e21, "∇v": 1e-14, "Δx": 1e18, "Td": 15.0, "X": 0.7155,
           "y": 0.094, "z": 0.0, "f_metal": 1.0, "f_neb": 1.0, "Z_d": 1.0, "f_d": 1.0, "ISRF": 1.0, "x_C,tot": x_solar("C"),
-          "x_O,tot": x_solar("O"), "xIbMgplus": 1e-5, "pdv_work": 1e-25}
+          "x_O,tot": x_solar("O"), "xIbMgplus": 1e-5, "pdv_work": 1e-25,
+          "f_thick": 1.0}  # the optically-thick limit's factor, a common factor of the capped heats: thin here
 
 
 def evaluate(expr, c2=1.0, c3=1.0):

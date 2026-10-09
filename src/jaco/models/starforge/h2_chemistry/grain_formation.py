@@ -15,14 +15,14 @@ H2_dust_formation_rate = (
 )
 
 
-def grain_formation(chemical_heat=True):
+def grain_formation(chemical_heat=True, closed=False):
     """H + H -> H_2 on grains: the rate per volume is R n_H,tot n_HI C_2, since the dust abundance scales with all of
     the gas (Hollenbach & McKee 1979; Glover & Jappsen 2007), not R n_HI^2"""
     return Reaction(
         "H + H -> H_2",
         rate=H2_dust_formation_rate * n_Htot * n_("H"),
         clumping=sp.Symbol("C_2"),
-        heat_per_reaction=formation_heat("grain", chemical_heat),
+        heat_per_reaction=formation_heat("grain", chemical_heat, closed=closed),
         name="Formation of H_2 on dust grains",
         bibliography=["1979ApJS...41..555H", "2007ApJ...666....1G"] + (BIBLIOGRAPHY if chemical_heat else []),
     )

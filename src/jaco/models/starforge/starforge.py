@@ -12,7 +12,8 @@ balances for the other free electrons (ionization_balance.py); the fine-structur
 levels in statistical equilibrium (fine_structure.py; C+ and CO on the Tielens interpolation) and Whitworth & Jaffa CO
 cooling; H2/HD cooling with number-weighted colliders; clumping on every two-body rate, estimated from the trace-free
 velocity gradient and tapered off above ~5000 K. The cooling and the electron budget see the same gas-phase
-(undepleted) abundances (gas_phase.py).
+(undepleted) abundances (gas_phase.py). Its cooling has GIZMO's optically-thick limit (optically_thick.py), which
+GIZMO's CoolingRate applies and the starforge_legacy transcription lacks.
 """
 
 import sympy as sp
@@ -33,6 +34,7 @@ from .ionization_balance import ionization_processes
 from .nebular_cooling import nebular_cooling
 from .compton import compton_cooling
 from .gas_phase import x_gas
+from .optically_thick import with_optically_thick_cap
 from .symbols import T, n_Htot, G_0, clumping_factor, clumping_factor_starforge, PARAMETERS
 
 # Solve variables in index order (GIZMO's jaco.cc assumes u, T first, abundances after) and the subset that gets a
@@ -92,13 +94,21 @@ def carbon_abundances():
     return {"C+": x_gas("C") * f_Cp, "CO": sp.Max(1e-30, x_gas("C") * (1 - f_Cp) * 2 * x_("H_2"))}
 
 
-def make_model():
-    """The STARFORGE model"""
+def make_model(chemical_heat=True, optically_thick=True, three_body_detailed_balance=False, formation_heat_closed=False):
+    """The STARFORGE model. chemical_heat: the gas takes the heat of H2 formation and pays that of dissociation;
+    optically_thick: GIZMO's optically-thick limit on the cooling (optically_thick.py), which a model without a
+    transported IR band needs in any gas dense enough to trap its cooling radiation; three_body_detailed_balance:
+    three-body H2 formation by detailed balance with the dissociation (h2_chemistry/detailed_balance.py);
+    formation_heat_closed: H2 formed on grains or through H- gives the gas the whole binding energy where collisions
+    de-excite it, as the 3-body channel does"""
     ion_processes, intermediates, fixed_electrons = ionization_processes()
-    return Model(
+    h2_chemistry = h2_chemistry_processes(chemical_heat=chemical_heat,
+                                          three_body_detailed_balance=three_body_detailed_balance,
+                                          formation_heat_closed=formation_heat_closed)
+    model = Model(
         shared_processes()
         + [H2_cooling, *fine_structure_cooling(), CO_cooling, *ion_processes]
-        + h2_chemistry_processes(chemical_heat=True)
+        + h2_chemistry
         + [pdv_work],
         solve_vars=SOLVE_VARS,
         time_dependent=TIME_DEPENDENT,
@@ -114,3 +124,6 @@ def make_model():
         parameters=STARFORGE_PARAMETERS,
         species=STARFORGE_SPECIES,
     )
+    if optically_thick:  # the H2/H- reactions' chemical heat is not radiated, so it is not capped
+        model = with_optically_thick_cap(model, exempt=[p.name for p in h2_chemistry])
+    return model

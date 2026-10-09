@@ -7,6 +7,7 @@ from jaco.processes import Reaction
 from ..starforge import make_model
 from ..symbols import n_Htot, X_H, T, G_0, Z_dust, f_dust
 from ...starforge_legacy import make_model as make_legacy, GIZMO_CLUMPING, GIZMO_DENSITY
+from ..optically_thick import LIMIT_ID
 
 SF_ONLY = {"[CII] fine-structure cooling", "[CI] fine-structure cooling", "[OI] fine-structure cooling",
            "[SiII] fine-structure cooling", "[FeII] fine-structure cooling", "CO Cooling", "H2 + HD Line Cooling",
@@ -38,7 +39,8 @@ def test_legacy_rates_at_gizmo_nHcgs(models):
     sf, legacy = models
     lam = 0.76 / X_H
     for name, power in [("Photoelectric Heating", 1), ("Gas-phase recombination of H+", 2), ("Gas-dust collisions", 2)]:
-        h_sf = next(p for p in sf.subprocesses if p.name == name).network["heat"].rhs.subs(sp.Symbol("C_2"), 1)
+        h_sf = next(p for p in sf.subprocesses if p.name == name).network["heat"].rhs.subs(
+            {sp.Symbol("C_2"): 1, sp.Symbol("f_thick"): 1})  # thin: legacy carries no optically-thick limit
         h_lg = next(p for p in legacy.subprocesses if p.name == name).network["heat"].rhs
         rep = {s: lam * s for s in h_sf.free_symbols if str(s).startswith("n_")}
         vals = {T: 80.0, n_Htot: 30.0, X_H: 0.7155, G_0: 1.0, Z_dust: 1.0, f_dust: 1.0, x_("e-"): 2e-4,
@@ -54,7 +56,7 @@ def test_declarations(models):
     assert sf.time_dependent == legacy.time_dependent == ("T", "H_2")
     assert sf.steady_state == ("H-",) and not legacy.steady_state
     assert set(sf.fixed) == {"H_2+", "HD", "C+", "CO"} and legacy.fixed == {"C+": 0, "CO": 0}
-    assert not sf.rules and legacy.rules == (GIZMO_CLUMPING, GIZMO_DENSITY)
+    assert [r.name for r in sf.rules] == [LIMIT_ID] and legacy.rules == (GIZMO_CLUMPING, GIZMO_DENSITY)
 
 
 def test_legacy_rules_apply_to_added_processes(models):

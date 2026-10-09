@@ -20,12 +20,18 @@ def deexcitation_fraction():
     return w / (w + 1e6 / sp.sqrt(T))
 
 
-def formation_heat(channel, on=True):
-    """Heat given to the gas per H2 formed through channel ("grain", "H-" or "3-body"), in erg"""
+def formation_heat(channel, on=True, closed=False):
+    """Heat given to the gas per H2 formed through channel ("grain", "H-" or "3-body"), in erg. Formation on grains
+    gives the gas 0.2 + 4.2 f eV (HM79) and associative detachment 3.53 f eV (the electron's attachment radiated
+    0.75 eV more), short of the 4.48 eV a collisional dissociation takes even where f = 1, so in gas where H2 is
+    dissociated and re-formed many times over, each cycle cools it. closed gives both channels the whole binding
+    energy where collisions de-excite the molecule (4.48 f; on grains 0.2 + 4.28 f), as gas trapping that radiation
+    would get it back."""
     if not on:
         return 0
     f = deexcitation_fraction()
-    return {"grain": 0.2 + 4.2 * f, "H-": 3.53 * f, "3-body": 4.48 * f}[channel] * EV_CGS
+    heats = {"grain": 0.2 + (4.28 if closed else 4.2) * f, "H-": (4.48 if closed else 3.53) * f, "3-body": 4.48 * f}
+    return heats[channel] * EV_CGS
 
 
 def dissociation_heat(on=True):
