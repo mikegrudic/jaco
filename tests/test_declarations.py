@@ -60,10 +60,11 @@ def test_undeclared_rows_raise():
 
 
 def test_removing_metal_cooling_leaves_the_eos_alone():
-    """Metals are declared species, not in the EOS by accident of a rate mentioning them (D5)"""
+    """Metals are declared species, not in the EOS by accident of a rate mentioning them (D5). Without the
+    optically-thick limit: its summed heat counts metal line cooling, so the limited model refuses to drop it."""
     from jaco.models.starforge import make_model
 
-    model = make_model()
+    model = make_model(optically_thick=False)
     assert model.without("Metal line cooling").network.chemical_species == model.network.chemical_species
 
 

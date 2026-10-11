@@ -1,7 +1,7 @@
 """Implementation of associative detachment of H and D species"""
 
 from ..symbols import T
-from .chemical_heat import formation_heat
+from .chemical_heat import formation_energy
 from jaco.processes import Reaction
 import sympy as sp
 
@@ -38,7 +38,7 @@ def associative_detachment(species1, species2, chemical_heat=True):
     return Reaction(
         f"{species1} + {species2} -> {product} + e-",
         rate,
-        heat_per_reaction=formation_heat("H-", chemical_heat) if product == "H_2" else 0,
+        heat_per_reaction=formation_energy(chemical_heat) if product == "H_2" else 0,
         name=f"Associative detachment of {species1} with {species2}",
         bibliography=bib,
     )

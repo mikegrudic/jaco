@@ -8,7 +8,9 @@ Walks every process of each model: each rate and heat expression must scale as C
 import numpy as np
 import pytest
 import sympy as sp
-from jaco.symbols import n_, x_
+from jaco.symbols import n_, x_, sanitize_symbols
+from jaco.model_check import _c_lambdify
+from jaco.interpolation import tables_in
 from ..starforge import make_model
 from ...starforge_legacy import make_model as make_legacy
 from ..ionization_balance import ion_abundances
@@ -18,15 +20,16 @@ from ..symbols import (clumping_factor, clumping_factor_tracefree, cold_gas_tape
 C2, C3 = sp.Symbol("C_2"), sp.Symbol("C_3")
 ONE_BODY = {"Cosmic ray heating", "Photoelectric Heating", "Inverse Compton cooling (CMB)", "Photodissociation of H_2",
             "Photodetachment of H-", "Dissociation of H_2 by cosmic rays", "Direct ionization of H by cosmic rays",
-            "PdV work"}
-THREE_BODY = {"3-body formation of H_2"}
+            "PdV work", "Dust absorption of the background radiation", "Dust thermal emission"}
+THREE_BODY = {"3-body formation of H_2", "Radiation of 3-body formation of H_2"}
 
 ABUNDANCES = {"H": 0.6, "H+": 1e-4, "H_2": 0.2, "He": 0.094, "He+": 1e-8, "He++": 1e-12, "e-": 2e-4, "H-": 1e-10,
               "H_2+": 0.0, "HD": 1e-5, "C+": 1e-4, "CO": 5e-5, "C": 1.5e-4, "O": 5e-4, "N": 7e-5, "Ne": 9e-5, "Mg": 4e-5,
               "Si": 3e-5, "S": 1e-5, "Ca": 2e-6, "Fe": 3e-5}
 PARAMS = {"T": 100.0, "n_Htot": 0.1, "G_0": 1.0, "G_LW": 1.0, "N_H": 1e21, "∇v": 1e-14, "Δx": 1e18, "Td": 15.0, "X": 0.7155,
           "y": 0.094, "z": 0.0, "f_metal": 1.0, "f_neb": 1.0, "Z_d": 1.0, "f_d": 1.0, "ISRF": 1.0, "x_C,tot": x_solar("C"),
-          "x_O,tot": x_solar("O"), "xIbMgplus": 1e-5, "pdv_work": 1e-25}
+          "x_O,tot": x_solar("O"), "xIbMgplus": 1e-5, "pdv_work": 1e-25, "A_dust": 1e-26, "rho": 2.3e-25, "N_H_cool": 1e21,
+          "f_thick": 1.0}  # the optically-thick limit's factor, a common factor of the capped heats: thin here
 
 
 def evaluate(expr, c2=1.0, c3=1.0):
@@ -37,6 +40,12 @@ def evaluate(expr, c2=1.0, c3=1.0):
     vals.update({C2: c2, C3: c3})
     missing = expr.free_symbols - set(vals)
     assert not missing, missing
+    tables = tables_in([expr])
+    if tables or any(type(f).__name__ == "PiecewiseLinearInterp" for f in expr.atoms(sp.Function)):
+        # table lookups and interpolated fits (e.g. the dust opacity) evaluate with the generated code's semantics
+        syms = sorted(expr.free_symbols, key=str)
+        f = _c_lambdify([sanitize_symbols(s) for s in syms], [sanitize_symbols(expr)], tables)
+        return float(np.ravel(f(*[np.array([float(vals[s])]) for s in syms])[0])[0])
     return float(sp.N(expr.xreplace(vals)))
 
 

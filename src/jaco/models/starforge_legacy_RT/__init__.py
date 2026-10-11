@@ -207,7 +207,7 @@ def _outputs():
 
 def make_model():
     """The STARFORGE_LEGACY_RT model"""
-    base = make_legacy()
+    base = make_legacy(dust_balance=False)
     processes = [rt.gas_dust_collisions() if i == "Gas-dust collisions" else p for i, p in base.processes.items()]
     dropped = set(DERIVED) | {"Td"}
     return base.evolve(
