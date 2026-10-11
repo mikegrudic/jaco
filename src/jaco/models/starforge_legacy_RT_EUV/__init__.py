@@ -15,17 +15,18 @@ from ..starforge import radiation as rt
 from ..starforge.radiation import EUV
 from ..starforge_legacy import make_model as make_legacy, GIZMO_CLUMPING
 from ..starforge.dust_balance import with_dust_balance, dust_side_beyond_truncation
-from ..starforge_legacy_RT import GIZMO_DENSITY, GIZMO_ABUNDANCES, BAND_SPECIES, RT_PARAMETERS
+from ..starforge_legacy_RT import (GIZMO_DENSITY, GIZMO_ABUNDANCES, BAND_SPECIES, RT_PARAMETERS, H_IONIZATIONS,
+                                   gizmo_neutral_h, h2_per_neutral_h)
 
 
 def make_model():
     """The STARFORGE_LEGACY_RT_EUV model"""
     base = make_legacy(dust_balance=False)
     model = base.evolve(
-        list(base.processes.values()) + [rt.photoionization(), rt.compton_off_bands([EUV])],
+        list(base.processes.values()) + [rt.photoionization(), h2_per_neutral_h(), rt.compton_off_bands([EUV])],
         solve_vars=base.solve_vars + (EUV,),
         time_dependent=("T", "H+", "H_2", EUV),
-        rules=[GIZMO_CLUMPING, GIZMO_DENSITY, GIZMO_ABUNDANCES],
+        rules=[GIZMO_CLUMPING, gizmo_neutral_h(H_IONIZATIONS), GIZMO_DENSITY, GIZMO_ABUNDANCES],
         parameters=[*base.parameters, *RT_PARAMETERS],
         species=[*base.species, BAND_SPECIES[EUV]],
         outputs=[Output("photoionization_rate", heat_of={(p, EUV): -1 / rt.rsol for p in rt.EUV_SINKS},

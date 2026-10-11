@@ -9,6 +9,10 @@ dust is one of these processes, solved with the gas energy and the chemistry in 
 
 - photoionization of H by the ionizing band, each event taking one photon at c_tilde and donating its energy to the
   optical band (the kick's donation), heating the gas by eps_HI; the IR band's tail above 13.6 eV ionizes too;
+- the H balance on GIZMO's neutral H, HI = 1 - x_H+, the nuclei in H2 included: photo- and collisional ionization act
+  on it and the kick absorbs the ionizing band on it (rule GIZMO_NEUTRAL_H), and the step's change of x_H+ takes from
+  or gives to H and H2 in proportion, so that H2 per neutral nucleus (GIZMO's MolecularMassFraction_perNeutralH)
+  changes only by the H2 network (h2_per_neutral_h);
 - dust absorption of the photoelectric, NUV and optical bands and of the IR band, the dust's thermal emission into the
   IR band, gas-dust collisions, and gas absorption of the IR band (heating the gas at c_tilde/c, as GIZMO's kick does);
 - the cooling radiation GIZMO returns to the bands (CoolingRate 1317-1348): metal and nebular lines, H and He+
@@ -55,6 +59,8 @@ import sympy as sp
 from jaco.model import Rule
 from jaco.declarations import Parameter, Species, Variable, Output
 from jaco.process import Process
+from jaco.symbols import n_, dt
+from jaco.processes import Reaction
 from ..starforge.starforge import GIZMO_FAMILY, SHARED_SPECIES  # noqa: F401  (GIZMO_FAMILY: the host-code family)
 from ..starforge.symbols import z, nH_gizmo_cooling, n_Htot, T
 from ..starforge.dust_opacity import T_dust, dust_survival
@@ -137,6 +143,55 @@ GIZMO_EMISSION_BACKGROUND = Rule("GIZMO's background temperature in the emission
                                  lambda p: p.transformed(_cmb_to_background),
                                  exempt={"Inverse Compton cooling (CMB)"})
 
+
+def _on_neutral_h(p):
+    """An ionization of H on GIZMO's neutral H, n_H + 2 n_H2 (DoCooling's HI = 1 - HII): find_abundances_and_rates
+    ionizes it (cooling.cc 1039-1043) and the kick absorbs the ionizing band on it (rt_kappa). Every row, linear in
+    n_H, is taken at n_H + 2 n_H2; the nuclei come out of H, and h2_per_neutral_h() moves H2's share of them"""
+    nH, nH2 = n_("H"), n_("H_2")
+
+    def on_neutral(e):
+        e = sp.sympify(e)
+        if e == 0:
+            return e
+        coeff, dep = e.as_independent(nH, as_Add=False)
+        if dep != nH:
+            raise ValueError(f"{p.name}: a row is not linear in n_H")
+        return coeff * (nH + 2 * nH2)
+    rows = {k: e.rhs for k, e in p.network.items()}
+    if "H_2" in rows or not sp.sympify(rows.get("H", 0)).has(nH):
+        raise ValueError(f"{p.name}: not an ionization of H alone")
+    return Process(p.name, p.bibliography, {k: on_neutral(e) for k, e in rows.items()})
+
+
+H_IONIZATIONS = ("Collisional Ionization of H", *rt.EUV_SINKS)
+IR_TAIL_PHOTOIONIZATION = "Photoionization of H by the IR band's tail"
+NEUTRAL_FLOOR = 1e-10  # neutral H per H nucleus below which H2 at its floor (1e-20) would read as a molecular share
+
+
+def gizmo_neutral_h(process_ids):
+    """Rule putting the ionizations of H process_ids on GIZMO's neutral H (_on_neutral_h)"""
+    return Rule("GIZMO's neutral H includes the nuclei in H2", _on_neutral_h, only=process_ids)
+
+
+def h2_per_neutral_h():
+    """GIZMO's H2 is MolecularMassFraction_perNeutralH f times its neutral H z = 1 - x_H+, f held while DoCooling's H
+    balance moves x_H+ (update_explicit_molecular_fraction runs before and after it): ionization takes H2 with the H,
+    recombination gives it back, in proportion. Over a step x_H2 = z f / 2 changes by exactly
+    (z / 2)(f - f_0) + (f_0 / 2)(z - z_0): the first part is the H2 network's (GizmoH2Network, at the step's end), the
+    second this process, H_2 -> 2H at s_0 (n_H+ - n_H+_initial) / Delta_t with s_0 = f_0 / 2, H2 molecules per neutral
+    nucleus at the start of the step. With x_H+'s backward-Euler row the step is GIZMO's, f = f_0 + Delta_t df/dt. The
+    processes of the H balance alone move x_H+. NEUTRAL_FLOOR in the share's denominator keeps H2 at its floor in fully
+    ionized gas from reading as molecular gas"""
+    nHp, nHp0, nH2_0 = n_("H+"), sp.Symbol(f"{n_('H+')}_initial"), sp.Symbol(f"{n_('H_2')}_initial")
+    share = nH2_0 / (n_Htot - nHp0 + NEUTRAL_FLOOR * n_Htot)
+    return Reaction("H_2 -> 2H", rate=share * (nHp - nHp0) / dt, clumping=1, name=H2_PER_NEUTRAL_H,
+                    bibliography=["GIZMO cooling.cc update_explicit_molecular_fraction and find_abundances_and_rates"])
+
+
+H2_PER_NEUTRAL_H = "H2 a fixed fraction of GIZMO's neutral H"
+GIZMO_NEUTRAL_H = gizmo_neutral_h(H_IONIZATIONS + (IR_TAIL_PHOTOIONIZATION,))
+
 # CoolingRate's routing of its cooling terms into the bands (1317-1348), by process: weight of the heat lost
 ABOVE_1E5K = sp.Piecewise((1, T >= 1e5), (0, True))  # GIZMO's free-free routing (logT >= 5)
 RECOMBINATION = [f"Gas-phase recombination of {i}" for i in ("H+", "He+", "He++")]
@@ -174,6 +229,7 @@ GIZMO_IR_SELF_ABSORPTION = Rule("GIZMO's IR self-absorption of the heating and c
 RADIATION_PROCESSES = [
     rt.photoionization(donation=ONIR),
     rt.ir_tail_photoionization(),
+    h2_per_neutral_h(),
     *[rt.dust_band_absorption(b) for b in (FUV, NUV, ONIR)],
     rt.dust_ir_absorption(),
     rt.gas_ir_absorption(),
@@ -214,8 +270,8 @@ def make_model():
         processes + RADIATION_PROCESSES,
         solve_vars=base.solve_vars + (EUV, FUV, NUV, ONIR, IR, "Td"),
         time_dependent=("T", "H+", "H_2", EUV, FUV, NUV, ONIR, IR),
-        rules=[GIZMO_CLUMPING, GIZMO_DENSITY, GIZMO_ABUNDANCES, GIZMO_EMISSION_BACKGROUND, GIZMO_IR_SELF_ABSORPTION,
-               GIZMO_COOLING_RADIATION, PHOTOELECTRIC_OVER_STEP],
+        rules=[GIZMO_CLUMPING, GIZMO_NEUTRAL_H, GIZMO_DENSITY, GIZMO_ABUNDANCES, GIZMO_EMISSION_BACKGROUND,
+               GIZMO_IR_SELF_ABSORPTION, GIZMO_COOLING_RADIATION, PHOTOELECTRIC_OVER_STEP],
         derived={**base.derived, **DERIVED},
         intermediates=rt.kick_absorption_intermediates() + list(base.intermediates),
         parameters=[p for p in base.parameters if p.name not in dropped] + RT_PARAMETERS + IR_PARAMETERS,

@@ -82,13 +82,11 @@ def photoionization(donation=None):
     hnu_EUV goes to it, as the kick donates the absorbed ionizing energy to the optical band (rt_get_donation_target_bin,
     1208-1212). He is not photoionized without RT_CHEM_PHOTOION_HE.
 
-    The rate acts on atomic H, as the model's ionization balance does. GIZMO's neutral H, HI = 1 - HII, includes the nuclei
-    in H2: its kick absorbs the band on them, its H balance photoionizes them, and its H2 then stays a fixed fraction of
-    the neutral H, so H2 survives in gas in photoionization equilibrium. A channel H_2 + 2 photon_EUV -> 2 H+ + 2 e- at the
-    same rate per nucleus absorbs as GIZMO does but destroys H2 at the gross rate (recombinations make atomic H): on
-    HII_region_simple it removed the H2 coolant from the partially ionized front and moved r_IF 3-8% beyond GIZMO's,
-    against 0.99-1.02 of it without the channel. Molecular gas therefore absorbs the band less than in GIZMO, by
-    x_H / (x_H + 2 x_H2).
+    Written on atomic H. GIZMO's neutral H, HI = 1 - HII, includes the nuclei in H2: its kick absorbs the band on them,
+    its H balance photoionizes them, and its H2 stays a fixed fraction of the neutral H through ionization and
+    recombination alike; starforge_legacy_RT reproduces that (GIZMO_NEUTRAL_H, h2_per_neutral_h). A channel
+    H_2 + 2 photon_EUV -> 2 H+ + 2 e- alone, with recombinations making atomic H, destroys H2 at the gross rate (on
+    HII_region_simple it moved r_IF 3-8% beyond GIZMO's).
 
     With the band's photons solved in the same backward-Euler step, a cell takes at most the photons it has, so GIZMO's
     rate law needs no photon-limited time average (slab_averaging_function, commented out at cooling.cc 875 and 1244):
@@ -108,7 +106,8 @@ def photoionization(donation=None):
 def ir_tail_photoionization():
     """Photoionization of H by the IR band's blackbody tail above 13.6 eV at T_rad (cooling.cc 1235-1238 and 859-878,
     rt_irband_egydensity_in_band), photons counted at max(hnu_EUV, T_rad/2959.81) eV; GIZMO's kick does not take them
-    from the IR band, so neither does this. Atomic H only: the tail matters only where T_rad >~ 2e4 K"""
+    from the IR band, so neither does this. Written on atomic H, as photoionization(); the tail matters only where
+    T_rad >~ 2e4 K"""
     n_tail = n_(IR) * blackbody_fraction(13.6, 500.0, T_rad) / sp.Max(hnu_EUV, T_rad / 2959.81)
     return Reaction("H -> H+ + e-", rate=C_LIGHT * sigma_HI * n_("H") * n_tail, heat_per_reaction=eps_HI, clumping=1,
                     name="Photoionization of H by the IR band's tail",

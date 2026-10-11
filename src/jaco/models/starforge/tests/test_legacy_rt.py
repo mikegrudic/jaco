@@ -157,32 +157,100 @@ def u_band(vals, band):
 
 # --- photoionization ----------------------------------------------------------------------------------------------
 
-def test_photoionization_is_gizmos(models):
-    """Ionizations per volume c sigma n_gamma nHcgs x_H, GIZMO's Gamma HI nHcgs on the atomic H (find_abundances_and_rates;
-    GIZMO's HI also counts the nuclei in H2, see rt.photoionization); the band loses one photon each at c_tilde (the
-    kick: kappa rho = sigma HI nHcgs, rt_kappa); the optical band gains hnu_EUV each (the donation); the gas gains eps_HI
-    each (Heat_Ion_from_RHD), times fcorr"""
+H_BALANCE = ("Photoionization of H by the ionizing band", "Photoionization of H by the IR band's tail",
+             "Collisional Ionization of H", "Gas-phase recombination of H+")
+# the fullphysics_mini cell that no solver tier solved: dense molecular gas, x_H at round-off, EUV streaming in
+MOLECULAR = dict(T=58.4, n_Htot=1.07e7, **{"H+": 3.1383e-7, "H_2": 0.49999984308435091, "e-": 3.2e-7, EUV: 1.8e-3})
+PARTLY_MOLECULAR = {"H+": 0.3, "H_2": 0.2}
+
+
+def gizmo_neutral_h(vals):
+    """DoCooling's neutral H per H nucleus, H2 included: HI = 1 - HII (cooling.cc 576-581)"""
+    return 1 - vals[x_("H+")]
+
+
+def gizmo_euv_absorption(vals):
+    """Photons the kick takes from the ionizing band per volume and time: c_tilde kappa rho n_gamma with rt_kappa's
+    kappa = (X_H / m_p) HI sigma_HI (rt_utilities.cc 141-151), rho = nHcgs m_p / X_H"""
+    kappa = X_GIZMO / MP * gizmo_neutral_h(vals) * vals[S("sigma_HI")]
+    rho = nHcgs(vals) * MP / X_GIZMO
+    return vals[S("rsol")] * C_LIGHT * kappa * rho * vals[n_(EUV)]
+
+
+def gizmo_photoionizations(vals):
+    """Photoionizations per volume and time: gJH0ne n_e nH0 nHcgs with gJH0ne = c sigma n_gamma / n_e and nH0 = HI
+    (find_abundances_and_rates, cooling.cc 983-1043)"""
+    return C_LIGHT * vals[S("sigma_HI")] * vals[n_(EUV)] * gizmo_neutral_h(vals) * nHcgs(vals)
+
+
+@pytest.mark.parametrize("over", [{}, PARTLY_MOLECULAR, MOLECULAR])
+def test_euv_absorption_is_the_kicks(models, over):
+    """The band loses at the kick's rate on GIZMO's neutral H, the nuclei in H2 included, in molecular gas as in atomic"""
     rt_model, _, euv = models
-    v = state()
-    ionizations = C_LIGHT * v[S("sigma_HI")] * v[n_(EUV)] * v[x_("H")] * nHcgs(v)
+    v = state(**over)
+    for m in (rt_model, euv):
+        rows = sum(value(process(m, name).network[EUV].rhs, v) for name in rt.EUV_SINKS)
+        assert -rows == pytest.approx(gizmo_euv_absorption(v), rel=1e-12)
+
+
+@pytest.mark.parametrize("over", [{}, PARTLY_MOLECULAR, MOLECULAR])
+def test_photoionization_is_gizmos(models, over):
+    """Ionizations per volume c sigma n_gamma nHcgs HI on GIZMO's neutral H (find_abundances_and_rates); the optical
+    band gains hnu_EUV each at c_tilde (the kick's donation); the gas gains eps_HI each (Heat_Ion_from_RHD), times
+    fcorr"""
+    rt_model, _, euv = models
+    v = state(**over)
+    ionizations = gizmo_photoionizations(v)
     pi = [process(rt_model, name) for name in rt.EUV_SINKS]
-    rows = {k: sum(value(p.network[k].rhs, v) for p in pi if k in p.network) for k in (EUV, ONIR, "H+")}
-    assert -rows[EUV] == pytest.approx(v[S("rsol")] * ionizations, rel=1e-12)
+    rows = {k: sum(value(p.network[k].rhs, v) for p in pi if k in p.network) for k in (ONIR, "H+")}
     assert rows[ONIR] == pytest.approx(v[S("rsol")] * v[S("hnu_EUV")] * ionizations, rel=1e-12)
     fcorr = value(S("f_IR_selfabs"), v, DERIVED)
     assert sum(value(p.heat, v, DERIVED) for p in pi) == pytest.approx(fcorr * 4.8e-12 * ionizations, rel=1e-12)
     # the H+ row per n_Htot is GIZMO's dx_HII/dt, abundances per nHcgs (rule GIZMO_ABUNDANCES)
     assert rows["H+"] / v[n_Htot] == pytest.approx(ionizations / nHcgs(v), rel=1e-12)
     pi_euv = [process(euv, name) for name in rt.EUV_SINKS]
-    assert -sum(value(p.network[EUV].rhs, v) for p in pi_euv) == pytest.approx(v[S("rsol")] * ionizations, rel=1e-12)
+    assert sum(value(p.heat, v) for p in pi_euv) == pytest.approx(4.8e-12 * ionizations, rel=1e-12)
     assert all(ONIR not in p.network for p in pi_euv)  # no optical band: GIZMO's kick loses the absorbed energy
 
 
+def test_only_the_h_balance_moves_h_plus(models):
+    """x_H+ moves by DoCooling's H balance alone, whose change of it H2_PER_NEUTRAL_H shares with H2"""
+    rt_model, _, euv = models
+    for m in (rt_model, euv):
+        movers = {p.name for p in m.subprocesses if "H+" in p.network and p.network["H+"].rhs != 0}
+        assert movers == {name for name in H_BALANCE if name in m}
+
+
+@pytest.mark.parametrize("over", [{}, PARTLY_MOLECULAR, MOLECULAR])
+@pytest.mark.parametrize("x_H2_0", [0.1, 0.3])
+@pytest.mark.parametrize("frac", [0.1, 0.5])
+def test_h_balance_keeps_h2_per_neutral_h(models, over, x_H2_0, frac):
+    """GIZMO's H2 is f = MolecularMassFraction_perNeutralH times its neutral H HI, f held while DoCooling's H balance
+    moves x_H+ (update_explicit_molecular_fraction runs before and after it). With x_H+'s backward-Euler row, the model
+    moves x_H2 by -(f_0 / 2) times what the H balance moves x_H+, f_0 = 2 x_H2 / HI at the start of the step, so that
+    the step is x_H2 = (HI / 2)(f_0 + Delta_t df/dt): ionizations and recombinations alike, beyond the H2 network"""
+    rt_model, _, euv = models
+    for m in (rt_model, euv):
+        v = state(**over)
+        dHp = sum(value(process(m, name).network["H+"].rhs, v) for name in H_BALANCE if name in m)
+        assert dHp != 0
+        v[dt] = frac * v[n_("H+")] / abs(dHp)  # a step that moves x_H+ by frac of itself
+        v[S("n_H+_initial")] = v[n_("H+")] - v[dt] * dHp  # the start of the step at which x_H+'s row holds
+        v[S("n_H_2_initial")] = x_H2_0 * v[n_Htot]
+        x0 = v[S("n_H+_initial")] / v[n_Htot]
+        assert 0 <= x0 < 1 - 2 * x_H2_0
+        dH2 = sum(value(p.network["H_2"].rhs, v) for p in m.subprocesses
+                  if "H_2" in p.network and p.name != "GIZMO H2 network")
+        assert dH2 == pytest.approx(-x_H2_0 / (1 - x0) * dHp, rel=1e-8)
+
+
 @pytest.mark.parametrize("xHp", [1e-4, 0.3, 0.99])
-def test_H_balance_runs_at_gizmo_speed(models, xHp):
-    """The H+ row per n_Htot is GIZMO's d x_H+/dt (cooling.cc 900-904) without H2: rates at nHcgs, abundances per nHcgs"""
+@pytest.mark.parametrize("f_mol", [0.0, 0.8])
+def test_H_balance_runs_at_gizmo_speed(models, xHp, f_mol):
+    """The H+ row per n_Htot is GIZMO's d x_H+/dt (cooling.cc 900-904): rates at nHcgs on HI = 1 - x_H+, abundances per
+    nHcgs, whatever share f_mol of the neutral H is molecular"""
     rt_model, _, _ = models
-    v = state(**{"H+": xHp, "H_2": 1e-20, "e-": xHp + 2e-4})
+    v = state(**{"H+": xHp, "H_2": max(0.5 * f_mol * (1 - xHp), 1e-20), "e-": xHp + 2e-4})
     rows = sum(value(process(rt_model, name).network["H+"].rhs, v) for name in
                ("Photoionization of H by the ionizing band", "Gas-phase recombination of H+", "Collisional Ionization of H"))
     Tv, nH, xe = v[T], nHcgs(v), v[x_("e-")]
