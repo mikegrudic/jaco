@@ -14,8 +14,9 @@ gizmo_jaco_dev e5865f97. What separates it from STARFORGE (jaco.models.starforge
 - Free electrons: find_abundances_and_rates' metal budget (937-948), whose heavy-ion term is its cosmic-ray ionization
   of the neutrals; no explicit cosmic-ray ionization of H.
 - C+, [CI] 609 um and CO cooling: Lambda_Metals_Neutral (1158-1176), [CI] weighted by the C+ fraction, HM79 CO with an
-  LVG cap; carbon counted as atoms in the EOS and the metal-line tables. STARFORGE has the fine-structure lines of C+,
-  C, O, Si+ and Fe+ from levels in statistical equilibrium with the CMB, on gas-phase abundances, and WJ18 CO.
+  LVG cap and CoolingRate's column (N_H_cool, the limited density gradient); carbon counted as atoms in the EOS and the
+  metal-line tables. STARFORGE has the fine-structure lines of C+, C, O, Si+ and Fe+ from levels in statistical
+  equilibrium with the CMB, on gas-phase abundances, and WJ18 CO.
 - H2/HD cooling: colliders weighted by the fixed mass fractions X_H, Y_He, HD/H2 = min(0.00126, 4e-5 x_H0 / x_H2)
   (1177-1192).
 
@@ -32,7 +33,7 @@ from ..starforge.gizmo_lowtemp import gizmo_carbon_cooling, gizmo_H2_cooling
 from ..starforge.h2_chemistry.gizmo_network import GizmoH2Network
 from ..starforge.metal_electrons import metal_electrons
 from ..starforge.symbols import n_Htot, nH_gizmo_cooling, PARAMETERS
-from ..starforge.dust_balance import with_dust_balance, dust_side_beyond_truncation
+from ..starforge.dust_balance import with_dust_balance, dust_side_beyond_truncation, N_H_COOL
 
 
 def scaled_densities(factor, exclude=frozenset()):
@@ -60,7 +61,7 @@ def make_model(dust_balance=True):
         intermediates=intermediates,
         fixed_electrons=fixed_electrons,
         rules=[GIZMO_CLUMPING, GIZMO_DENSITY],
-        parameters=PARAMETERS,
+        parameters=PARAMETERS + [N_H_COOL],
         species=SHARED_SPECIES,
     )
     return with_dust_balance(model, extra=[dust_side_beyond_truncation()]) if dust_balance else model

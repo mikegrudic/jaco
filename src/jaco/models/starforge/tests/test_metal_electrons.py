@@ -115,3 +115,21 @@ def test_heavy_ions_continuous_across_switches(Tv, lg_lo, lg_hi, xHp):
     assert np.all(np.isfinite(vals))
     steps = np.abs(np.diff(np.log(vals)))
     assert steps.max() < 0.1 * steps.sum()
+
+
+def test_nonsolar_carbon_and_oxygen_electrons():
+    """GIZMO scales the gas-phase C (1.6e-4) and O (3.2e-4) by Z[k] / SolarAbundances[k], mass fractions, whatever the
+    cell's H mass fraction: an SN-ejecta-like cell at GIZMO's caps (X = 0.4) in diffuse, partly ionized gas"""
+    Z = list(G.SOLAR)
+    Z[0], Z[1], Z[2], Z[4] = 0.25, 0.35, 0.085, 0.096
+    Xv = 1 - Z[0] - Z[1]
+    Tv, nH, G0, column, fmol, xHp = 100.0, 20.0, 1.0, 1e-7, 0.0, 1e-3
+    xHep, xHepp = 1e-3 * xHp, 1e-6 * xHp
+    args = (Tv, nH, G0, column / G.PROTONMASS_CGS, Z[0] / G.SOLAR[0], 1.0, 1.0, Xv, Z[2] / (12 * Xv), Z[4] / (16 * Xv),
+            Z[10] / (56 * Xv), xHp, xHep, xHepp, 0.5 * fmol)
+    gz = dict(temp=Tv, nHcgs=nH, density_cgs=nH * G.PROTONMASS_CGS / Xv, n_elec_HHe=xHp + xHep + 2 * xHepp, nHp=xHp,
+              G0=G0, column=column, fmol=fmol, Z=Z, isrf=1.0)
+    assert evaluate(Oplus_electrons(), args) == pytest.approx(G.Oplus(xHp, Z), rel=1e-10, abs=0)
+    expected, _ = G.metal_electrons(**gz)
+    total, _ = evaluate_metal_electrons(args)
+    assert total == pytest.approx(expected, rel=1e-2)

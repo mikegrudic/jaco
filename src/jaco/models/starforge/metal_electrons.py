@@ -11,7 +11,8 @@ and its column in g cm^-2 is m_p N_H."""
 import numpy as np
 import sympy as sp
 from jaco.math import logistic
-from .symbols import T, n_Htot, G_0, NH, Z_dust, f_dust, x_, x_solar, cosmicray_ionization_rate_H, SolarAbundances
+from .symbols import (T, n_Htot, G_0, NH, Z_dust, f_dust, x_, gizmo_abundance_ratio, cosmicray_ionization_rate_H,
+                      SolarAbundances)
 from .grain_assisted_recombination import alpha_grain
 
 X_H = sp.Symbol("X")  # hydrogen mass fraction
@@ -45,7 +46,7 @@ def f_Cplus(x_e, n_H=n_Htot, clumping=1, x_C=x_C_tot):
 
 
 # gas-phase carbon assumed by return_electron_fraction_from_Cplus (Sofia 2004)
-x_C_gas = 1.6e-4 * x_C_tot / x_solar("C")
+x_C_gas = 1.6e-4 * gizmo_abundance_ratio(x_C_tot, "C")
 
 
 def Cplus_newton_step(x_e_other, y, n_H=n_Htot):
@@ -109,7 +110,7 @@ def alkali_electrons(n_H=n_Htot):
 
 def Oplus_electrons():
     """return_electron_fraction_from_Oplus: O ionized like H (gas-phase O 3.2e-4, Savage & Sembach 1996)"""
-    return 3.2e-4 * x_O_tot / x_solar("O") * x_("H+")
+    return 3.2e-4 * gizmo_abundance_ratio(x_O_tot, "O") * x_("H+")
 
 
 def molecular_ion_electrons(n_H=n_Htot):

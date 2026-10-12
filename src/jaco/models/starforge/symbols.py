@@ -9,7 +9,8 @@ from ...data import SolarAbundances
 from ...declarations import Parameter
 
 # Integer mass numbers and solar H mass fraction with which GIZMO's interface packs the x_X parameters
-# (x_X = Z_X / (A_X X_H)), so that x_X / x_solar(X) reproduces GIZMO's Z_X / Z_X,sun scalings.
+# (x_X = Z_X / (A_X X_H)): x_X / x_solar(X) is the abundance per H relative to solar, which equals GIZMO's
+# Z_X / Z_X,sun only at solar X (gizmo_abundance_ratio).
 MASS_NUMBER = {"C": 12, "N": 14, "O": 16, "Ne": 20, "Mg": 24, "Si": 28, "S": 32, "Ca": 40, "Fe": 56}
 X_H_SOLAR = 1 - SolarAbundances.mass_fraction["Z"] - SolarAbundances.mass_fraction["He"]
 
@@ -17,6 +18,11 @@ X_H_SOLAR = 1 - SolarAbundances.mass_fraction["Z"] - SolarAbundances.mass_fracti
 def x_solar(element):
     """Solar abundance per H nucleus of an element, in the convention of GIZMO's x_X parameters."""
     return SolarAbundances.mass_fraction[element] / (MASS_NUMBER[element] * X_H_SOLAR)
+
+
+def gizmo_abundance_ratio(x_tot, element):
+    """GIZMO's Z_X / Z_X,sun (Metallicity[k] / SolarAbundances[k], mass fractions) from x_tot = Z_X / (A_X X_H)"""
+    return x_tot / x_solar(element) * X_H / X_H_SOLAR
 
 
 T = sp.Symbol("T")  # Gas temperature

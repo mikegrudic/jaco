@@ -8,8 +8,9 @@ as neutral H, as GIZMO's nH0 does, and GIZMO's f_molec is x_H2.
 
 import sympy as sp
 from jaco.processes import ThermalTerm
-from .symbols import (T, log_T, sqrt_T, x_, n_Htot, G_0, NH, grad_v, X_H, x_solar, cmb_bath_factor,
+from .symbols import (T, log_T, sqrt_T, x_, n_Htot, G_0, grad_v, X_H, gizmo_abundance_ratio, cmb_bath_factor,
                       lowtemp_truncation, PROTONMASS_CGS)
+from .dust_balance import N_H_cool
 from .H2_cooling import lambda_H2_thin, Lambda_HD_thin, Lambda_H2_LTE_per_molecule
 
 xH0 = 1 - x_("H+")
@@ -26,9 +27,10 @@ def f_Cplus_CCO(n=n_Htot):
 def gizmo_carbon_cooling_coefficient():
     """Lambda_Metals = f_Cplus_CCO Lambda_Cplus + Lambda_CO per n_H0 n_H (erg cm^3 s^-1): C+ fine structure (Barinovs+05,
     Wilson & Bell 02) plus [CI] 609 um (Hocuk+16), both weighted by the C+ share, and HM79 CO with GIZMO's
-    recalibration and column correction, capped by the Whitworth & Jaffa LVG rate"""
-    Z_C = sp.Max(1e-6, sp.Symbol("x_C,tot") / x_solar("C"))
-    column = PROTONMASS_CGS * NH  # g cm^-2
+    recalibration and column correction, capped by the Whitworth & Jaffa LVG rate. The CO column is CoolingRate's
+    (N_H_cool: the cell's slope-limited density gradient, cooling.cc 1325), not the shielding column N_H"""
+    Z_C = sp.Max(1e-6, gizmo_abundance_ratio(sp.Symbol("x_C,tot"), "C"))
+    column = PROTONMASS_CGS * N_H_cool  # g cm^-2
     Lambda_Cplus = Z_C * (4.7e-28 * (T**0.15 + 1.04e4 * x_e / sqrt_T) * sp.exp(-91.211 / T)
                           + 2.08e-29 * sp.exp(-23.6 / T))
     ncrit_CO, Sigma_crit_CO = 1.9e4 * sqrt_T, 3.0e-5 * T / Z_C

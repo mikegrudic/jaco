@@ -49,10 +49,30 @@ STATES = [(15.0, 300.0, 1e-9, 1e-6, 0.4, 0.05, 0.03, 2.0), (80.0, 30.0, 1e-6, 1.
 
 @pytest.mark.parametrize("Tv,nH,xHp,xe,xH2,G0,column,gv", STATES)
 def test_legacy_matches_gizmo(Tv, nH, xHp, xe, xH2, G0, column, gv):
+    """column is CoolingRate's (the cell's slope-limited density gradient, N_H_cool), which its CO term takes; the
+    shielding column N_H (the unlimited P.GradRho, typically several times smaller in dense gas) must not enter"""
     Xv, Yv = 0.7155, 0.2703
-    vals = {T: Tv, n_Htot: nH, x_("H+"): xHp, x_("e-"): xe, x_("H_2"): xH2, G_0: G0, NH: column / 1.67262178e-24,
+    vals = {T: Tv, n_Htot: nH, x_("H+"): xHp, x_("e-"): xe, x_("H_2"): xH2, G_0: G0, NH: column / 5 / 1.67262178e-24,
+            sp.Symbol("N_H_cool"): column / 1.67262178e-24,
             grad_v: gv * 1e5 / 3.085678e18, X_H: Xv, y: 0.25 * Yv / Xv, z: 0.0, sp.Symbol("x_C,tot"): x_solar("C")}
     metals, molecules = gizmo_lowtemp(Tv, nH, xHp, xe, xH2, G0, column, gv, 1.0, Xv, Yv)
     factor = (Tv - 2.73) / (Tv + 2.73)  # truncation is 1 below 10^4.5 K
-    assert -float(gizmo_carbon_cooling.heat.subs(vals)) == pytest.approx(nH**2 * metals * factor, rel=1e-10)
+    assert -float(gizmo_carbon_cooling.heat.subs(vals)) == pytest.approx(nH**2 * metals * factor, rel=1e-10, abs=0)
     assert -float(gizmo_H2_cooling.heat.subs(vals)) == pytest.approx(nH**2 * molecules * factor, rel=1e-10)
+
+
+# (X, Y, carbon mass fraction): solar, and SN-ejecta-like at GIZMO's caps (Y 0.35, Z 0.25), 34x solar carbon
+COMPOSITIONS = [(0.7155, 0.2703, SOLAR_C), (0.40, 0.35, 0.085)]
+
+
+@pytest.mark.parametrize("Xv,Yv,ZCv", COMPOSITIONS)
+@pytest.mark.parametrize("Tv,nH,xHp,xe,xH2,G0,column,gv", STATES[:4])
+def test_carbon_abundance_is_gizmos_mass_fraction_ratio(Xv, Yv, ZCv, Tv, nH, xHp, xe, xH2, G0, column, gv):
+    """GIZMO's Z_C is the carbon mass fraction over its solar value, Z[2] / SolarAbundances[2], whatever the cell's H
+    mass fraction; jaco is handed x_C,tot = Z[2] / (12 X)"""
+    vals = {T: Tv, n_Htot: nH, x_("H+"): xHp, x_("e-"): xe, x_("H_2"): xH2, G_0: G0, NH: column / 1.67262178e-24,
+            sp.Symbol("N_H_cool"): column / 1.67262178e-24, grad_v: gv * 1e5 / 3.085678e18, X_H: Xv,
+            y: 0.25 * Yv / Xv, z: 0.0, sp.Symbol("x_C,tot"): ZCv / (12 * Xv)}
+    metals, _ = gizmo_lowtemp(Tv, nH, xHp, xe, xH2, G0, column, gv, ZCv / SOLAR_C, Xv, Yv)
+    factor = (Tv - 2.73) / (Tv + 2.73)
+    assert -float(gizmo_carbon_cooling.heat.subs(vals)) == pytest.approx(nH**2 * metals * factor, rel=1e-10, abs=0)

@@ -36,7 +36,7 @@ def process(model, name):
 
 def state(Tv=8e3, **over):
     """Symbol -> value of a partly ionized, partly molecular, irradiated state with metals"""
-    v = {T: Tv, n_Htot: 50.0, X_H: 0.7, z: 0.0, S("y"): 0.0994, S("Z_d"): 1.0, S("N_H"): 1e21, S("∇v"): 1e-13,
+    v = {T: Tv, n_Htot: 50.0, X_H: 0.7, z: 0.0, S("y"): 0.0994, S("Z_d"): 1.0, S("N_H"): 1e21, S("N_H_cool"): 3e21, S("∇v"): 1e-13,
          S("f_metal"): 1.0, S("f_neb"): 1.0, S("x_C,tot"): 2.4e-4, S("Td"): 25.0, S("T_rad"): 30.0, S("T_CMB"): 2.73,
          S("rho"): 50 * 2.34e-24, S("Z_metals"): 0.014, S("gamma_eos"): 5.0 / 3.0, S("u_initial"): 3e11,
          S("rsol"): 1e-3, S("sigma_HI"): 3e-18, S("eps_HI"): 4.8e-12, S("hnu_EUV"): 21.0, S("Δx"): 3e18,
@@ -648,6 +648,11 @@ def test_declarations(models):
     assert S("G_0_step") in pe and S("G_0") not in pe  # the heating over the step; the closures at its end
     euv_params = {p.name for p in euv.parameters}  # no IR band: GIZMO's non-RT dust balance (dust_balance.py)
     assert {"G_0", "G_LW", "A_dust", "rho", "N_H_cool"} <= euv_params and "Td" not in euv_params
+    # CoolingRate's CO term takes its own column (the cell's limited density gradient), not the shielding column
+    for m in models:
+        assert "N_H_cool" in {p.name for p in m.parameters}
+        co = process(m, "GIZMO C+, [CI] and CO cooling").heat.free_symbols
+        assert S("N_H_cool") in co and S("N_H") not in co
 
 
 @pytest.mark.slow
