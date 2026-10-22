@@ -4,6 +4,11 @@ draine_mw31(): the Milky Way R_V = 3.1 carbonaceous-silicate model of Weingartne
 as in Draine (2003, ARA&A 41, 241), with Li & Draine (2001) PAH and Draine (2003, ApJ 598, 1017) graphite/silicate
 optical properties: Draine's table kext_albedo_WD_MW_3.1_60_D03.all (DRAINE_MW31_URL, computed 2009 Oct 4), stored
 unmodified as package data in jaco/bands/data/.
+
+hensley_draine_astrodust(): the astrodust + PAH model of Hensley & Draine (2023, ApJ 948, 55), from the table
+hensley_draine_2022_astrodust_opacity.dat (per-H absorption, scattering and extinction cross sections of the PAH and
+astrodust populations, 0.1 micron to 3 cm) as distributed with meshoid, stored unmodified in jaco/bands/data/. It stops
+at 12.4 eV: above it the model is extrapolated flat, so it is for the non-ionizing bands.
 """
 
 import re
@@ -112,6 +117,36 @@ def read_draine(path, name=None):
     lam, albedo, _, cext_H, k_abs, _ = data.T
     return DustModel(name or Path(path).name, HC_EV_MICRON / lam, k_abs, albedo * cext_H / float(m_dust.group(1)),
                      1.0 / float(gas_to_dust.group(1)), source=str(path))
+
+
+ASTRODUST_FILE = "hensley_draine_2022_astrodust_opacity.dat"
+ASTRODUST_GAS_PER_H = 1.4  # gas mass per H nucleus in m_H, the convention of Draine's tables (M_gas/M_dust there)
+
+
+def read_astrodust(path, name=None):
+    """DustModel from the Hensley & Draine astrodust table: lambda [micron], then C_abs, C_sca and C_ext per H
+    [cm^2/H] of the PAH and astrodust populations, C_ext total and the albedo; the header gives Md/MH, the dust mass
+    per H mass. kappa = (C_PAH + C_Ad) / (Md/MH m_H); dust_to_gas = (Md/MH) / ASTRODUST_GAS_PER_H."""
+    text = Path(path).read_text()
+    m = re.search(r"Md/MH\s*=\s*([0-9.Ee+-]+)", text)
+    if not m:
+        raise ValueError(f"{path}: no Md/MH in the header")
+    md_mh = float(m.group(1))
+    data = np.loadtxt(path)
+    if data.ndim != 2 or data.shape[1] < 5:
+        raise ValueError(f"{path}: expected lambda and four cross-section columns")
+    lam, cabs_pah, cabs_ad, csca_pah, csca_ad = data[:, :5].T
+    m_dust_per_H = md_mh * 1.6735575e-24  # g
+    return DustModel(name or Path(path).name, HC_EV_MICRON / lam, (cabs_pah + cabs_ad) / m_dust_per_H,
+                     (csca_pah + csca_ad) / m_dust_per_H, md_mh / ASTRODUST_GAS_PER_H, source=str(path))
+
+
+def hensley_draine_astrodust():
+    """Hensley & Draine's astrodust + PAH dust (module docstring)"""
+    path = DATA_DIR / ASTRODUST_FILE
+    if not path.is_file():
+        raise FileNotFoundError(f"{path} is missing: it is meshoid's radiation/opacity_tables/{ASTRODUST_FILE}")
+    return read_astrodust(path, "Hensley & Draine astrodust + PAH (2023)")
 
 
 def draine_mw31():

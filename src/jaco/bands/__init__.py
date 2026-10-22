@@ -10,4 +10,4 @@ from .projection import (Projector, AbsorptionCoefficients, EmissionFractions, T
 from .fit import fit_slope, SlopeFit, MEAN_PHOTON_ENERGY
 from .structure import band_structure, BandStructure
 from .specs import STARFORGE_RT, GIZMO_STARFORGE, starforge_rt, ionizing_fits, hardening_mismatch, combined_ionizing_residuals
-from .dust import DustModel, band_means, read_draine, draine_mw31, DRAINE_MW31_URL
+from .dust import DustModel, band_means, read_draine, draine_mw31, DRAINE_MW31_URL, read_astrodust, hensley_draine_astrodust
