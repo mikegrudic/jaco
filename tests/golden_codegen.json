@@ -69,6 +69,15 @@
     "microphysics_func_jac.h": "c86e5806a0c1b03169d9c2d24bca0422c6cb7711fcf6b1a4466c652999df63a0",
     "microphysics_outputs.cc": "b56292a1fc02fd0f753c3700d1333ee01156d35a7895ac19bab29d665589d4e8"
   },
+  "toy": {
+    "jaco_eos.cc": "016893b4708cec5818f56f3ba358efc247ad3e37bd4eb1878d8c2b262b2e9420",
+    "jaco_interp.h": "af82c3cea9da3d39f89dc96efef1b8b63c5f9dac2cdb02ff02d20ee3ce68bc14",
+    "jaco_tables.h": "fa122c4ffbb99d80a956eac582eecbf35c1dc832a3d490d4c4917d63507a7de1",
+    "jaco_util.cc": "353c6f9b771dafe4ba8b57a63cd5fa3c14f6ed7c26b800aa1bf7a6de566ca66d",
+    "microphysics_func_jac.cc": "c3511b2f2bd432fa074840cbc4ad657b7219a9f347a36dcf0e291bc6679edc49",
+    "microphysics_func_jac.h": "b0ef0724e31a6c84b04ffdf5b28352672206495286b65d6cefb3d38f7188c72b",
+    "microphysics_outputs.cc": "889507a802863fd0c6d9696917bffe1688e55441a9b8460544eb38b9cc75ea9d"
+  },
   "wind_comparison": {
     "jaco_eos.cc": "ba6a6d9f7ab0e0734b8a9b4e3e6a1062067cb3b4c7afc0c6c62e60c711420484",
     "jaco_interp.h": "2c1bcd30a5cb3e4c91426023aa40d66901a8606f723be3a11b9a1ee32cf2eaa6",
