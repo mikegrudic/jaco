@@ -52,9 +52,12 @@ class Closures:
     def rho(st):
         return st["rho"]
 
-    @staticmethod
-    def grad_v(st):
-        return abs(st["dlnrho_dt"])
+    GRAD_V_FLOOR = 1e-3  # of the free-fall rate: a parcel at rest keeps a residual gradient (GIZMO's cells never have
+    # an exactly zero one), so the LVG escape-probability columns and their derivatives stay finite
+
+    @classmethod
+    def grad_v(cls, st):
+        return max(abs(st["dlnrho_dt"]), cls.GRAD_V_FLOOR / st["t_ff"])
 
     @staticmethod
     def grad_v_tf(st):
@@ -111,9 +114,9 @@ class GizmoHostClosures(Closures):
     def N_H(cls, st):
         return cls.sigma(st) / cls.PROTONMASS
 
-    @staticmethod
-    def grad_v(st):
-        return abs(st["dlnrho_dt"]) / np.sqrt(3.0)
+    @classmethod
+    def grad_v(cls, st):
+        return max(abs(st["dlnrho_dt"]) / np.sqrt(3.0), cls.GRAD_V_FLOOR / st["t_ff"])
 
     @classmethod
     def G_0(cls, st):
@@ -233,13 +236,19 @@ class OneZone:
         r["params"] = p
         return r
 
-    def _state_at(self, n, y, law, t=None):
-        """the full state behind an integrator state y = (u, time-dependent abundances) at density n: T and the
+    # The integrator's state is w = (ln u, time-dependent abundances): a trial step cannot make u negative, which has
+    # no temperature. OdeSystem works with y = (u, abundances).
+    @staticmethod
+    def _y(w):
+        return np.concatenate([[np.exp(w[0])], w[1:]])
+
+    def _state_at(self, n, w, law, t=None):
+        """the full state behind an integrator state w = (ln u, time-dependent abundances) at density n: T and the
         steady-state species solved from u, the compression rate from the law, the parameters from the closures.
         The closures depend on T (through the Jeans length), so the solve is repeated once with them updated.
         Returns T, x, params, d ln rho/dt."""
         sys_ = self.system
-        u, xi = float(y[0]), {s: float(v) for s, v in zip(sys_.integrated, y[1:])}
+        u, xi = float(np.exp(w[0])), {s: float(v) for s, v in zip(sys_.integrated, w[1:])}
         T = sys_._last_T if sys_._last_T is not None else 1e3
         x = xi
         d = 0.0
@@ -254,12 +263,13 @@ class OneZone:
         p = self._params_at(n, T, x, d)
         return T, x, p, d
 
-    def _jacobian_at(self, n, y, law, t=None):
-        """the system's Jacobian at an integrator state, the closures' dependence on the state chained in from their
-        partial derivatives in T and the abundances (central differences of the closure formulas at fixed density;
-        cheap, no solves)"""
+    def _jacobian_at(self, n, w, law, t=None):
+        """the Jacobian of the integrator's right-hand side (in w = (ln u, x)) at a state, the closures' dependence on
+        the state chained in from their partial derivatives in T and the abundances (central differences of the closure
+        formulas at fixed density; cheap, no solves)"""
         sys_ = self.system
-        T, x, p, d = self._state_at(n, y, law, t)
+        y = self._y(w)
+        T, x, p, d = self._state_at(n, w, law, t)
         closed = [q for q in sys_._deriv_params if q in self.closures]
         dparams = {}
         if closed:
@@ -278,29 +288,35 @@ class OneZone:
                 for q in closed:
                     dparams[q][c] = (pp[q] - pm[q]) / (2 * h)
         J = sys_.jacobian(y, p, dparams)
-        if not np.all(np.isfinite(J)):  # a singular parameter derivative at this state: difference the whole thing
-            J = np.empty((len(y), len(y)))
-            for k in range(len(y)):
-                h = 1e-6 * max(abs(y[k]), 1e-30)
-                e = np.zeros(len(y))
+        if np.all(np.isfinite(J)):
+            u = y[0]  # d(du/dt / u)/d(ln u) = J_uu - (du/dt)/u; the rest rescales rows and columns
+            J[0, :] /= u
+            J[:, 0] *= u
+            J[0, 0] -= sys_.rates(T, x, p, solved=True)["dudt"] / u
+        else:  # a singular parameter derivative at this state: difference the whole thing
+            J = np.empty((len(w), len(w)))
+            for k in range(len(w)):
+                h = 1e-6 * max(abs(w[k]), 1e-30)
+                e = np.zeros(len(w))
                 e[k] = h
-                J[:, k] = (self._rhs_at(n, y + e, law, t) - self._rhs_at(n, y - e, law, t)) / (2 * h)
+                J[:, k] = (self._rhs_at(n, w + e, law, t) - self._rhs_at(n, w - e, law, t)) / (2 * h)
             sys_.temperature(y[0], {s: v for s, v in zip(sys_.integrated, y[1:])}, p)
         return J, d
 
-    def _rhs_at(self, n, y, law, t=None):
-        """du/dt, dx/dt of the integrated state at density n"""
+    def _rhs_at(self, n, w, law, t=None):
+        """d ln u/dt, dx/dt of the integrator's state at density n"""
         sys_ = self.system
-        T, x, p, d = self._state_at(n, y, law, t)
+        T, x, p, d = self._state_at(n, w, law, t)
         r = sys_.rates(T, x, p, solved=True)
-        return np.array([r["dudt"]] + [r["dxdt"][s] for s in sys_.integrated])
+        return np.array([r["dudt"] / r["u"]] + [r["dxdt"][s] for s in sys_.integrated])
 
     def _initial(self, n, T0, x0):
-        """the integrator state at (n, T0, x0)"""
+        """the integrator state w = (ln u, x) at (n, T0, x0)"""
         sys_ = self.system
         sys_.reset()
         p = self._params_at(n, T0, x0 or {}, 0.0)
-        return sys_.state(T0, x0 or {}, p)
+        y = sys_.state(T0, x0 or {}, p)
+        return np.concatenate([[np.log(y[0])], y[1:]])
 
     # ------------------------------------------------------------------ modes
 
@@ -308,7 +324,7 @@ class OneZone:
         """Time evolution under a compression law d ln rho/dt = dlnrho_dt(state), the state dict as for the closures
         plus "t". The density follows from it; use free_fall() for the free-fall law."""
         sys_ = self.system
-        y0 = np.concatenate([[np.log(n0)], self._initial(n0, T0, x0)])  # ln n, u, x
+        y0 = np.concatenate([[np.log(n0)], self._initial(n0, T0, x0)])  # ln n, ln u, x
         progress = [None]
 
         def rhs(t, y):
@@ -316,7 +332,7 @@ class OneZone:
             T, x, p, d = self._state_at(n, y[1:], dlnrho_dt, t)
             r = sys_.rates(T, x, p, solved=True)
             self._progress(verbose, progress, n, T, t)
-            return np.array([d, r["dudt"]] + [r["dxdt"][s] for s in sys_.integrated])
+            return np.array([d, r["dudt"] / r["u"]] + [r["dxdt"][s] for s in sys_.integrated])
 
         def jac(t, y):
             """analytic in (u, x); the ln n column and row by finite differences (the law and the density enter the
@@ -351,7 +367,7 @@ class OneZone:
             T, x, p, d = self._state_at(n, y, law)
             r = sys_.rates(T, x, p, solved=True)
             self._progress(verbose, progress, n, T)
-            return np.array([r["dudt"]] + [r["dxdt"][sp] for sp in sys_.integrated]) / d
+            return np.array([r["dudt"] / r["u"]] + [r["dxdt"][sp] for sp in sys_.integrated]) / d
 
         def jac(s, y):
             J, d = self._jacobian_at(n0 * np.exp(s), y, law)
@@ -393,15 +409,14 @@ class OneZone:
             def rhs(t, y):
                 Ti, xi, p, _ = self._state_at(n, y, still)
                 r = sys_.rates(Ti, xi, p, solved=True)
-                return np.array([r["dudt"]] + [r["dxdt"][s] for s in sys_.integrated])
+                return np.array([r["dudt"] / r["u"]] + [r["dxdt"][s] for s in sys_.integrated])
 
             def jac(t, y):
                 return self._jacobian_at(n, y, still)[0]
 
             def settled(t, y):
                 d = rhs(t, y)
-                rel = [abs(d[0]) * tff / abs(y[0])] + [abs(d[k]) * tff / max(abs(y[k]), scale[k])
-                                                      for k in range(1, len(y))]
+                rel = [abs(d[0]) * tff] + [abs(d[k]) * tff / max(abs(y[k]), scale[k]) for k in range(1, len(y))]
                 return np.log10(max(rel) + 1e-300) - np.log10(tol)
             settled.terminal, settled.direction = True, -1
 

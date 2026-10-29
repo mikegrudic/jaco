@@ -95,10 +95,19 @@ def Lambda_HD_thin():
     ) * sp.exp(-T3 * T3 / 25.0)
 
 
+def Lambda_HD_LTE_per_molecule():
+    """HD cooling per molecule in LTE (erg s^-1): Coppola, Lodi & Tennyson 2011's fit, as grackle carries it, valid
+    from 10 K to 3e4 K (clamped outside), rotational and vibrational levels"""
+    log_T_c = sp.log(sp.Min(sp.Max(T, 10.0), 3.0e4)) / sp.log(10)
+    return 10 ** sp.Min(-55.5725 + 56.649 * log_T_c - 37.9102 * log_T_c**2 + 12.698 * log_T_c**3
+                        - 2.02424 * log_T_c**4 + 0.122393 * log_T_c**5, 0)
+
+
 def H2_cooling_rate():
     """Total H2 + HD cooling per unit volume. The thin rates carry their collider densities (times the clumping factor
     C_2), so n/n_crit is the thin rate per molecule over the LTE rate per molecule; the LTE limit is linear in density
-    and so unclumped. HD is excited by collisions with H nuclei."""
+    and so unclumped. HD is excited by collisions with H nuclei and saturates at its own LTE rate (a critical density
+    is the molecule's, not its abundance's): the form grackle uses, Lambda_LTE / (1 + Lambda_LTE / (Lambda_thin n))."""
     C_2 = sp.Symbol("C_2")
     thin = C_2 * sum([lambda_H2_thin(c) * n_(c) for c in ("H", "H_2", "He", "e-", "H+")])
     LTE = Lambda_H2_LTE_per_molecule()
@@ -106,12 +115,14 @@ def H2_cooling_rate():
     # thin / (1 + n/n_crit) with n/n_crit = thin / LTE, multiplied through by LTE: the derivative of thin / LTE carries
     # 1/LTE^2, which underflows below ~1.7 K (LTE ~ 3e-24 exp(-510 K / T)) and makes the Jacobian non-finite
     H2 = n_("H_2") * thin * LTE / (LTE + thin)
-    HD = C_2 * n_("HD") * n_Htot * Lambda_HD_thin() * LTE / (LTE + x_("HD") / x_("H_2") * thin)
+    thin_HD = C_2 * n_Htot * Lambda_HD_thin()
+    LTE_HD = Lambda_HD_LTE_per_molecule()
+    HD = n_("HD") * thin_HD * LTE_HD / (LTE_HD + thin_HD)
     return H2 + HD
 
 
 H2_cooling = ThermalTerm(
     -H2_cooling_rate() * cmb_bath_factor * lowtemp_truncation,
     name="H2 + HD Line Cooling",
-    bibliography=["2008MNRAS.388.1627G", "1998A&A...335..403G", "1979ApJS...41..555H"],
+    bibliography=["2008MNRAS.388.1627G", "1998A&A...335..403G", "1979ApJS...41..555H", "2011MNRAS.415..487C"],
 )

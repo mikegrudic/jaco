@@ -351,8 +351,9 @@ class OdeSystem:
         x, balance = dict(x), dict(balance)
         for _ in range(NEWTON_MAXITER):
             F, J, _ = self._system(T, u_target, x, balance, params)
-            if not np.all(np.isfinite(F)) or not np.all(np.isfinite(J)):
+            if not np.all(np.isfinite(F)):
                 return None
+            J = np.where(np.isfinite(J), J, 0.0)  # a derivative that is 0 * inf (a dead dust row at Z_d = 0) carries no information
             dz = self._solve_linear(J, F)
             wanted = dz.copy()
             T, x, balance, change = self._apply(T, x, balance, dz, solve_T, params)
@@ -371,6 +372,7 @@ class OdeSystem:
             return self._newton(T, u_target, x, balance, params)
         x, balance = dict(x), dict(balance)
         F, J, _ = self._system(T, u_target, x, balance, params)
+        J = np.where(np.isfinite(J), J, 0.0)
         rates = np.array([abs(J[k0 + r, k0 + r]) / max(x[s], self._floor[s]) for r, s in enumerate(self.steady)])
         dt = 0.1 / max(rates.max(), 1e-300)
         for _ in range(PSEUDO_MAXSTEPS):
@@ -379,8 +381,9 @@ class OdeSystem:
             ok = False
             for _ in range(PSEUDO_INNER):
                 F, J, _ = self._system(Tn, u_target, xn, bn, params)
-                if not np.all(np.isfinite(F)) or not np.all(np.isfinite(J)):
+                if not np.all(np.isfinite(F)):
                     break
+                J = np.where(np.isfinite(J), J, 0.0)
                 xv = np.array([max(xn[s], 1e-300) for s in self.steady])
                 sl = slice(k0, k0 + n_s)
                 # G = z - z_k - dt F/x for the species rows, dG/dz = I - dt (J - diag F)/x; the other rows stay Newton's

@@ -52,7 +52,7 @@ def test_steady_species_are_solved_and_u_round_trips():
 
 def test_gizmo_host_closures_are_finite():
     from jaco.onezone import GizmoHostClosures as H
-    st = {"rho": 2e-22, "lambda_J": 1e19, "dlnrho_dt": 1e-14, "T": 50.0, "x": {}, "params": {"Z_d": 1.0, "ISRF": 1.0}}
+    st = {"rho": 2e-22, "lambda_J": 1e19, "dlnrho_dt": 1e-14, "t_ff": 1e14, "T": 50.0, "x": {}, "params": {"Z_d": 1.0, "ISRF": 1.0}}
     vals = [H.N_H(st), H.G_0(st), H.A_dust(st), H.kappa_thick(st), H.grad_v(st)]
     assert np.all(np.isfinite(vals)) and np.all(np.array(vals) > 0)
     assert H.kappa_thick(st) >= 0.1 and H.kappa_thick({**st, "params": {"Z_d": 0.0}}) == 0.1
