@@ -297,10 +297,17 @@ gizmo_integration ae5fbb0 with jax 0.10.1:
 - Results are float32 unless you set `jax.config.update("jax_enable_x64", True)` before importing jaco (the line is
   commented out at the top of `equation_system.py`).
 
-So the Python solver is for equilibrium questions about closed-form networks, as in the README; for a production model,
-or for anything time-dependent, the solver is the generated C through the standalone driver (section 7.4) or GIZMO.
+So the equilibrium solver is for closed-form networks, as in the README. For time-dependent work in Python use the
+explicit right-hand side instead: `jaco.ode.OdeSystem(model)` builds the model's reduced network (tables, intermediates,
+steady-state closures and balance variables included, evaluated with the C semantics of `jaco.check`) as a function
+`rates(T, x, params)` returning the heating rate, dx/dt per species and dT/dt through the EOS, which plugs into any
+integrator; `jaco.freefall.free_fall(model, n0, T0, n_stop)` is the one-zone free-fall collapse built on it (density
+grows at the free-fall rate, PdV work P/t_ff, Jeans-length columns), and `python -m jaco.freefall starforge
+starforge_legacy -o track.png` draws the density-temperature track. Building the system takes about two minutes for
+starforge (the symbolic reduction); the track to 1e15 cm^-3 takes a few minutes more. For the production solver itself
+(backward Euler with the tiers GIZMO uses) the path is the generated C through the standalone driver (section 7.4).
 `network.solver_functions(solve_vars, time_dependent, return_jac=True)` and `network.generate_code(...)` (README,
-"Generating code") give the RHS and Jacobian for another host.
+"Generating code") give the symbolic RHS and Jacobian for another host.
 
 ## 9. Style
 
