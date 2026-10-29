@@ -328,13 +328,16 @@ class OdeSystem:
             [abs(np.log(nb[b] / balance[b])) for b in self.balances]
         return T, new, nb, change
 
-    def _at_a_bound_wrongly(self, x, F, J, dz, k0):
+    def _at_a_bound_wrongly(self, x, F, J, dz, k0, blind=()):
         """True if a steady species sits at a bound that is not a root: at its floor with its row still producing it,
         unless the coupled step wants it lower and its own rate is destruction-dominated there (a species fed only by
         another floored species, falling with it); or at its ceiling with its row destroying it. A balance variable
-        at its bound is the answer, as in the bracketing walk."""
+        at its bound is the answer, as in the bracketing walk. blind: rows whose derivatives were non-finite at this
+        state; they give no direction, so the clamped value stands."""
         for r, s in enumerate(self.steady):
             k = k0 + r
+            if k in blind:
+                continue
             if x[s] <= self._floor[s] * (1 + 1e-9) and F[k] > 0 and not (dz[k] < 0 and J[k, k] < 0):
                 return True
             if x[s] >= self._ceiling[s] * (1 - 1e-9) and F[k] < 0:
@@ -353,12 +356,13 @@ class OdeSystem:
             F, J, _ = self._system(T, u_target, x, balance, params)
             if not np.all(np.isfinite(F)):
                 return None
+            blind = {k for k in range(len(F)) if not np.all(np.isfinite(J[k]))}
             J = np.where(np.isfinite(J), J, 0.0)  # a derivative that is 0 * inf (a dead dust row at Z_d = 0) carries no information
             dz = self._solve_linear(J, F)
             wanted = dz.copy()
             T, x, balance, change = self._apply(T, x, balance, dz, solve_T, params)
             if max(change) < NEWTON_TOL:
-                return None if self._at_a_bound_wrongly(x, F, J, wanted, k0) else (T, x, balance)
+                return None if self._at_a_bound_wrongly(x, F, J, wanted, k0, blind) else (T, x, balance)
         return None
 
     def _pseudo_transient(self, T, u_target, x, balance, params):
@@ -407,7 +411,9 @@ class OdeSystem:
             T, x, balance = Tn, xn, bn
             if moved < NEWTON_TOL:
                 F, J, _ = self._system(T, u_target, x, balance, params)
-                return None if self._at_a_bound_wrongly(x, F, J, wanted, k0) else (T, x, balance)
+                blind = {k for k in range(len(F)) if not np.all(np.isfinite(J[k]))}
+                return None if self._at_a_bound_wrongly(x, F, np.where(np.isfinite(J), J, 0.0), wanted, k0, blind) \
+                    else (T, x, balance)
             dt *= 10.0
         return None
 
