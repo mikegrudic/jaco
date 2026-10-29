@@ -25,11 +25,15 @@ from scipy.optimize import brentq
 
 from .declarations import implied_parameters, Species
 from .interpolation import tables_in
-from .model_check import _c_lambdify, _parameter_values
+from .model_check import _parameter_values
+from .ode_codegen import emit_source, compile_source
 from .symbols import sanitize_name, sanitize_symbols
 
 __all__ = ["OdeSystem"]
 
+# the parameters a host closes from the cell's state (jaco.onezone.Closures, GizmoHostClosures): the derivative
+# block carries d/d(parameter) for these, so a Jacobian can chain through a closure
+HOST_PARAMETERS = ("pdv_work", "rho", "∇v", "∇v_tf", "N_H", "N_H_cool", "Δx", "G_0", "A_dust", "kappa_thick")
 BALANCE_STEP = 1.1  # bracketing walk of a balance variable: steps of 10%, growing by 10%
 BALANCE_MAXITER = 200
 NEWTON_MAXITER = 100
@@ -65,13 +69,14 @@ class OdeSystem:
         Every parameter the right-hand side reads, by its expression name.
     """
 
-    def __init__(self, model, params=None):
+    def __init__(self, model, params=None, backend="numba"):
         self.model = model
+        self.backend = backend
         net = model.network
         solve_vars, td = list(model.solve_vars), list(model.time_dependent)
-        rhs, jac, idx = net.solver_functions(solve_vars, td, return_jac=True)
+        rhs, _, idx = net.solver_functions(solve_vars, td, return_jac=True)  # return_jac builds the intermediates' derivatives
         variables = list(idx)
-        prelude = list(net._intermediate_prelude)  # the intermediates and their derivatives
+        prelude = list(net._intermediate_prelude)  # the intermediates and their derivatives d{w}_d{j}
         self._variables = variables
         names = [str(v) for v in variables]
         self.species = [n[2:] for n in names if n.startswith("x_")]
@@ -122,25 +127,53 @@ class OdeSystem:
             self._process_names.append(proc.name)
             process_heat.append(reduce(net._reduce_expression(sp.sympify(e.rhs))))
         self._i_process = len(rows) + len(extras)
-        # the Jacobian of the algebraic rows (steady-state species, balance variables) with respect to T, the
-        # steady-state abundances and the balance variables, with u's dependence on them carried through (the network
-        # differentiates at fixed u, one of its variables)
-        self._i_jac = self._i_process + len(process_heat)
-        self._alg = [f"x_{s}" for s in self.steady] + list(self.balances)
-        self._jac_cols = ["T"] + self._alg
-        jac_block = []
-        for rname in self._alg:
-            i = names.index(rname)
-            d_du = sp.diff(sp.sympify(rhs[i]), u_sym)
-            for c in self._jac_cols:
-                j = names.index(c)
-                e = sp.sympify(jac[i][j])
-                if d_du != 0 and c != "T" and c.startswith("x_"):
-                    e = e + d_du * du_dx[self.species.index(c[2:])]
-                elif d_du != 0 and c == "T":
-                    e = e + d_du * du_dT
-                jac_block.append(reduce(e))
-        exprs = rows + extras + process_heat + jac_block
+        # the derivatives the solves need: of du/dt = heat/rho, the time-dependent rates row/n, the steady-state
+        # rows and the balance rows, with respect to T, every abundance and the balance variables; the intermediates'
+        # derivatives come from the prelude's symbols d{w}_d{j} (j the variable's index), zero where the network found
+        # none
+        for _, W in prelude:
+            if u_sym in W.free_symbols:
+                raise NotImplementedError("an intermediate depends on u; the explicit right-hand side substitutes u(T, x)")
+        prelude_names = {str(w) for w, _ in prelude}
+        intermediates = [w for w, _ in net._intermediates]
+        # the host parameters a one-zone closure may tie to the state also get derivative columns, with the
+        # intermediates' derivatives with respect to them added to the prelude
+        used = set().union(*[e.free_symbols for e in rows + extras + process_heat + [W for _, W in prelude]])
+        host = [sp.Symbol(q) for q in HOST_PARAMETERS if sp.Symbol(q) in used]
+        Dp = {}
+        for k, (w, W) in enumerate(net._intermediates):
+            for q in host:
+                d = sp.diff(W, q)
+                for wj, _ in net._intermediates[:k]:
+                    if (wj, q) in Dp and wj in W.free_symbols:
+                        d = d + sp.diff(W, wj) * Dp[(wj, q)]
+                if d != 0:
+                    Dp[(w, q)] = sp.Symbol(f"d{w}_dp_{sanitize_name(str(q))}")
+                    prelude.append((Dp[(w, q)], d))
+
+        def total_derivative(expr, var):
+            d = sp.diff(expr, var)
+            is_param = str(var) not in names
+            for w in intermediates:
+                if w in expr.free_symbols:
+                    D = Dp.get((w, var)) if is_param else sp.Symbol(f"d{w}_d{names.index(str(var))}")
+                    if D is not None and str(D) in prelude_names | {str(v) for v in Dp.values()}:
+                        d = d + sp.diff(expr, w) * D
+            return d
+
+        n_sym = sp.Symbol("n_Htot")
+        self._deriv_rows = (["dudt"] + [f"x_{s}" for s in self.integrated] + [f"x_{s}" for s in self.steady]
+                            + list(self.balances))
+        self._deriv_params = [str(q) for q in host]
+        self._deriv_cols = ["T"] + [f"x_{s}" for s in self.species] + list(self.balances) + self._deriv_params
+        self._alg = [f"x_{s}" for s in self.steady] + list(self.balances)  # the algebraic unknowns besides T
+        row_of = {n: rows[i] for i, n in enumerate(names)}
+        F_exprs = ([rows[self._i_heat] / rho_expr] + [row_of[f"x_{s}"] / n_sym for s in self.integrated]
+                   + [row_of[f"x_{s}"] for s in self.steady] + [row_of[b] for b in self.balances])
+        self._i_deriv = self._i_process + len(process_heat)
+        deriv_block = [total_derivative(F, sp.Symbol(c)) for F in F_exprs for c in self._deriv_cols]
+        self._deriv = (len(F_exprs), len(self._deriv_cols))
+        exprs = rows + extras + process_heat + deriv_block
 
         syms = set().union(*[e.free_symbols for e in exprs + [W for _, W in prelude]])
         local = {w for w, _ in prelude}
@@ -152,35 +185,38 @@ class OdeSystem:
         self._defaults, self.missing = _parameter_values(net, self.parameters, td, dict(params or {}))
 
         tables = tables_in(exprs + [W for _, W in prelude])
-        var_args = [sanitize_symbols(v) for v in variables]
-        par_args = [sanitize_symbols(sp.Symbol(p)) for p in self.parameters]
-        pre_args = [sanitize_symbols(w) for w, _ in prelude]
-        self._pre = [_c_lambdify(var_args + par_args + pre_args[:k], [sanitize_symbols(W)], tables)
-                     for k, (_, W) in enumerate(prelude)]
-        self._f = _c_lambdify(var_args + par_args + pre_args, [sanitize_symbols(e) for e in exprs], tables)
+        var_args = [sanitize_name(n) for n in names]
+        par_args = [sanitize_name(p) for p in self.parameters]
+        self.source = emit_source([sanitize_symbols(e) for e in exprs], var_args, par_args,
+                                  [(sanitize_symbols(w), sanitize_symbols(W)) for w, W in prelude], tables,
+                                  jax=(backend == "jax"), numpy_math=(backend == "numpy"))
+        self._f = compile_source(self.source, backend)
         self._names = names
+        self._i_param = {p: i for i, p in enumerate(self.parameters)}
         self.reset()
 
     # ------------------------------------------------------------------ evaluation
 
     def _evaluate(self, T, x, balance, params):
-        """every expression at one state: rows, then u, P, rho, du/dT, du/dx_s, the process heats, the Jacobian block"""
-        vals = []
-        for n in self._names:
+        """every expression at one state: rows, then u, P, rho, du/dT, du/dx_s, the process heats, the derivatives"""
+        X = np.empty(len(self._names))
+        for i, n in enumerate(self._names):
             if n == "u":
-                vals.append(0.0)  # u is substituted by u(T, x) in every row; the slot is only the argument order
+                X[i] = 0.0  # u is substituted by u(T, x) in every row; the slot is only the argument order
             elif n == "T":
-                vals.append(float(T))
+                X[i] = T
             elif n.startswith("x_"):
-                vals.append(float(x[n[2:]]))
+                X[i] = x[n[2:]]
             else:
-                vals.append(float(balance[n]))
-        pv = [float(params[p]) if p != "Δt" else 1e300 for p in self.parameters]
-        pre = []
-        for f in self._pre:
-            pre.append(f(*(vals + pv + pre))[0])
-        out = self._f(*(vals + pv + pre))
-        return [float(o) for o in out]
+                X[i] = balance[n]
+        P = np.empty(len(self.parameters))
+        for p, i in self._i_param.items():
+            P[i] = params[p] if p != "Δt" else 1e300
+        return np.asarray(self._f(X, P), dtype=float)
+
+    def _derivatives(self, out):
+        """the derivative block of an evaluation as a (rows, cols) array, rows self._deriv_rows, cols self._deriv_cols"""
+        return out[self._i_deriv:self._i_deriv + self._deriv[0] * self._deriv[1]].reshape(self._deriv)
 
     def _clip(self, x, params):
         """the state within its floors, ceilings and budgets (a full budget scaled to 1 - 1e-10 of its total)"""
@@ -237,6 +273,9 @@ class OdeSystem:
         u = out[self._i_extras]
         du_dT, du_dx = out[self._i_extras + 3], out[self._i_extras + 4:self._i_extras + 4 + len(self.species)]
         vals = [x[s] for s in self.steady] + [balance[b] for b in self.balances]
+        D = self._derivatives(out)
+        rows = [self._deriv_rows.index(a) for a in self._alg]
+        cols = [self._deriv_cols.index(a) for a in self._alg]
         F, J = np.empty(k0 + n_a), np.zeros((k0 + n_a, k0 + n_a))
         if solve_T:
             F[0] = (u - u_target) / u_target
@@ -245,11 +284,10 @@ class OdeSystem:
                 J[0, 1 + c] = du_dx[self.species.index(s)] * x[s] / u_target
         for r, name in enumerate(self._alg):
             F[k0 + r] = out[self._names.index(name)]
-            jrow = out[self._i_jac + r * (1 + n_a):self._i_jac + (r + 1) * (1 + n_a)]
             if solve_T:
-                J[k0 + r, 0] = jrow[0] * T
+                J[k0 + r, 0] = D[rows[r], 0] * T
             for c in range(n_a):
-                J[k0 + r, k0 + c] = jrow[1 + c] * vals[c]
+                J[k0 + r, k0 + c] = D[rows[r], cols[c]] * vals[c]
         return F, J, u
 
     @staticmethod
@@ -500,7 +538,69 @@ class OdeSystem:
         in rates()); positive heats the gas. The sum is rates()['heat']."""
         p, xx, balance = self._prepare(T, x, params, solved)
         out = self._evaluate(T, xx, balance, p)
-        return dict(zip(self._process_names, out[self._i_process:self._i_jac]))
+        return dict(zip(self._process_names, out[self._i_process:self._i_deriv]))
+
+    def jacobian(self, y, params, dparams=None):
+        """d(dy/dt)/dy for y = (u, x_1, ..., x_m): the algebraic unknowns behind the state (T, the steady-state species,
+        the balance variables) differentiated implicitly through their rows; one sitting at a floor, ceiling or bound
+        is clamped there and does not move. dparams chains in host parameters a closure ties to the state (those in
+        HOST_PARAMETERS): {parameter: {"T": d/dT, "x_<species>": d/dx, ...}}, the closure's own partial derivatives
+        at fixed density. Without it the parameters are held fixed. Non-finite where a parameter derivative is
+        singular at the state (a fractional power at zero) and the parameter moves."""
+        T, x = self.temperature(y[0], {s: v for s, v in zip(self.integrated, y[1:])}, params)
+        p = dict(self._defaults)
+        p.update(params)
+        balance = self._last_balance
+        out = self._evaluate(T, x, balance, p)
+        D = self._derivatives(out)
+        du_dT, du_dx = out[self._i_extras + 3], out[self._i_extras + 4:self._i_extras + 4 + len(self.species)]
+        td = [f"x_{s}" for s in self.integrated]
+        free_steady = [s for s in self.steady
+                       if self._floor[s] * (1 + 1e-9) < x[s] < self._ceiling[s] * (1 - 1e-9)]
+        free_bal = [b for b in self.balances
+                    if self._balance_bounds[b][0] * (1 + 1e-9) < balance[b] < self._balance_bounds[b][1] * (1 - 1e-9)]
+        z = ["T"] + [f"x_{s}" for s in free_steady] + free_bal
+        cz = [self._deriv_cols.index(c) for c in z]
+        ct = [self._deriv_cols.index(c) for c in td]
+        rF = [self._deriv_rows.index(r) for r in ["dudt"] + td]
+        rG = [self._deriv_rows.index(r) for r in z[1:]]
+        n_y, n_z = 1 + len(td), len(z)
+        # G = (u(T, x) - u, the free steady rows, the free balance rows) = 0 defines z(y)
+        G_z = np.zeros((n_z, n_z))
+        G_y = np.zeros((n_z, n_y))
+        G_z[0, 0] = du_dT
+        for k, sname in enumerate(free_steady):
+            G_z[0, 1 + k] = du_dx[self.species.index(sname)]
+        G_y[0, 0] = -1.0
+        for k, sname in enumerate(self.integrated):
+            G_y[0, 1 + k] = du_dx[self.species.index(sname)]
+        if rG:
+            G_z[1:, :] = D[np.ix_(rG, cz)]
+            G_y[1:, 1:] = D[np.ix_(rG, ct)]
+        F_z = D[np.ix_(rF, cz)]
+        F_y = np.zeros((n_y, n_y))
+        F_y[:, 1:] = D[np.ix_(rF, ct)]
+        if dparams:
+            # the parameters' own derivatives along z and along y (y's u column is 0: u reaches them through T)
+            for q, dq in dparams.items():
+                if q not in self._deriv_params:
+                    continue
+                pz = np.array([dq.get(c, 0.0) for c in z], dtype=float)
+                py = np.array([0.0] + [dq.get(c, 0.0) for c in td], dtype=float)
+                if not (np.any(pz) or np.any(py)):
+                    continue  # a parameter that does not move: its (possibly singular) derivative is irrelevant
+                c = self._deriv_cols.index(q)
+                if rG:
+                    G_z[1:, :] += np.outer(D[rG, c], pz)
+                    G_y[1:, :] += np.outer(D[rG, c], py)
+                F_z += np.outer(D[rF, c], pz)
+                F_y += np.outer(D[rF, c], py)
+        # an unknown whose row is identically zero (dust physics switched off at Z_d = 0) cannot move either
+        keep = np.max(np.abs(G_z), axis=1) > 0
+        G_z, G_y, F_z = G_z[np.ix_(keep, keep)], G_y[keep], F_z[:, keep]
+        scale = np.max(np.abs(G_z), axis=1)
+        dz_dy = -np.linalg.solve(G_z / scale[:, None], G_y / scale[:, None])
+        return F_y + F_z @ dz_dy
 
     def rhs(self, y, params):
         """dy/dt for y = (u, x_1, ..., x_m) in self.integrated order"""

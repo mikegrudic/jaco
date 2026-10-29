@@ -313,8 +313,13 @@ the dust's absorption of the CMB and ISRF, the optically-thick opacity) or the b
 `equilibrium(n_grid)` (thermochemical equilibrium at each density, relaxed in time and warm-started along the grid),
 `evolve(n, T0, t_end)` (fixed density) and `track(dlnrho_dt, ...)` (any compression law). `python -m jaco.onezone
 free_fall starforge_legacy --Z 0,1e-4,1e-2,1 --jobs 4 -o track.png` and `... equilibrium starforge --n-grid
-1e-2,1e6,33` draw the density-temperature tracks. Building the system takes under a minute for starforge_legacy
-(the symbolic reduction and Jacobian); a free-fall track to 1e15 cm^-3 takes tens of minutes. For the production solver itself
+1e-2,1e6,33` draw the density-temperature tracks. The expressions are compiled through the code generator's Python
+target (`jaco.ode_codegen`: one CSE'd function with the tables and the analytic derivative block, numba by default,
+~5 us per evaluation for starforge_legacy; `backend="numpy"` or `"jax"` run the same source 100x slower per scalar
+call). Building the system takes under a minute for starforge_legacy (the symbolic reduction and derivatives), the
+first numba compile ~20 s more, cached on disk (`$JACO_CACHE_DIR`, default ~/.cache/jaco); a free-fall track to 1e15
+cm^-3 then takes a few seconds. The integrator gets the analytic Jacobian (`OdeSystem.jacobian`, the algebraic
+unknowns and the host closures chained in implicitly). For the production solver itself
 (backward Euler with the tiers GIZMO uses) the path is the generated C through the standalone driver (section 7.4).
 `network.solver_functions(solve_vars, time_dependent, return_jac=True)` and `network.generate_code(...)` (README,
 "Generating code") give the symbolic RHS and Jacobian for another host.

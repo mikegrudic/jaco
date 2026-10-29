@@ -89,16 +89,17 @@ class GizmoHostClosures(Closures):
 
     @classmethod
     def _dust_functions(cls):
+        """kappa_P(T, T) and the dust survival fraction, compiled like the model's expressions"""
         if cls._dust is None:
             import sympy as sp
             from .interpolation import tables_in
-            from .model_check import _c_lambdify
             from .models.starforge.dust_opacity import semenov_planck_mean, dust_survival
-            from .symbols import sanitize_symbols
+            from .ode_codegen import emit_source, compile_source
             T = sp.Symbol("T_")
             exprs = [sp.sympify(semenov_planck_mean(T, T)), sp.sympify(dust_survival(T))]
-            f = _c_lambdify([sanitize_symbols(T)], [sanitize_symbols(e) for e in exprs], tables_in(exprs))
-            cls._dust = (lambda t: f(float(t))[0], lambda t: f(float(t))[1])
+            f = compile_source(emit_source(exprs, ["T_"], [], [], tables_in(exprs), func_name="dust"), "numba", "dust")
+            no_params = np.empty(0)
+            cls._dust = (lambda t: f(np.array([float(t)]), no_params)[0], lambda t: f(np.array([float(t)]), no_params)[1])
         return cls._dust
 
     @staticmethod
@@ -169,6 +170,11 @@ class OneZone:
     closures: dict, optional
         Parameter name -> function of the state dict, replacing or adding to the host's set (only the parameters the
         model reads are used).
+    backend: "numba", "numpy" or "jax"
+        How the model's expressions are evaluated (jaco.ode_codegen); numba is ~100x faster than the others per call.
+    analytic_jacobian: bool
+        Hand the integrator the system's Jacobian (OdeSystem.jacobian) instead of letting it difference the
+        right-hand side.
     host: "gizmo" or "plain"
         Which prescriptions close the parameters a host would supply: GizmoHostClosures (what cooling/jaco.cc
         computes for the cell: attenuated FUV field, dust absorption of the CMB and ISRF, the thick opacity, the
@@ -182,9 +188,10 @@ class OneZone:
     """
 
     def __init__(self, model, params=None, closures=None, system=None, method="LSODA", rtol=1e-5, atol=1e-12,
-                 host="gizmo"):
+                 host="gizmo", backend="numba", analytic_jacobian=True):
         self.model = model
-        self.system = system or OdeSystem(model, params)
+        self.system = system or OdeSystem(model, params, backend=backend)
+        self.analytic_jacobian = analytic_jacobian
         self.params = dict(params or {})
         base = GizmoHostClosures.DEFAULT if host == "gizmo" else Closures.DEFAULT
         closures = {**base, **(closures or {})}
@@ -247,6 +254,47 @@ class OneZone:
         p = self._params_at(n, T, x, d)
         return T, x, p, d
 
+    def _jacobian_at(self, n, y, law, t=None):
+        """the system's Jacobian at an integrator state, the closures' dependence on the state chained in from their
+        partial derivatives in T and the abundances (central differences of the closure formulas at fixed density;
+        cheap, no solves)"""
+        sys_ = self.system
+        T, x, p, d = self._state_at(n, y, law, t)
+        closed = [q for q in sys_._deriv_params if q in self.closures]
+        dparams = {}
+        if closed:
+            dparams = {q: {} for q in closed}
+            for c in ["T"] + [f"x_{s}" for s in sys_.species]:
+                if c == "T":
+                    h = 1e-6 * T
+                    pp, pm = self._params_at(n, T + h, x, d), self._params_at(n, T - h, x, d)
+                else:
+                    v = x[c[2:]]
+                    h = 1e-6 * max(v, 1e-12)
+                    pp = self._params_at(n, T, {**x, c[2:]: v + h}, d)
+                    pm = self._params_at(n, T, {**x, c[2:]: max(v - h, 0.0)}, d)
+                    h = (v + h) - max(v - h, 0.0)
+                    h = h / 2
+                for q in closed:
+                    dparams[q][c] = (pp[q] - pm[q]) / (2 * h)
+        J = sys_.jacobian(y, p, dparams)
+        if not np.all(np.isfinite(J)):  # a singular parameter derivative at this state: difference the whole thing
+            J = np.empty((len(y), len(y)))
+            for k in range(len(y)):
+                h = 1e-6 * max(abs(y[k]), 1e-30)
+                e = np.zeros(len(y))
+                e[k] = h
+                J[:, k] = (self._rhs_at(n, y + e, law, t) - self._rhs_at(n, y - e, law, t)) / (2 * h)
+            sys_.temperature(y[0], {s: v for s, v in zip(sys_.integrated, y[1:])}, p)
+        return J, d
+
+    def _rhs_at(self, n, y, law, t=None):
+        """du/dt, dx/dt of the integrated state at density n"""
+        sys_ = self.system
+        T, x, p, d = self._state_at(n, y, law, t)
+        r = sys_.rates(T, x, p, solved=True)
+        return np.array([r["dudt"]] + [r["dxdt"][s] for s in sys_.integrated])
+
     def _initial(self, n, T0, x0):
         """the integrator state at (n, T0, x0)"""
         sys_ = self.system
@@ -270,8 +318,22 @@ class OneZone:
             self._progress(verbose, progress, n, T, t)
             return np.array([d, r["dudt"]] + [r["dxdt"][s] for s in sys_.integrated])
 
+        def jac(t, y):
+            """analytic in (u, x); the ln n column and row by finite differences (the law and the density enter the
+            rates as parameters)"""
+            m = len(y)
+            J = np.zeros((m, m))
+            n = np.exp(y[0])
+            T, x, p, d = self._state_at(n, y[1:], dlnrho_dt, t)
+            J[1:, 1:] = self._jacobian_at(n, y[1:], dlnrho_dt, t)[0]
+            h = 1e-6
+            f0, f1 = rhs(t, y), rhs(t, y + np.array([h] + [0.0] * (m - 1)))
+            J[:, 0] = (f1 - f0) / h
+            return J
+
         t_eval = np.linspace(0, t_end, n_points)
-        sol = solve_ivp(rhs, (0, t_end), y0, method=self.method, t_eval=t_eval, rtol=self.rtol, atol=self.atol)
+        sol = solve_ivp(rhs, (0, t_end), y0, method=self.method, t_eval=t_eval, rtol=self.rtol, atol=self.atol,
+                        jac=jac if self.analytic_jacobian else None)
         if not sol.success:
             raise RuntimeError(f"OneZone.track: {sol.message}")
         return self._collect(sol.t, np.exp(sol.y[0]), sol.y[1:], sol, dlnrho_dt)
@@ -291,8 +353,13 @@ class OneZone:
             self._progress(verbose, progress, n, T)
             return np.array([r["dudt"]] + [r["dxdt"][sp] for sp in sys_.integrated]) / d
 
+        def jac(s, y):
+            J, d = self._jacobian_at(n0 * np.exp(s), y, law)
+            return J / d
+
         s_eval = np.linspace(0, s_end, n_points)
-        sol = solve_ivp(rhs, (0, s_end), y0, method=self.method, t_eval=s_eval, rtol=self.rtol, atol=self.atol)
+        sol = solve_ivp(rhs, (0, s_end), y0, method=self.method, t_eval=s_eval, rtol=self.rtol, atol=self.atol,
+                        jac=jac if self.analytic_jacobian else None)
         if not sol.success:
             raise RuntimeError(f"OneZone.free_fall: {sol.message}")
         n = n0 * np.exp(sol.t)
@@ -328,6 +395,9 @@ class OneZone:
                 r = sys_.rates(Ti, xi, p, solved=True)
                 return np.array([r["dudt"]] + [r["dxdt"][s] for s in sys_.integrated])
 
+            def jac(t, y):
+                return self._jacobian_at(n, y, still)[0]
+
             def settled(t, y):
                 d = rhs(t, y)
                 rel = [abs(d[0]) * tff / abs(y[0])] + [abs(d[k]) * tff / max(abs(y[k]), scale[k])
@@ -336,7 +406,7 @@ class OneZone:
             settled.terminal, settled.direction = True, -1
 
             sol = solve_ivp(rhs, (0, t_max_ff * tff), y0, method=self.method, rtol=self.rtol, atol=self.atol,
-                            events=settled)
+                            events=settled, jac=jac if self.analytic_jacobian else None)
             if not sol.success:
                 raise RuntimeError(f"OneZone.equilibrium at n = {n:g}: {sol.message}")
             T, x, _, _ = self._state_at(n, sol.y[:, -1], still)
