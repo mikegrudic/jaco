@@ -27,7 +27,7 @@ from scipy.integrate import solve_ivp
 
 from .ode import OdeSystem
 
-__all__ = ["OneZone", "Closures", "t_freefall", "jeans_length"]
+__all__ = ["OneZone", "Closures", "GizmoHostClosures", "t_freefall", "jeans_length"]
 
 G_CGS = 6.674e-8
 
@@ -72,6 +72,92 @@ class Closures:
                "N_H": N_H.__func__, "N_H_cool": N_H.__func__, "Δx": cell_size.__func__}
 
 
+class GizmoHostClosures(Closures):
+    """The prescriptions GIZMO's host layer (cooling/jaco.cc) would supply for the same parcel, for GIZMO-family
+    models: the column is the slab's mass column rho lambda_J/2 in nucleons; the FUV field is the ISRF attenuated by
+    dust, 1.7 ISRF exp(-500 Z_d Sigma) (get_FUV_G0); the velocity gradient is GIZMO's Frobenius norm of homologous
+    compression, |d ln rho/dt| / sqrt(3); the dust absorbs the CMB and the attenuated ISRF (dust_absorption_rate:
+    0.262 eV/cc CMB, 0.31 ISRF IR, 0.66 ISRF optical attenuated by 180 Z_d Sigma and re-emitted into the IR); the
+    optically-thick opacity is the Semenov Planck mean at T times the surviving dust, floored at 0.1 cm^2/g, plus
+    GIZMO's high-temperature gas opacities above 1500 K (optically_thick_cooling_opacity). Z_d and ISRF are read from
+    the parameters in force."""
+
+    PROTONMASS = 1.6726e-24
+    EV = 1.602176634e-12
+    C_LIGHT = 2.99792458e10
+    _dust = None
+
+    @classmethod
+    def _dust_functions(cls):
+        if cls._dust is None:
+            import sympy as sp
+            from .interpolation import tables_in
+            from .model_check import _c_lambdify
+            from .models.starforge.dust_opacity import semenov_planck_mean, dust_survival
+            from .symbols import sanitize_symbols
+            T = sp.Symbol("T_")
+            exprs = [sp.sympify(semenov_planck_mean(T, T)), sp.sympify(dust_survival(T))]
+            f = _c_lambdify([sanitize_symbols(T)], [sanitize_symbols(e) for e in exprs], tables_in(exprs))
+            cls._dust = (lambda t: f(float(t))[0], lambda t: f(float(t))[1])
+        return cls._dust
+
+    @staticmethod
+    def sigma(st):
+        """the slab's mass column [g cm^-2]: half a Jeans length of gas at the parcel's density"""
+        return st["rho"] * st["lambda_J"] / 2
+
+    @classmethod
+    def N_H(cls, st):
+        return cls.sigma(st) / cls.PROTONMASS
+
+    @staticmethod
+    def grad_v(st):
+        return abs(st["dlnrho_dt"]) / np.sqrt(3.0)
+
+    @classmethod
+    def G_0(cls, st):
+        p = st["params"]
+        return p.get("ISRF", 1.0) * 1.7 * np.exp(-max(p.get("Z_d", 1.0), 1e-4) * cls.sigma(st) * 500.0)
+
+    @classmethod
+    def A_dust(cls, st):
+        kappa_P, f_surv = cls._dust_functions()
+        p = st["params"]
+        Zd, isrf = p.get("Z_d", 1.0), p.get("ISRF", 1.0)
+        fac = cls.C_LIGHT * st["rho"] * cls.EV  # absorption per unit volume per (eV cm^-3 of radiation) per (cm^2/g)
+        e_cmb, e_ir, e_opt = 0.262, 0.31 * isrf, 0.66 * isrf + 7.8e-3
+        kappa_cmb = float(kappa_P(2.73)) * Zd * float(f_surv(2.73))
+        kappa_ir = float(kappa_P(20.0)) * Zd * float(f_surv(20.0))
+        kappa_opt = 180.0 * Zd
+        tau_opt = kappa_opt * cls.sigma(st)
+        return fac * (e_cmb * kappa_cmb + kappa_opt * e_opt * np.exp(max(-tau_opt, -100.0))
+                      + kappa_ir * (-0.5 * np.expm1(max(-tau_opt, -100.0)) * e_opt + e_ir))
+
+    @classmethod
+    def kappa_thick(cls, st):
+        kappa_P, f_surv = cls._dust_functions()
+        p, T, rho = st["params"], st["T"], st["rho"]
+        Zd = p.get("Z_d", 1.0)
+        kappa = max(0.1, float(kappa_P(T)) * Zd * float(f_surv(T)))
+        if T > 1500.0:
+            Z_mass, X = 0.0142 * Zd, 0.76
+            x_e = st["x"].get("H+", 0.0) + st["x"].get("He+", 0.0) + 2 * st["x"].get("He++", 0.0)
+            k_electron = 0.2 * (1 + X)
+            k_molecular = 0.1 * Z_mass
+            k_hminus = 1.1e-25 * np.sqrt(Z_mass * rho) * T**7.7
+            k_kramers = 4.0e25 * (1 + X) * (Z_mass + 0.001) * rho / T**3.5
+            k_radiative = k_molecular + 1.0 / (1.0 / max(k_hminus, 1e-300) + 1.0 / (k_electron + k_kramers))
+            k_conductive = 2.6e-7 * x_e * T * T / (rho * rho)
+            kappa += 1.0 / (1.0 / k_radiative + 1.0 / max(k_conductive, 1e-300))
+        return kappa
+
+
+GizmoHostClosures.DEFAULT = {
+    "pdv_work": Closures.pdv_work, "rho": Closures.rho, "∇v": GizmoHostClosures.grad_v, "∇v_tf": Closures.grad_v_tf,
+    "N_H": GizmoHostClosures.N_H, "N_H_cool": GizmoHostClosures.N_H, "Δx": Closures.cell_size,
+    "G_0": GizmoHostClosures.G_0, "A_dust": GizmoHostClosures.A_dust, "kappa_thick": GizmoHostClosures.kappa_thick}
+
+
 class OneZone:
     """A model's thermochemistry in a parcel with a prescribed density history.
 
@@ -81,8 +167,12 @@ class OneZone:
     params: dict, optional
         Parameter values by expression name (e.g. {"G_0": 0, "ISRF": 0}) for every evaluation.
     closures: dict, optional
-        Parameter name -> function of the state dict, replacing or adding to Closures.DEFAULT (only the parameters the
+        Parameter name -> function of the state dict, replacing or adding to the host's set (only the parameters the
         model reads are used).
+    host: "gizmo" or "plain"
+        Which prescriptions close the parameters a host would supply: GizmoHostClosures (what cooling/jaco.cc
+        computes for the cell: attenuated FUV field, dust absorption of the CMB and ISRF, the thick opacity, the
+        nucleon column) or the bare Closures (constant fields, no dust absorption, the model's default opacity).
     system: OdeSystem, optional
         A prepared system for this model; building it is the slow part (two minutes for starforge).
     method, rtol, atol: solve_ivp options; atol applies to T in K and to the abundances per H.
@@ -91,11 +181,13 @@ class OneZone:
     variables (e.g. Td), heat [erg cm^-3 s^-1], pdv_work and dlnrho_dt, plus "sol" (the solve_ivp result).
     """
 
-    def __init__(self, model, params=None, closures=None, system=None, method="LSODA", rtol=1e-5, atol=1e-12):
+    def __init__(self, model, params=None, closures=None, system=None, method="LSODA", rtol=1e-5, atol=1e-12,
+                 host="gizmo"):
         self.model = model
         self.system = system or OdeSystem(model, params)
         self.params = dict(params or {})
-        closures = {**Closures.DEFAULT, **(closures or {})}
+        base = GizmoHostClosures.DEFAULT if host == "gizmo" else Closures.DEFAULT
+        closures = {**base, **(closures or {})}
         self.closures = {k: f for k, f in closures.items() if k in self.system.parameters}
         self.method, self.rtol, self.atol = method, rtol, atol
 
@@ -114,13 +206,15 @@ class OneZone:
     # ------------------------------------------------------------------ the right-hand side
 
     def _params_at(self, n, T, x, dlnrho_dt):
+        """the parameters at a state: the fixed ones, n_Htot and the closures (from rho and P at the state as given)"""
         p = dict(self.params)
         p["n_Htot"] = n
         if not self.closures:
             return p
-        base = self.system.rates(T, x, {**p, "pdv_work": 0.0})  # rho and P at this state, for the closures
-        st = {"n_Htot": n, "T": T, "x": x, "rho": base["rho"], "P": base["P"], "u": base["u"], "dlnrho_dt": dlnrho_dt,
-              "t_ff": t_freefall(base["rho"]), "lambda_J": jeans_length(base["P"], base["rho"])}
+        th = self.system.thermo(T, x, p)
+        st = {"n_Htot": n, "T": T, "x": th["x"], "rho": th["rho"], "P": th["P"], "u": th["u"], "dlnrho_dt": dlnrho_dt,
+              "t_ff": t_freefall(th["rho"]), "lambda_J": jeans_length(th["P"], th["rho"]),
+              "params": {**self.system.defaults, **p}}
         for k, f in self.closures.items():
             p[k] = f(st)
         return p
@@ -132,8 +226,33 @@ class OneZone:
         r["params"] = p
         return r
 
-    def _unpack(self, y):
-        return y[0], {s: v for s, v in zip(self.species, y[1:])}
+    def _state_at(self, n, y, law, t=None):
+        """the full state behind an integrator state y = (u, time-dependent abundances) at density n: T and the
+        steady-state species solved from u, the compression rate from the law, the parameters from the closures.
+        The closures depend on T (through the Jeans length), so the solve is repeated once with them updated.
+        Returns T, x, params, d ln rho/dt."""
+        sys_ = self.system
+        u, xi = float(y[0]), {s: float(v) for s, v in zip(sys_.integrated, y[1:])}
+        T = sys_._last_T if sys_._last_T is not None else 1e3
+        x = xi
+        d = 0.0
+        for _ in range(2):
+            p = self._params_at(n, T, x, d)
+            T, x = sys_.temperature(u, xi, p)
+            th = sys_.thermo(T, x, p)
+            st = {"t": t, "n_Htot": n, "T": T, "x": x, "rho": th["rho"], "P": th["P"], "u": th["u"],
+                  "t_ff": t_freefall(th["rho"]), "lambda_J": jeans_length(th["P"], th["rho"]),
+                  "params": {**sys_.defaults, **p}}
+            d = float(law(st))
+        p = self._params_at(n, T, x, d)
+        return T, x, p, d
+
+    def _initial(self, n, T0, x0):
+        """the integrator state at (n, T0, x0)"""
+        sys_ = self.system
+        sys_.reset()
+        p = self._params_at(n, T0, x0 or {}, 0.0)
+        return sys_.state(T0, x0 or {}, p)
 
     # ------------------------------------------------------------------ modes
 
@@ -141,51 +260,43 @@ class OneZone:
         """Time evolution under a compression law d ln rho/dt = dlnrho_dt(state), the state dict as for the closures
         plus "t". The density follows from it; use free_fall() for the free-fall law."""
         sys_ = self.system
-        sys_.reset()
-        y0 = np.concatenate([[np.log(n0)], sys_.state(T0, x0 or {})])  # ln n, T, x
+        y0 = np.concatenate([[np.log(n0)], self._initial(n0, T0, x0)])  # ln n, u, x
         progress = [None]
 
         def rhs(t, y):
             n = np.exp(y[0])
-            T, x = self._unpack(y[1:])
-            base = self._params_at(n, T, x, 0.0)
-            r0 = sys_.rates(T, x, {**base, "pdv_work": 0.0})
-            st = {"t": t, "n_Htot": n, "T": T, "x": x, "rho": r0["rho"], "P": r0["P"], "u": r0["u"],
-                  "t_ff": t_freefall(r0["rho"]), "lambda_J": jeans_length(r0["P"], r0["rho"])}
-            d = float(dlnrho_dt(st))
-            r = sys_.rates(T, x, self._params_at(n, T, x, d))
+            T, x, p, d = self._state_at(n, y[1:], dlnrho_dt, t)
+            r = sys_.rates(T, x, p, solved=True)
             self._progress(verbose, progress, n, T, t)
-            return np.array([d, r["dTdt"]] + [r["dxdt"][s] for s in self.species])
+            return np.array([d, r["dudt"]] + [r["dxdt"][s] for s in sys_.integrated])
 
         t_eval = np.linspace(0, t_end, n_points)
         sol = solve_ivp(rhs, (0, t_end), y0, method=self.method, t_eval=t_eval, rtol=self.rtol, atol=self.atol)
         if not sol.success:
             raise RuntimeError(f"OneZone.track: {sol.message}")
-        return self._collect(sol.t, np.exp(sol.y[0]), sol.y[1:], sol, lambda st: dlnrho_dt({**st, "t": st["t"]}))
+        return self._collect(sol.t, np.exp(sol.y[0]), sol.y[1:], sol, dlnrho_dt)
 
     def free_fall(self, n0=0.1, T0=300.0, n_stop=1e15, x0=None, n_points=400, verbose=False):
         """Collapse at the free-fall rate, d rho/dt = rho / t_ff, from n0 to n_stop; integrated in ln n."""
         sys_ = self.system
-        sys_.reset()
-        y0 = sys_.state(T0, x0 or {})
+        y0 = self._initial(n0, T0, x0)
         s_end = np.log(n_stop / n0)
         progress = [None]
+        law = lambda st: 1.0 / st["t_ff"]
 
         def rhs(s, y):
             n = n0 * np.exp(s)
-            T, x = self._unpack(y)
-            r0 = sys_.rates(T, x, {**self._params_at(n, T, x, 0.0), "pdv_work": 0.0})
-            tff = t_freefall(r0["rho"])
-            r = sys_.rates(T, x, self._params_at(n, T, x, 1.0 / tff))
+            T, x, p, d = self._state_at(n, y, law)
+            r = sys_.rates(T, x, p, solved=True)
             self._progress(verbose, progress, n, T)
-            return tff * np.array([r["dTdt"]] + [r["dxdt"][sp] for sp in self.species])
+            return np.array([r["dudt"]] + [r["dxdt"][sp] for sp in sys_.integrated]) / d
 
         s_eval = np.linspace(0, s_end, n_points)
         sol = solve_ivp(rhs, (0, s_end), y0, method=self.method, t_eval=s_eval, rtol=self.rtol, atol=self.atol)
         if not sol.success:
             raise RuntimeError(f"OneZone.free_fall: {sol.message}")
         n = n0 * np.exp(sol.t)
-        out = self._collect(None, n, sol.y, sol, lambda st: 1.0 / st["t_ff"])
+        out = self._collect(None, n, sol.y, sol, law)
         tff = t_freefall(out["rho"])
         out["t"] = np.concatenate([[0], np.cumsum(0.5 * (tff[1:] + tff[:-1]) * np.diff(sol.t))])
         return out
@@ -196,32 +307,31 @@ class OneZone:
 
     def equilibrium(self, n_grid, T0=1e4, x0=None, tol=1e-4, t_max_ff=100.0, x_floor=1e-6, verbose=False):
         """Thermochemical equilibrium at each density of n_grid: the state relaxed in time at fixed density until no
-        rate would change T by more than tol of itself, or any abundance by more than tol of itself or x_floor per H
-        (whichever is larger), over a free-fall time; or until t_max_ff free-fall times have passed. Each density is
-        warm-started from the previous one's answer, so a bistable model follows the branch the previous density was on
-        (as a slow compression would). The returned dict has one entry per density plus "relaxed" (whether the
-        tolerance was met) and "t" (the relaxation time used). Trace species jitter at the integrator's absolute
-        tolerance; x_floor keeps that from counting as change."""
+        rate would change u by more than tol of itself, or a time-dependent abundance by more than tol of itself or
+        x_floor per H (whichever is larger), over a free-fall time; or until t_max_ff free-fall times have passed.
+        Each density is warm-started from the previous one's answer, so a bistable model follows the branch the
+        previous density was on (as a slow compression would). The returned dict has one entry per density plus
+        "relaxed" (whether the tolerance was met) and "t" (the relaxation time used). Trace species jitter at the
+        integrator's absolute tolerance; x_floor keeps that from counting as change."""
         sys_ = self.system
         n_grid = np.asarray(n_grid, dtype=float)
         T, x = T0, dict(x0 or {})
         rows = []
+        still = lambda st: 0.0
         for n in n_grid:
-            sys_.reset()
-            y0 = sys_.state(T, x)
-            r0 = self.rates(n, T, x)
-            tff = t_freefall(r0["rho"])
-            scale = [None] + [max(sys_.floors[s], x_floor) for s in self.species]
+            y0 = self._initial(n, T, x)
+            tff = t_freefall(sys_.thermo(T, x, {**self.params, "n_Htot": n})["rho"])
+            scale = [None] + [max(sys_.floors[s], x_floor) for s in sys_.integrated]
 
             def rhs(t, y):
-                Ti, xi = self._unpack(y)
-                r = sys_.rates(Ti, xi, self._params_at(n, Ti, xi, 0.0))
-                return np.array([r["dTdt"]] + [r["dxdt"][s] for s in self.species])
+                Ti, xi, p, _ = self._state_at(n, y, still)
+                r = sys_.rates(Ti, xi, p, solved=True)
+                return np.array([r["dudt"]] + [r["dxdt"][s] for s in sys_.integrated])
 
             def settled(t, y):
                 d = rhs(t, y)
-                rel = [abs(d[0]) * tff / max(y[0], 1.0)] + [abs(d[k]) * tff / max(abs(y[k]), scale[k])
-                                                           for k in range(1, len(y))]
+                rel = [abs(d[0]) * tff / abs(y[0])] + [abs(d[k]) * tff / max(abs(y[k]), scale[k])
+                                                      for k in range(1, len(y))]
                 return np.log10(max(rel) + 1e-300) - np.log10(tol)
             settled.terminal, settled.direction = True, -1
 
@@ -229,17 +339,13 @@ class OneZone:
                             events=settled)
             if not sol.success:
                 raise RuntimeError(f"OneZone.equilibrium at n = {n:g}: {sol.message}")
-            T, x = self._unpack(sol.y[:, -1])
-            x = {s: float(v) for s, v in x.items()}
-            rows.append((float(T), x, float(sol.t[-1]), bool(sol.t_events[0].size)))
+            T, x, _, _ = self._state_at(n, sol.y[:, -1], still)
+            rows.append((sol.y[:, -1].copy(), float(sol.t[-1]), bool(sol.t_events[0].size)))
             if verbose:
                 print(f"  n = {n:.3g} cm^-3: T = {T:.4g} K after {sol.t[-1] / tff:.3g} t_ff"
-                      f"{'' if rows[-1][3] else ' (not relaxed)'}", file=sys.stderr)
-        Ts = np.array([r[0] for r in rows])
-        X = np.array([[r[1][s] for r in rows] for s in self.species]).reshape(len(self.species), -1)
-        out = self._collect(np.array([r[2] for r in rows]), n_grid, np.vstack([Ts, X]) if len(self.species) else Ts[None, :],
-                            None, lambda st: 0.0)
-        out["relaxed"] = np.array([r[3] for r in rows])
+                      f"{'' if rows[-1][2] else ' (not relaxed)'}", file=sys.stderr)
+        out = self._collect(np.array([r[1] for r in rows]), n_grid, np.array([r[0] for r in rows]).T, None, still)
+        out["relaxed"] = np.array([r[2] for r in rows])
         return out
 
     # ------------------------------------------------------------------ helpers
@@ -253,29 +359,20 @@ class OneZone:
             where = f"n = 1e{d} cm^-3" if t is None else f"t = {t:.3g} s, n = {n:.3g} cm^-3"
             print(f"  {where}: T = {T:.4g} K", file=sys.stderr)
 
-    def _collect(self, t, n, Y, sol, dlnrho_dt_of):
-        """the track dict: the integrated state plus the derived quantities re-evaluated at every output point"""
+    def _collect(self, t, n, Y, sol, law):
+        """the track dict: the integrated state (u, time-dependent abundances) resolved into T and every abundance,
+        plus the derived quantities re-evaluated at every output point"""
         sys_ = self.system
-        out = {"n_Htot": np.asarray(n, dtype=float), "T": np.asarray(Y[0], dtype=float)}
-        for i, s in enumerate(self.species):
-            out[s] = np.asarray(Y[1 + i], dtype=float)
-        for k in range(len(out["n_Htot"])):  # the integrator's state within the floors and budgets
-            x = sys_._clip({s: out[s][k] for s in self.species}, {**sys_.defaults, **self.params, "n_Htot": out["n_Htot"][k]})
-            for s in self.species:
-                out[s][k] = x[s]
-        cols = {k: [] for k in ["rho", "P", "u", "heat", "pdv_work", "dlnrho_dt"] + sys_.balances}
+        n = np.asarray(n, dtype=float)
+        cols = {k: [] for k in ["T", "u", "rho", "P", "heat", "pdv_work", "dlnrho_dt"] + list(self.species) + sys_.balances}
         sys_.reset()
-        for k in range(len(out["n_Htot"])):
-            x = {s: out[s][k] for s in self.species}
-            r0 = sys_.rates(out["T"][k], x, {**self._params_at(out["n_Htot"][k], out["T"][k], x, 0.0), "pdv_work": 0.0})
-            st = {"t": t[k] if t is not None else np.nan, "n_Htot": out["n_Htot"][k], "T": out["T"][k], "x": x,
-                  "rho": r0["rho"], "P": r0["P"], "u": r0["u"], "t_ff": t_freefall(r0["rho"]),
-                  "lambda_J": jeans_length(r0["P"], r0["rho"])}
-            d = float(dlnrho_dt_of(st))
-            p = self._params_at(out["n_Htot"][k], out["T"][k], x, d)
-            r = sys_.rates(out["T"][k], x, p)
+        for k in range(len(n)):
+            T, x, p, d = self._state_at(n[k], Y[:, k], law, t[k] if t is not None else None)
+            r = sys_.rates(T, x, p, solved=True)
             for c in cols:
-                cols[c].append(r[c] if c in r else (d if c == "dlnrho_dt" else p.get(c, np.nan)))
+                cols[c].append(r[c] if c in r else r["x"][c] if c in r["x"] else T if c == "T" else
+                               d if c == "dlnrho_dt" else p.get(c, np.nan))
+        out = {"n_Htot": n}
         for c, v in cols.items():
             out[c] = np.array(v, dtype=float)
         if t is not None:
@@ -301,6 +398,7 @@ def main(argv=None):
     ap.add_argument("--Z", default=None, metavar="Z1,Z2,...", help="metallicities in solar units: one track per value "
                     "(heavy-element totals and Z_d scaled from the model's defaults)")
     ap.add_argument("--jobs", type=int, default=1, help="tracks run concurrently (each builds its own system)")
+    ap.add_argument("--host", default="gizmo", choices=["gizmo", "plain"], help="closures: GIZMO's host layer or the bare set")
     ap.add_argument("--rtol", type=float, default=1e-5)
     ap.add_argument("-o", "--output", default=None, help="figure path (default <mode>_track.png)")
     ap.add_argument("--save", default=None, help="write the tracks to this .npz")
@@ -315,7 +413,8 @@ def main(argv=None):
     import matplotlib.pyplot as plt
     Zs = [float(z) for z in args.Z.split(",")] if args.Z else [None]
     jobs = [(name, Z) for name in args.models for Z in Zs]
-    common = dict(mode=args.mode, params=params, rtol=args.rtol, T0=T0, n0=args.n0, n_stop=args.n_stop, n_grid=args.n_grid)
+    common = dict(mode=args.mode, params=params, rtol=args.rtol, T0=T0, n0=args.n0, n_stop=args.n_stop, n_grid=args.n_grid,
+                  host=args.host)
     if args.jobs > 1 and len(jobs) > 1:
         from concurrent.futures import ProcessPoolExecutor
         with ProcessPoolExecutor(max_workers=args.jobs) as ex:
@@ -355,7 +454,7 @@ def _run_job(job, common):
     name, Z = job
     try:
         model = import_module(f"jaco.models.{name}").make_model()
-        zone = OneZone(model, params=common["params"], rtol=common["rtol"])
+        zone = OneZone(model, params=common["params"], rtol=common["rtol"], host=common.get("host", "gizmo"))
         params = dict(common["params"])
         if Z is not None:
             params.update(zone.metallicity(Z))

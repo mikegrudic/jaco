@@ -299,15 +299,22 @@ gizmo_integration ae5fbb0 with jax 0.10.1:
 
 So the equilibrium solver is for closed-form networks, as in the README. For time-dependent work in Python use the
 explicit right-hand side instead: `jaco.ode.OdeSystem(model)` builds the model's reduced network (tables, intermediates,
-steady-state closures and balance variables included, evaluated with the C semantics of `jaco.check`) as a function
-`rates(T, x, params)` returning the heating rate, dx/dt per species and dT/dt through the EOS, which plugs into any
-integrator; `jaco.onezone.OneZone(model)` is the one-zone parcel built on it, with a prescribed density history:
-`free_fall(n0, T0, n_stop)` (density at the free-fall rate, PdV work P/t_ff, Jeans-length columns),
+steady-state closures and balance variables included, evaluated with the C semantics of `jaco.check`). Its state is
+what the C solver integrates, the internal energy and the time-dependent abundances (`model.time_dependent`); the
+steady-state solve species and the balance variables are solved algebraically at every evaluation (Newton with the
+network's analytic Jacobian, warm-started, with a pseudo-transient fallback that lands on the branch time evolution
+would), so a model that declares H+ steady-state gets equilibrium ionization here too. `rhs(y, params)` gives
+du/dt and dx/dt for any integrator, `temperature(u, x, params)` the temperature and every abundance behind a state,
+`rates(T, x, params)` everything at a given temperature. `jaco.onezone.OneZone(model)` is the one-zone parcel built
+on it, with a prescribed density history and the parameters a host would supply closed by `GizmoHostClosures`
+(what cooling/jaco.cc computes for a cell: the nucleon column of half a Jeans length, the dust-attenuated FUV field,
+the dust's absorption of the CMB and ISRF, the optically-thick opacity) or the bare `Closures` (`host="plain"`):
+`free_fall(n0, T0, n_stop)` (density at the free-fall rate, PdV work P/t_ff),
 `equilibrium(n_grid)` (thermochemical equilibrium at each density, relaxed in time and warm-started along the grid),
 `evolve(n, T0, t_end)` (fixed density) and `track(dlnrho_dt, ...)` (any compression law). `python -m jaco.onezone
-free_fall starforge starforge_legacy -o track.png` and `... equilibrium starforge --n-grid 1e-2,1e6,33` draw the
-density-temperature tracks. Building the system takes about two minutes for starforge (the symbolic reduction); a
-free-fall track to 1e15 cm^-3 takes a few minutes more. For the production solver itself
+free_fall starforge_legacy --Z 0,1e-4,1e-2,1 --jobs 4 -o track.png` and `... equilibrium starforge --n-grid
+1e-2,1e6,33` draw the density-temperature tracks. Building the system takes under a minute for starforge_legacy
+(the symbolic reduction and Jacobian); a free-fall track to 1e15 cm^-3 takes tens of minutes. For the production solver itself
 (backward Euler with the tiers GIZMO uses) the path is the generated C through the standalone driver (section 7.4).
 `network.solver_functions(solve_vars, time_dependent, return_jac=True)` and `network.generate_code(...)` (README,
 "Generating code") give the symbolic RHS and Jacobian for another host.

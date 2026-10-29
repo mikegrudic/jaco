@@ -34,3 +34,27 @@ def test_equilibrium_and_evolve_agree():
     assert abs(ev["T"][-1] / eq["T"][-1] - 1) < 1e-3
     assert abs(ev["H+"][-1] - eq["H+"][-1]) < 1e-3 * max(eq["H+"][-1], 1e-6)
     assert np.allclose(ev["n_Htot"], 100.0, rtol=1e-12) and np.all(ev["pdv_work"] == 0)
+
+
+def test_steady_species_are_solved_and_u_round_trips():
+    s = OdeSystem(make_model())  # the toy's H+ is a steady-state variable: solved, not integrated
+    assert s.integrated == [] and s.steady == ["H+"]
+    p = {"n_Htot": 1.0, "pdv_work": 0.0}
+    for T in (300.0, 1.5e4, 5e4):
+        s.reset()
+        r = s.rates(T, {"H+": 0.3}, p)  # the 0.3 is only a starting guess
+        row = s._evaluate(T, r["x"], {}, {**s.defaults, **p})[s._i_species[0]]
+        assert abs(row) < 1e-8 * abs(s._system(T, None, r["x"], {}, {**s.defaults, **p})[1][0, 0]) + 1e-300
+        T2, x2 = s.temperature(r["u"], {}, p, T_guess=1e3)
+        assert abs(T2 / T - 1) < 1e-8 and abs(x2["H+"] / r["x"]["H+"] - 1) < 1e-6
+    assert s.rhs(s.state(1e4, {}, p), p).shape == (1,)
+
+
+def test_gizmo_host_closures_are_finite():
+    from jaco.onezone import GizmoHostClosures as H
+    st = {"rho": 2e-22, "lambda_J": 1e19, "dlnrho_dt": 1e-14, "T": 50.0, "x": {}, "params": {"Z_d": 1.0, "ISRF": 1.0}}
+    vals = [H.N_H(st), H.G_0(st), H.A_dust(st), H.kappa_thick(st), H.grad_v(st)]
+    assert np.all(np.isfinite(vals)) and np.all(np.array(vals) > 0)
+    assert H.kappa_thick(st) >= 0.1 and H.kappa_thick({**st, "params": {"Z_d": 0.0}}) == 0.1
+    assert H.A_dust({**st, "params": {"Z_d": 0.0}}) == 0.0
+    assert H.G_0(st) < 1.7 * st["params"]["ISRF"]
