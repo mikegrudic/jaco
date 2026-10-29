@@ -301,10 +301,13 @@ So the equilibrium solver is for closed-form networks, as in the README. For tim
 explicit right-hand side instead: `jaco.ode.OdeSystem(model)` builds the model's reduced network (tables, intermediates,
 steady-state closures and balance variables included, evaluated with the C semantics of `jaco.check`) as a function
 `rates(T, x, params)` returning the heating rate, dx/dt per species and dT/dt through the EOS, which plugs into any
-integrator; `jaco.freefall.free_fall(model, n0, T0, n_stop)` is the one-zone free-fall collapse built on it (density
-grows at the free-fall rate, PdV work P/t_ff, Jeans-length columns), and `python -m jaco.freefall starforge
-starforge_legacy -o track.png` draws the density-temperature track. Building the system takes about two minutes for
-starforge (the symbolic reduction); the track to 1e15 cm^-3 takes a few minutes more. For the production solver itself
+integrator; `jaco.onezone.OneZone(model)` is the one-zone parcel built on it, with a prescribed density history:
+`free_fall(n0, T0, n_stop)` (density at the free-fall rate, PdV work P/t_ff, Jeans-length columns),
+`equilibrium(n_grid)` (thermochemical equilibrium at each density, relaxed in time and warm-started along the grid),
+`evolve(n, T0, t_end)` (fixed density) and `track(dlnrho_dt, ...)` (any compression law). `python -m jaco.onezone
+free_fall starforge starforge_legacy -o track.png` and `... equilibrium starforge --n-grid 1e-2,1e6,33` draw the
+density-temperature tracks. Building the system takes about two minutes for starforge (the symbolic reduction); a
+free-fall track to 1e15 cm^-3 takes a few minutes more. For the production solver itself
 (backward Euler with the tiers GIZMO uses) the path is the generated C through the standalone driver (section 7.4).
 `network.solver_functions(solve_vars, time_dependent, return_jac=True)` and `network.generate_code(...)` (README,
 "Generating code") give the symbolic RHS and Jacobian for another host.

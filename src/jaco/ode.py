@@ -23,7 +23,7 @@ from scipy.optimize import brentq
 from .declarations import implied_parameters, Species
 from .interpolation import tables_in
 from .model_check import _c_lambdify, _parameter_values
-from .symbols import sanitize_symbols
+from .symbols import sanitize_name, sanitize_symbols
 
 __all__ = ["OdeSystem"]
 
@@ -73,6 +73,11 @@ class OdeSystem:
             n = str(v)
             if n.startswith("x_"):
                 self._floor[n[2:]], self._ceiling[n[2:]] = m["floor"], m["ceiling"]
+        # the conservation budgets of the eliminated abundances, total - sum w x >= 0 (an H budget x_H+ + 2 x_H2 <= 1):
+        # the state is projected into them before every evaluation, as the C solver keeps it
+        by_c_name = {sanitize_name(f"x_{s}"): s for s in self.species}
+        self._budgets = [(b["total"], b["total_param"], [(by_c_name[t], w) for t, w in b["terms"] if t in by_c_name])
+                         for b in meta["budgets"]]
 
         # the rows with the backward-Euler terms removed: start-of-step values equal to the current ones
         u_sym, u_expr = sp.Symbol("u"), net._reduce_expression(net.eos.internal_energy)
@@ -130,10 +135,17 @@ class OdeSystem:
         out = self._f(*(vals + pv + pre))
         return [float(o) for o in out]
 
-    def _clip(self, x):
+    def _clip(self, x, params):
+        """the state within its floors, ceilings and budgets (a full budget scaled to 1 - 1e-10 of its total)"""
         out = {}
         for s in self.species:
             out[s] = min(max(float(x[s]), self._floor[s]), self._ceiling[s])
+        for total, total_param, terms in self._budgets:
+            cap = (float(params[total_param]) if total_param else total) * (1 - 1e-10)
+            used = sum(w * out[s] for s, w in terms)
+            if used > cap > 0:
+                for s, _ in terms:
+                    out[s] = max(self._floor[s], out[s] * cap / used)
         return out
 
     def _solve_balance(self, name, T, x, balance, params):
@@ -186,7 +198,7 @@ class OdeSystem:
         """
         p = dict(self._defaults)
         p.update(params)
-        xx = self._clip({s: x.get(s, self._floor[s]) for s in self.species})
+        xx = self._clip({s: x.get(s, self._floor[s]) for s in self.species}, p)
         balance = {}
         for b in self.balances:
             guess = self._last_balance[b]
