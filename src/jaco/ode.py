@@ -233,3 +233,8 @@ class OdeSystem:
     @property
     def floors(self):
         return dict(self._floor)
+
+    @property
+    def defaults(self):
+        """the parameter values used when a call gives none"""
+        return dict(self._defaults)

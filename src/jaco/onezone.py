@@ -103,6 +103,14 @@ class OneZone:
     def species(self):
         return self.system.species
 
+    ELEMENT_TOTALS = ("x_C,tot", "x_O,tot", "x_N", "x_Ne", "x_Mg", "x_Si", "x_S", "x_Ca", "x_Fe", "Z", "Z_d")
+
+    def metallicity(self, Z):
+        """parameter overrides for a metallicity Z in solar units: every heavy-element total the model reads and the
+        dust abundance Z_d scaled from the system's defaults (dust-to-gas proportional to Z)"""
+        d = self.system.defaults
+        return {k: d[k] * Z for k in self.ELEMENT_TOTALS if k in d}
+
     # ------------------------------------------------------------------ the right-hand side
 
     def _params_at(self, n, T, x, dlnrho_dt):
@@ -186,12 +194,14 @@ class OneZone:
         """Time evolution at fixed density n from (T0, x0)."""
         return self.track(lambda st: 0.0, n, T0, t_end, x0=x0, n_points=n_points, verbose=verbose)
 
-    def equilibrium(self, n_grid, T0=1e4, x0=None, tol=1e-6, t_max_ff=1e4, verbose=False):
+    def equilibrium(self, n_grid, T0=1e4, x0=None, tol=1e-4, t_max_ff=100.0, x_floor=1e-6, verbose=False):
         """Thermochemical equilibrium at each density of n_grid: the state relaxed in time at fixed density until no
-        rate would change it by more than tol over a free-fall time (or t_max_ff free-fall times have passed), each
-        density warm-started from the previous one's answer, so a bistable model follows the branch the previous
-        density was on (as a slow compression would). The returned dict has one entry per density plus "relaxed"
-        (whether the tolerance was met) and "t" (the relaxation time used)."""
+        rate would change T by more than tol of itself, or any abundance by more than tol of itself or x_floor per H
+        (whichever is larger), over a free-fall time; or until t_max_ff free-fall times have passed. Each density is
+        warm-started from the previous one's answer, so a bistable model follows the branch the previous density was on
+        (as a slow compression would). The returned dict has one entry per density plus "relaxed" (whether the
+        tolerance was met) and "t" (the relaxation time used). Trace species jitter at the integrator's absolute
+        tolerance; x_floor keeps that from counting as change."""
         sys_ = self.system
         n_grid = np.asarray(n_grid, dtype=float)
         T, x = T0, dict(x0 or {})
@@ -201,7 +211,7 @@ class OneZone:
             y0 = sys_.state(T, x)
             r0 = self.rates(n, T, x)
             tff = t_freefall(r0["rho"])
-            scale = np.array([None] + [max(sys_.floors[s], 1e-6) for s in self.species], dtype=object)
+            scale = [None] + [max(sys_.floors[s], x_floor) for s in self.species]
 
             def rhs(t, y):
                 Ti, xi = self._unpack(y)
@@ -249,6 +259,10 @@ class OneZone:
         out = {"n_Htot": np.asarray(n, dtype=float), "T": np.asarray(Y[0], dtype=float)}
         for i, s in enumerate(self.species):
             out[s] = np.asarray(Y[1 + i], dtype=float)
+        for k in range(len(out["n_Htot"])):  # the integrator's state within the floors and budgets
+            x = sys_._clip({s: out[s][k] for s in self.species}, {**sys_.defaults, **self.params, "n_Htot": out["n_Htot"][k]})
+            for s in self.species:
+                out[s][k] = x[s]
         cols = {k: [] for k in ["rho", "P", "u", "heat", "pdv_work", "dlnrho_dt"] + sys_.balances}
         sys_.reset()
         for k in range(len(out["n_Htot"])):
@@ -284,6 +298,9 @@ def main(argv=None):
     ap.add_argument("--n-grid", default="1e-2,1e6,33", metavar="LO,HI,NUM", help="equilibrium: log-spaced densities")
     ap.add_argument("--T0", type=float, default=None, help="initial temperature (300 K for free_fall, 1e4 K for equilibrium)")
     ap.add_argument("--param", action="append", default=[], metavar="NAME=VALUE", help="e.g. G_0=0, ISRF=0, Z_d=0.01")
+    ap.add_argument("--Z", default=None, metavar="Z1,Z2,...", help="metallicities in solar units: one track per value "
+                    "(heavy-element totals and Z_d scaled from the model's defaults)")
+    ap.add_argument("--jobs", type=int, default=1, help="tracks run concurrently (each builds its own system)")
     ap.add_argument("--rtol", type=float, default=1e-5)
     ap.add_argument("-o", "--output", default=None, help="figure path (default <mode>_track.png)")
     ap.add_argument("--save", default=None, help="write the tracks to this .npz")
@@ -296,32 +313,64 @@ def main(argv=None):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    from importlib import import_module
+    Zs = [float(z) for z in args.Z.split(",")] if args.Z else [None]
+    jobs = [(name, Z) for name in args.models for Z in Zs]
+    common = dict(mode=args.mode, params=params, rtol=args.rtol, T0=T0, n0=args.n0, n_stop=args.n_stop, n_grid=args.n_grid)
+    if args.jobs > 1 and len(jobs) > 1:
+        from concurrent.futures import ProcessPoolExecutor
+        with ProcessPoolExecutor(max_workers=args.jobs) as ex:
+            results = list(ex.map(_run_job, jobs, [common] * len(jobs)))
+    else:
+        results = [_run_job(j, common) for j in jobs]
     fig, ax = plt.subplots(figsize=(6.4, 4.4))
     tracks = {}
-    for name in args.models:
-        model = import_module(f"jaco.models.{name}").make_model()
-        print(f"{name}: building the system", file=sys.stderr)
-        zone = OneZone(model, params=params, rtol=args.rtol)
-        if args.mode == "free_fall":
-            tr = zone.free_fall(n0=args.n0, T0=T0, n_stop=args.n_stop, verbose=True)
+    cmap = plt.get_cmap("viridis")
+    for (name, Z), tr in zip(jobs, results):
+        if tr is None:
+            continue
+        key = name if Z is None else f"{name}/Z={Z:g}"
+        tracks[key] = tr
+        if Z is None:
+            ax.loglog(tr["n_Htot"], tr["T"], lw=1.6, label=name)
         else:
-            tr = zone.equilibrium(_parse_grid(args.n_grid), T0=T0, verbose=True)
-        tracks[name] = {k: v for k, v in tr.items() if isinstance(v, np.ndarray)}
-        ax.loglog(tr["n_Htot"], tr["T"], lw=1.6, label=name)
-        print(f"{name}: T = {tr['T'][-1]:.4g} K at n = {tr['n_Htot'][-1]:.3g}", file=sys.stderr)
+            c = cmap(0.1 + 0.8 * (np.log10(max(Z, 1e-7)) + 7) / 7)
+            ax.loglog(tr["n_Htot"], tr["T"], lw=1.4, color=c, label=f"Z = {Z:g} Z$_\\odot$" if Z > 0 else "Z = 0")
     ax.set_xlabel(r"$n_{\rm H}$ [cm$^{-3}$]")
     ax.set_ylabel("T [K]")
-    ax.set_title({"free_fall": "free-fall collapse", "equilibrium": "thermochemical equilibrium"}[args.mode], fontsize=10)
-    ax.legend(frameon=False)
-    ax.spines[["top", "right"]].set_visible(False)
-    ax.tick_params(top=False, right=False, which="both")
+    title = {"free_fall": "free-fall collapse", "equilibrium": "thermochemical equilibrium"}[args.mode]
+    ax.set_title(title + (f": {args.models[0]}" if args.Z and len(args.models) == 1 else ""), fontsize=10)
+    ax.legend(frameon=False, fontsize=8)
+    ax.tick_params(which="both", direction="in", top=True, right=True)
     fig.tight_layout()
     out = args.output or f"{args.mode}_track.png"
     fig.savefig(out, dpi=150)
     print(out)
     if args.save:
         np.savez(args.save, **{f"{m}/{k}": v for m, d in tracks.items() for k, v in d.items()})
+
+
+def _run_job(job, common):
+    """one track (a worker builds its own system); returns the arrays or None on failure"""
+    from importlib import import_module
+    name, Z = job
+    try:
+        model = import_module(f"jaco.models.{name}").make_model()
+        zone = OneZone(model, params=common["params"], rtol=common["rtol"])
+        params = dict(common["params"])
+        if Z is not None:
+            params.update(zone.metallicity(Z))
+            zone.params = params
+        label = name if Z is None else f"{name} Z={Z:g}"
+        print(f"{label}: system built", file=sys.stderr, flush=True)
+        if common["mode"] == "free_fall":
+            tr = zone.free_fall(n0=common["n0"], T0=common["T0"], n_stop=common["n_stop"])
+        else:
+            tr = zone.equilibrium(_parse_grid(common["n_grid"]), T0=common["T0"])
+        print(f"{label}: T = {tr['T'][-1]:.4g} K at n = {tr['n_Htot'][-1]:.3g}", file=sys.stderr, flush=True)
+        return {k: v for k, v in tr.items() if isinstance(v, np.ndarray)}
+    except Exception as e:  # one failed track must not lose the others
+        print(f"{job}: FAILED: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+        return None
 
 
 if __name__ == "__main__":
