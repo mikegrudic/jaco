@@ -71,8 +71,6 @@ class Closures:
     def cell_size(st):
         return st["lambda_J"]
 
-    DEFAULT = {"pdv_work": pdv_work.__func__, "rho": rho.__func__, "∇v": grad_v.__func__, "∇v_tf": grad_v_tf.__func__,
-               "N_H": N_H.__func__, "N_H_cool": N_H.__func__, "Δx": cell_size.__func__}
 
 
 class GizmoHostClosures(Closures):
@@ -154,6 +152,11 @@ class GizmoHostClosures(Closures):
             k_conductive = 2.6e-7 * x_e * T * T / (rho * rho)
             kappa += 1.0 / (1.0 / k_radiative + 1.0 / max(k_conductive, 1e-300))
         return kappa
+
+
+# grad_v is a classmethod: bound here, after the class exists (its __func__ would take the state as cls)
+Closures.DEFAULT = {"pdv_work": Closures.pdv_work, "rho": Closures.rho, "∇v": Closures.grad_v,
+                    "∇v_tf": Closures.grad_v_tf, "N_H": Closures.N_H, "N_H_cool": Closures.N_H, "Δx": Closures.cell_size}
 
 
 GizmoHostClosures.DEFAULT = {
