@@ -1,6 +1,6 @@
 """Implementation of photodissociation of various hydrogen species"""
 
-from ..symbols import sp, G_LW, T, grad_v, dx, NH, x_
+from ..symbols import sp, G_LW, T, grad_v, dx, NH, x_, G_0
 from jaco.processes import Reaction
 
 
@@ -57,7 +57,9 @@ def photodissociation(molecule, self_shielding="Gnedin & Draine 2014"):
 def photodetachment(species):
     match species:
         case "H-":
-            # glover & jappsen: heating rate of this not significant
-            rate = 3.62e-17
-            bib = "2023MNRAS.519.3154H"
-            return Reaction("H- -> H + e-", rate, name="Photodetachment of H-", bibliography=[bib])
+            # 7.1e-7 chi s^-1 in a Draine field (Glover & Jappsen 2007; chi = G_0/1.69 with G_0 in Habing units),
+            # floored at GIZMO's 3.62e-17 s^-1 background of low-energy (0.755 eV threshold) photons; the heating is
+            # not significant
+            rate = sp.Max(3.62e-17, 7.1e-7 * G_0 / 1.69)
+            return Reaction("H- -> H + e-", rate, name="Photodetachment of H-",
+                            bibliography=["2023MNRAS.519.3154H", "2007ApJ...666....1G"])
