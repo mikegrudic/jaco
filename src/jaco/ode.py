@@ -33,7 +33,7 @@ __all__ = ["OdeSystem"]
 
 # the parameters a host closes from the cell's state (jaco.onezone.Closures, GizmoHostClosures): the derivative
 # block carries d/d(parameter) for these, so a Jacobian can chain through a closure
-HOST_PARAMETERS = ("pdv_work", "rho", "∇v", "∇v_tf", "N_H", "N_H_cool", "Δx", "G_0", "A_dust", "kappa_thick")
+HOST_PARAMETERS = ("pdv_work", "rho", "∇v", "∇v_tf", "N_H", "N_H_cool", "Δx", "G_0", "A_dust", "kappa_thick", "lambda_J")
 BALANCE_STEP = 1.1  # bracketing walk of a balance variable: steps of 10%, growing by 10%
 BALANCE_MAXITER = 200
 NEWTON_MAXITER = 100
