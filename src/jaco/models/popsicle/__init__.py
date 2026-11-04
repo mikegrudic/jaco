@@ -1,7 +1,8 @@
-"""Menon et al. 2025's (arXiv:2610.17577) thermochemistry as their one-zone collapse test runs it (KROME network
-react_popsicle_semenov_photo_cr_full with the driver tests/popsicle_semenov_photo_cr_full_collapseTest), for the
-free-fall comparison with their Fig. 2. Not a GIZMO model: its photo- and cosmic-ray inputs (chi_0, Gamma_ion0,
-zeta_CR, lambda_J) are parameters GIZMO's host does not fill; closures.MenonClosures supplies them.
+"""POPSICLE: Menon et al. 2025's (arXiv:2610.17577) thermochemistry as their one-zone collapse test runs it (KROME
+network react_popsicle_semenov_photo_cr_full, driver tests/popsicle_semenov_photo_cr_full_collapseTest/test.f90),
+for the free-fall comparison with their Fig. 2. A one-zone model, not a GIZMO model: its photo- and cosmic-ray inputs
+(chi_0, Gamma_ion0, zeta_CR, lambda_J) are parameters GIZMO's host does not fill; closures.PopsicleClosures supplies
+them. Where the paper and the code disagree the code is followed, since the code reproduces Fig. 2.
 
 Taken from starforge: Lyman-alpha and He+ line cooling, collisional ionization, He recombination, free-free, Compton,
 Kim+23 nebular cooling (on), the [CII]/[CI]/[OI] lines (with KROME's DESPOTIC optical-depth factors), CO cooling, the
@@ -20,8 +21,30 @@ unattenuated cosmic-ray rate), H- collisional detachment, the HM79 grain formati
   equilibrium (D/H = 3e-5); gas continuum (Lenzuni);
 - dust: Semenov (rho, Td) Planck mean with escape over the Jeans length, gas-dust coupling alpha_gd, FUV and CMB
   absorption.
-Not carried (they need the O/C network): OH and H2O cooling, explicit C/O chemistry. No clumping, no tabulated metal
-lines, no optically-thick cap.
+
+Against their reference tracks (chi = 1, n0 = 0.1, T0 = 300 K, Z = 0 .. 1 solar): plateau exits within 3-20 %,
+temperature minima within 4 %, Z = 0 within 1 % at every decade, T per decade within 1.3x elsewhere except the
+points listed below.
+
+Still missing, in order of effect on the collapse test:
+1. OH and H2O cooling (Omukai 2010 LVG tables; KROME's coolOH.dat / coolH2O.dat). In KROME, OH carries 0.6-1.7x the
+   PdV heating at n = 1e7-1e8 and H2O 2-9x after the grain-formation heating jump, for Z = 1e-4 .. 1e-2. Without them
+   the jump comes 2-3x earlier in density (Z = 1e-4 at n = 1e8: 277 K against their 101 K) and the plateau after it is
+   20-30 % hotter. Needs OH/H2O abundances (their O network, or an equilibrium O + H2 -> OH -> H2O closure) plus the
+   tables.
+2. Carbon chemistry. KROME follows C+ -> C -> CO through CH and HCO+; this model keeps starforge's Tielens C+/CO
+   partition, which puts the carbon in CO at Z >= 1e-2, n = 1e3-1e4 where KROME has it neutral and cooling through the
+   fine-structure lines. Result: 1.3-1.6x too warm there (Z = 1 at n = 1e3: 50 % warmer).
+3. Deuterium. HD is set by D fractionation equilibrium (no D, D+, D-, HD+ in time). Within 16 % of their T at
+   Z = 1e-5 everywhere, so not limiting.
+4. Smaller simplifications, each checked to be below the residuals above: no He+ + H charge transfer; H3+ fed only
+   by H+ + H2 (cosmic-ray H2 ionization feeds starforge's molecular-ion electron budget instead); the escape
+   probability (1 + tau^4)^-1/2 in place of KROME's min(1, tau^-2); dust emission held monotone in Td across the
+   Semenov ice and organics evaporation drops (KROME's table has several roots there); jaco's H2 partition function
+   for KROME's "exact" gamma.
+5. Beyond n = 1e16 both codes dissociate H2 and run away (KROME 4800 K at 1e17 for Z = 1, this model 7250 K); outside
+   the comparison region and not pursued.
+Not KROME's and deliberately absent: clumping factors, tabulated metal-line cooling, GIZMO's optically-thick cap.
 """
 
 import sympy as sp
@@ -40,7 +63,7 @@ from ..starforge.dust_balance import TD_VARIABLE
 from ..starforge.symbols import ISRF, cosmicray_attenuation_fac, X_H_SOLAR
 from . import processes as mp
 
-GIZMO_FAMILY = "starforge_menon"
+GIZMO_FAMILY = "popsicle"
 SOLVE_VARS = ("u", "T", "H+", "He+", "He++", "H_2", "H_3+", "Td")
 TIME_DEPENDENT = ("T", "H_2", "H+", "He+", "He++", "H_3+")
 

@@ -142,6 +142,6 @@ def cosmic_ray_heat_per_H2_ionization(n_H2):
 def table_data():
     """the H2 escape probability (Omukai) and Semenov et al. 2003 Planck-mean tables of the KROME build"""
     from importlib.resources import files
-    with files("jaco.models.starforge_menon").joinpath("data/krome_tables.npz").open("rb") as f:
+    with files("jaco.models.popsicle").joinpath("data/krome_tables.npz").open("rb") as f:
         d = np.load(f)
         return {k: np.array(d[k]) for k in d.files}

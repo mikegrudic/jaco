@@ -1,7 +1,7 @@
 """One-zone closures, abundances and initial state of Menon et al. 2025's collapse test (KROME driver
 popsicle_semenov_photo_cr_full_collapseTest/test.f90), for jaco.onezone.OneZone with this model.
 
-    zone = OneZone(make_model(), params=parameters(Z), closures=MenonClosures.DEFAULT, host="plain")
+    zone = OneZone(make_model(), params=parameters(Z), closures=PopsicleClosures.DEFAULT, host="plain")
     track = zone.free_fall(n0=0.1, T0=300.0, n_stop=1e17, x0=INITIAL_ABUNDANCES)
 
 The driver takes every column as num2col, half a Jeans length sqrt(pi k T / (G rho mu m_p)) of the species, the
@@ -26,7 +26,7 @@ def parameters(Z):
     return p
 
 
-class MenonClosures(Closures):
+class PopsicleClosures(Closures):
     """The bare closures (columns of half a Jeans length, PdV P dln rho/dt) plus the Jeans length itself"""
 
     @staticmethod
@@ -34,5 +34,5 @@ class MenonClosures(Closures):
         return st["lambda_J"]
 
 
-MenonClosures.DEFAULT = {**Closures.DEFAULT, "lambda_J": MenonClosures.lambda_J}
+PopsicleClosures.DEFAULT = {**Closures.DEFAULT, "lambda_J": PopsicleClosures.lambda_J}
 

@@ -1,4 +1,4 @@
-"""The processes of the starforge_menon model that differ from starforge's: Menon et al. 2025's KROME network and
+"""The processes of the popsicle model that differ from starforge's: Menon et al. 2025's KROME network and
 thermal terms as their collapse test runs them (see __init__ for the inventory)."""
 
 import numpy as np

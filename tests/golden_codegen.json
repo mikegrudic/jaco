@@ -1,4 +1,14 @@
 {
+  "popsicle": {
+    "jaco_eos.cc": "f201ab2261c1960fb741f907b748eecd833ad504ac847919086264f0ce62f447",
+    "jaco_interp.h": "a16bc266af3714eba8951abcc237076a257efba4846a0fd83a717f7843960573",
+    "jaco_tables.h": "0ac019e9d76024b2ed68e21a65785956e0f2e8bca5ca86048ac3e0eb7e3b74a5",
+    "jaco_tables.hdf5": "a0b10f24a6fc661e292814f94101048268d30570b0a2a51ad9d4170497f9c5bd",
+    "jaco_util.cc": "833db390d859125ae6eac37f01cb3cac1e327338d461825a2f21d2573935cb88",
+    "microphysics_func_jac.cc": "5ffa70d5d5eeaafe3836872437186958a65dbb6ef4be6c4bda8fa2635e7ce3a7",
+    "microphysics_func_jac.h": "799f99cf89a365e5ac0b3276be20982290ff490ed8b6343d583de70ee4d3625b",
+    "microphysics_outputs.cc": "9b9ef60502a66e5f09b136f65f7fd054f02fad990274df62aa49e3944b2658ea"
+  },
   "starforge": {
     "jaco_eos.cc": "cec7adbab706a4dcc123279b3bea2eb3417cda9f2d91fda71360eb666db3f992",
     "jaco_interp.h": "4475113932b283fe45672802b7dc55fd9e67d5cf63da01b3284e0845edf2af2f",
@@ -68,16 +78,6 @@
     "microphysics_func_jac.cc": "f5f9c889036f3ea8e7900139286f6130ac7a9afe1ec2bfe883d39b5aa633c7b8",
     "microphysics_func_jac.h": "c86e5806a0c1b03169d9c2d24bca0422c6cb7711fcf6b1a4466c652999df63a0",
     "microphysics_outputs.cc": "b56292a1fc02fd0f753c3700d1333ee01156d35a7895ac19bab29d665589d4e8"
-  },
-  "starforge_menon": {
-    "jaco_eos.cc": "f201ab2261c1960fb741f907b748eecd833ad504ac847919086264f0ce62f447",
-    "jaco_interp.h": "a16bc266af3714eba8951abcc237076a257efba4846a0fd83a717f7843960573",
-    "jaco_tables.h": "0ac019e9d76024b2ed68e21a65785956e0f2e8bca5ca86048ac3e0eb7e3b74a5",
-    "jaco_tables.hdf5": "a0b10f24a6fc661e292814f94101048268d30570b0a2a51ad9d4170497f9c5bd",
-    "jaco_util.cc": "833db390d859125ae6eac37f01cb3cac1e327338d461825a2f21d2573935cb88",
-    "microphysics_func_jac.cc": "5ffa70d5d5eeaafe3836872437186958a65dbb6ef4be6c4bda8fa2635e7ce3a7",
-    "microphysics_func_jac.h": "fd7d53ceb6c30ba738695eafdc5803c6b4a0cd0af75ec3d9582973a9a28348e8",
-    "microphysics_outputs.cc": "9b9ef60502a66e5f09b136f65f7fd054f02fad990274df62aa49e3944b2658ea"
   },
   "starforge_noneq": {
     "jaco_eos.cc": "cec7adbab706a4dcc123279b3bea2eb3417cda9f2d91fda71360eb666db3f992",
