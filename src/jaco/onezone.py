@@ -9,6 +9,9 @@
 or, from the command line, python -m jaco.onezone free_fall starforge starforge_legacy -o track.png and
 python -m jaco.onezone equilibrium starforge --n-grid 1e-2,1e6,33.
 
+host="menon" closes the parcel of the one-zone collapse test of Menon et al. (2026, Sec. 3.2, Fig. 2; MenonClosures):
+a static parcel a Jeans length across with the columns of their KROME driver, no turbulence.
+
 Every mode integrates the same right-hand side (jaco.ode.OdeSystem): d ln rho/dt is the mode's, the compressional
 heating is pdv_work = P d ln rho/dt per unit volume, the velocity gradient is |d ln rho/dt| with no trace-free part
 (homologous compression does not clump), and the shielding columns are half a Jeans length, N_H = n_Htot lambda_J / 2
@@ -27,7 +30,7 @@ from scipy.integrate import solve_ivp
 
 from .ode import OdeSystem
 
-__all__ = ["OneZone", "Closures", "GizmoHostClosures", "t_freefall", "jeans_length"]
+__all__ = ["OneZone", "Closures", "GizmoHostClosures", "MenonClosures", "t_freefall", "jeans_length"]
 
 G_CGS = 6.674e-8
 
@@ -165,6 +168,51 @@ GizmoHostClosures.DEFAULT = {
     "G_0": GizmoHostClosures.G_0, "A_dust": GizmoHostClosures.A_dust, "kappa_thick": GizmoHostClosures.kappa_thick}
 
 
+class MenonClosures(GizmoHostClosures):
+    """The one-zone collapse test of Menon et al. (2026, Sec. 3.2 and Fig. 2), after Omukai (2000): a static parcel
+    a Jeans length across, as GIZMO's ONE_ZONE_COLLAPSE driver also sets it up, with the columns of the KROME driver
+    that made their figures (tests/popsicle_semenov_photo_cr_full_collapseTest/test.f90 in Sharda's KROME fork):
+
+    - free fall and Jeans length at the gas density, as for every host (Menon's Figs. 2-3 follow from the total gas
+      density in t_ff: their cooling then balances the compressional heating where their gas is isothermal; GIZMO's
+      driver takes n_H m_H instead);
+    - the shielding and line columns over half a Jeans length (KROME's num2col, n lambda_J / 2): N_H, and the FUV
+      attenuation and the dust's absorption of the background on it, GizmoHostClosures' rho lambda_J / 2;
+    - the dust's and the gas continuum's optical depth over the full Jeans length (KROME's tau = rho kappa lambda_J):
+      N_H_cool = rho lambda_J / m_p;
+    - no flow: no turbulence or clumping (grad_v_tf = 0, and the cell size Delta_x = 0, since Delta_x enters these
+      models only multiplied by a velocity gradient, as the sub-grid turbulence of the clumping factor and the H2
+      line width). The one velocity gradient left is the CO line's: Menon's CO cooling (Omukai et al. 2010 fits in
+      N(CO) / v_th,CO, N(CO) from num2col) is a static column with a thermal line width, which an LVG rate reproduces
+      with the Sobolev length set to that column's lambda_J / 2, |grad v| = 2 v_th,CO / lambda_J,
+      v_th,CO = sqrt(2 k T / m_CO);
+    - the FUV field, the dust's absorption of the background and the thick opacity are GizmoHostClosures' (with
+      ISRF = 0, Menon's chi_FUV = 0, only the CMB heats the dust)."""
+
+    BOLTZMANN = 1.380649e-16
+    M_CO = 28.0 * GizmoHostClosures.PROTONMASS
+
+    @classmethod
+    def N_H_cool(cls, st):
+        """the dust's column [cm^-2]: a full Jeans length of gas, in nucleons"""
+        return st["rho"] * st["lambda_J"] / cls.PROTONMASS
+
+    @classmethod
+    def grad_v(cls, st):
+        return 2 * np.sqrt(2 * cls.BOLTZMANN * st["T"] / cls.M_CO) / st["lambda_J"]
+
+    @staticmethod
+    def cell_size(st):
+        return 0.0
+
+
+MenonClosures.DEFAULT = {  # rebound, so that the classmethods see MenonClosures
+    "pdv_work": Closures.pdv_work, "rho": Closures.rho, "∇v": MenonClosures.grad_v, "∇v_tf": Closures.grad_v_tf,
+    "N_H": MenonClosures.N_H, "N_H_cool": MenonClosures.N_H_cool, "Δx": MenonClosures.cell_size,
+    "G_0": MenonClosures.G_0, "A_dust": MenonClosures.A_dust, "kappa_thick": MenonClosures.kappa_thick}
+
+
+
 class OneZone:
     """A model's thermochemistry in a parcel with a prescribed density history.
 
@@ -181,10 +229,11 @@ class OneZone:
     analytic_jacobian: bool
         Hand the integrator the system's Jacobian (OdeSystem.jacobian) instead of letting it difference the
         right-hand side.
-    host: "gizmo" or "plain"
+    host: "gizmo", "menon" or "plain"
         Which prescriptions close the parameters a host would supply: GizmoHostClosures (what cooling/jaco.cc
         computes for the cell: attenuated FUV field, dust absorption of the CMB and ISRF, the thick opacity, the
-        nucleon column) or the bare Closures (constant fields, no dust absorption, the model's default opacity).
+        nucleon column), MenonClosures (the same, in the static parcel of Menon et al. 2026, with their columns) or
+        the bare Closures (constant fields, no dust absorption, the model's default opacity).
     system: OdeSystem, optional
         A prepared system for this model; building it is the slow part (two minutes for starforge).
     method, rtol, atol: solve_ivp options; atol applies to T in K and to the abundances per H.
@@ -199,7 +248,7 @@ class OneZone:
         self.system = system or OdeSystem(model, params, backend=backend)
         self.analytic_jacobian = analytic_jacobian
         self.params = dict(params or {})
-        base = GizmoHostClosures.DEFAULT if host == "gizmo" else Closures.DEFAULT
+        base = {"gizmo": GizmoHostClosures, "menon": MenonClosures, "plain": Closures}[host].DEFAULT
         closures = {**base, **(closures or {})}
         self.closures = {k: f for k, f in closures.items() if k in self.system.parameters}
         self.method, self.rtol, self.atol = method, rtol, atol
@@ -490,7 +539,8 @@ def main(argv=None):
     ap.add_argument("--Z", default=None, metavar="Z1,Z2,...", help="metallicities in solar units: one track per value "
                     "(heavy-element totals and Z_d scaled from the model's defaults)")
     ap.add_argument("--jobs", type=int, default=1, help="tracks run concurrently (each builds its own system)")
-    ap.add_argument("--host", default="gizmo", choices=["gizmo", "plain"], help="closures: GIZMO's host layer or the bare set")
+    ap.add_argument("--host", default="gizmo", choices=["gizmo", "menon", "plain"],
+                    help="closures: GIZMO's host layer, Menon et al. (2026)'s Jeans-column parcel, or the bare set")
     ap.add_argument("--rtol", type=float, default=1e-5)
     ap.add_argument("-o", "--output", default=None, help="figure path (default <mode>_track.png)")
     ap.add_argument("--save", default=None, help="write the tracks to this .npz")
