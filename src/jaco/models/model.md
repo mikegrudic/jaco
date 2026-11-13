@@ -331,6 +331,22 @@ driver's initial abundances and per-Z parameters). The package docstring lists w
 takes from KROME, how close it gets, and what is still missing (OH/H2O cooling, carbon chemistry, time-dependent
 deuterium).
 
+A model written as one backward-Euler step, whose rows use Δt and start-of-step values the explicit right-hand side
+cannot hold (`starforge_legacy_RT`: the kick's absorption factors exp(-a Δt), the H2 share moved with x_H+ -
+x_H+_initial, the IR band's `T_rad` in and `T_rad_new` out), runs through `OdeSystem(model, step=True)` instead: its
+rows keep their backward-Euler terms, with `Δt` and the `*_initial` values as parameters, and `solve_step(T, x,
+balance, params)` solves one step for every unknown at once (Newton with the analytic Jacobian, T, the abundances and
+the balance variables in their logs, the bands linear, a line search, unknowns pinned at their bounds as the C
+solver's tier 1 does, tolerance 1e-6 as `JACO_TOL_DEFAULT`). On single steps of `starforge_legacy_RT` it agreed with
+`jaco_solver.cc` to 1e-12 (four states, 2026-11). `OneZone(model, step=True).free_fall_steps(n0, T0, n_stop)` steps
+such a model, or any, through the loop of GIZMO's ONE_ZONE_COLLAPSE driver: Δt = min(0.05 t_ff, 0.5 t_cool, 0.4
+λ_J/c̃) (the last with bands), the density by exact free fall, the bands' excess over their background escaping in λ_J
+(1 + τ)/c̃, and a failed step split as tier 3 splits it. It is first order in Δt and converges to `free_fall` as Δt
+shrinks (`tests/test_onezone.py`). `host="menon"` closes the parcel of Menon et al. (2026)'s collapse test
+(`MenonClosures`: the columns of their KROME driver, half a Jeans length for shielding and lines and a full one for
+the dust; no turbulence; a thermal CO line width);
+`examples/one_zone_collapse.ipynb` runs `starforge_noneq` and `popsicle` against their Fig. 2.
+
 ## 9. Style
 
 - One physics per file. A process type gets its own module (H2 formation on grains); families with one functional form
