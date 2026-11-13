@@ -28,6 +28,9 @@ GAMMA_MG_DRAINE = 6.59e-11  # Mg photoionization in the Draine (1978) field, 1.7
 alpha_rr_Mgplus = 2.78e-12 * (T / 300) ** -0.68  # Mg+ radiative recombination (UMIST 2022; Pequignot & Aldrovandi 1986)
 beta_molion = 3e-6 / sp.sqrt(T)  # dissociative recombination of molecular ions (Fromang+02)
 N_NEWTON = 3
+# added to the ion sum inside its logarithm: with no metals and nothing ionizing them (Z = 0, no FUV, no cosmic rays)
+# the sum is exactly 0 and ln 0 would make the free electrons NaN; 1e-40 per H is far below any electron abundance
+ION_SUM_FLOOR = 1e-40
 BIBLIOGRAPHY = ["2024A&A...682A.109M", "1980ApJS...43....1P", "2017A&A...602A.105H", "1986A&A...161..169P",
                 "2002MNRAS.329...18F", "2001ApJ...563..842W", "2017ApJ...843...38G"]
 
@@ -56,7 +59,7 @@ def solved_electrons(n_steps=N_NEWTON):
     e_other, e_ions = sp.symbols("eIonOther eIonMetal")
     x_e_other = x_e_ions + e_other
     xe = sp.Dummy("x_e")
-    lnF = sp.log(sum(ion_abundances(xe)))
+    lnF = sp.log(sum(ion_abundances(xe)) + ION_SUM_FLOOR)
     dlnF = sp.diff(lnF, xe)
     inter = [(e_other, alkali_electrons() + Oplus_electrons())]
     s = sp.Symbol("IbS0")
