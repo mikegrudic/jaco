@@ -357,8 +357,12 @@ class OneZone:
             raise RuntimeError(f"OneZone.track: {sol.message}")
         return self._collect(sol.t, np.exp(sol.y[0]), sol.y[1:], sol, dlnrho_dt)
 
-    def free_fall(self, n0=0.1, T0=300.0, n_stop=1e15, x0=None, n_points=400, verbose=False):
-        """Collapse at the free-fall rate, d rho/dt = rho / t_ff, from n0 to n_stop; integrated in ln n."""
+    def free_fall(self, n0=0.1, T0=300.0, n_stop=1e15, x0=None, n_points=400, verbose=False, max_dlnn=0.5):
+        """Collapse at the free-fall rate, d rho/dt = rho / t_ff, from n0 to n_stop; integrated in ln n.
+
+        max_dlnn caps the integrator's step in ln n. Where nothing but compression acts (no electrons, metals or
+        radiation, e.g. equilibrium ions at Z = 0) the right-hand side is so smooth that the integrator's first trial
+        step otherwise reaches n_stop, where the adiabat lies far outside the temperatures the state solve accepts."""
         sys_ = self.system
         y0 = self._initial(n0, T0, x0)
         s_end = np.log(n_stop / n0)
@@ -378,7 +382,7 @@ class OneZone:
 
         s_eval = np.linspace(0, s_end, n_points)
         sol = solve_ivp(rhs, (0, s_end), y0, method=self.method, t_eval=s_eval, rtol=self.rtol, atol=self.atol,
-                        jac=jac if self.analytic_jacobian else None)
+                        jac=jac if self.analytic_jacobian else None, max_step=max_dlnn)
         if not sol.success:
             raise RuntimeError(f"OneZone.free_fall: {sol.message}")
         n = n0 * np.exp(sol.t)
