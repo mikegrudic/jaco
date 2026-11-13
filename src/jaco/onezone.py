@@ -10,7 +10,8 @@ or, from the command line, python -m jaco.onezone free_fall starforge starforge_
 python -m jaco.onezone equilibrium starforge --n-grid 1e-2,1e6,33.
 
 host="menon" closes the parcel of the one-zone collapse test of Menon et al. (2026, Sec. 3.2, Fig. 2; MenonClosures):
-a static parcel a Jeans length across with the columns of their KROME driver, no turbulence.
+a static parcel a Jeans length across with the columns of their KROME driver, no turbulence;
+examples/one_zone_collapse.ipynb runs it against their curves.
 
 Every mode integrates the same right-hand side (jaco.ode.OdeSystem): d ln rho/dt is the mode's, the compressional
 heating is pdv_work = P d ln rho/dt per unit volume, the velocity gradient is |d ln rho/dt| with no trace-free part
