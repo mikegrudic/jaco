@@ -65,3 +65,27 @@ def test_plain_host_closures_are_callable():
     st = {"rho": 2e-22, "P": 1e-12, "lambda_J": 1e19, "dlnrho_dt": 1e-14, "t_ff": 1e14, "n_Htot": 100.0}
     vals = {k: f(st) for k, f in Closures.DEFAULT.items()}
     assert vals["∇v"] == 1e-14 and vals["N_H"] == 100.0 * 1e19 / 2 and np.all(np.isfinite(list(vals.values())))
+
+
+def test_free_fall_steps_converge_to_free_fall():
+    """The implicit stepping (free_fall_steps: GIZMO's one-zone driver loop, one backward-Euler step of the model per
+    Delta_t, OdeSystem(step=True).solve_step) against the integrated collapse (free_fall). The density follows free
+    fall exactly, so the elapsed time is 2 t_ff(n0) (1 - sqrt(n0 / n)) at every step; the temperature approaches the
+    integrated track at first order as the step shrinks. Compared from 1.5 n0, past the toy's initial heating from 300 K
+    to ~1900 K at nearly fixed density (where T(n) is close to vertical), and up to 1e6, where the toy, which has no
+    temperature floor, is still above the step solver's 1 K"""
+    n0, T0, n_stop = 0.1, 300.0, 1e6
+    ref = OneZone(make_model(), rtol=1e-9, atol=1e-14).free_fall(n0=n0, T0=T0, n_stop=n_stop, n_points=2000)
+    zone = OneZone(make_model(), step=True)
+    err = []
+    for f_ff in (0.04, 0.01):
+        tr = zone.free_fall_steps(n0=n0, T0=T0, n_stop=n_stop, f_ff=f_ff)
+        n, T, x = tr["n_Htot"], tr["T"], tr["H+"]
+        assert n[-1] >= n_stop and np.all(np.diff(n) > 0) and np.all(np.isfinite(T)) and np.all((x >= 0) & (x <= 1))
+        t_ff0 = t_freefall(tr["rho"][0])  # the gizmo host's free-fall density is the gas density
+        assert np.allclose(tr["t"], 2 * t_ff0 * (1 - np.sqrt(n0 / n)), rtol=1e-9, atol=0)
+        m = (n >= 1.5 * n0) & (n <= n_stop)
+        lnT_ref = np.interp(np.log(n[m]), np.log(ref["n_Htot"]), np.log(ref["T"]))
+        err.append(np.max(np.abs(np.log(T[m]) - lnT_ref)))
+    assert err[1] < 1e-4  # in ln T, at Delta_t <= 0.01 t_ff (5e-6 as written)
+    assert err[1] < err[0] / 2.5  # first order: a quarter of the step, about a quarter of the error

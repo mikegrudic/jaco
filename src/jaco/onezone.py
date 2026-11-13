@@ -6,6 +6,9 @@
     ev = zone.evolve(n=100, T0=1e4, t_end=1e14)                    # time evolution at fixed density
     tr = zone.track(dlnrho_dt=lambda st: 1e-13, n0=1, T0=1e4, t_end=1e14)   # any compression law
 
+    steps = OneZone(make_model(), host="menon", step=True)          # implicit steps, as GIZMO's one-zone driver
+    st = steps.free_fall_steps(n0=0.1, T0=300, n_stop=1e15)         # takes them (a model written as a step needs it)
+
 or, from the command line, python -m jaco.onezone free_fall starforge starforge_legacy -o track.png and
 python -m jaco.onezone equilibrium starforge --n-grid 1e-2,1e6,33.
 
@@ -21,6 +24,10 @@ abundances, the dust's ISRF absorption, the optically-thick opacity) is the mode
 `closures` replaces any of the built-in prescriptions by a function of the state. The free-fall mode (Omukai 2000;
 Glover & Jappsen 2007; Menon et al. 2025, Fig. 2) integrates in s = ln(n/n0), so the exponential density growth adds
 no stiffness; the others integrate in time.
+
+free_fall_steps instead takes one backward-Euler step of the model per Delta_t (OdeSystem(step=True).solve_step), in
+the loop of GIZMO's ONE_ZONE_COLLAPSE driver: first order in Delta_t, and the only mode for a model whose rows use the
+step itself (starforge_legacy_RT).
 """
 
 import argparse
@@ -238,15 +245,18 @@ class OneZone:
     system: OdeSystem, optional
         A prepared system for this model; building it is the slow part (two minutes for starforge).
     method, rtol, atol: solve_ivp options; atol applies to T in K and to the abundances per H.
+    step: bool
+        Build the system in step mode (OdeSystem(step=True)) for free_fall_steps(), the implicit stepping that a model
+        written as one backward-Euler step needs (starforge_legacy_RT); the integrating modes need step=False.
 
     Every mode returns a dict of arrays: t [s], n_Htot, T, rho, P, u, the abundances by species name, the balance
     variables (e.g. Td), heat [erg cm^-3 s^-1], pdv_work and dlnrho_dt, plus "sol" (the solve_ivp result).
     """
 
     def __init__(self, model, params=None, closures=None, system=None, method="LSODA", rtol=1e-5, atol=1e-12,
-                 host="gizmo", backend="numba", analytic_jacobian=True):
+                 host="gizmo", backend="numba", analytic_jacobian=True, step=False):
         self.model = model
-        self.system = system or OdeSystem(model, params, backend=backend)
+        self.system = system or OdeSystem(model, params, backend=backend, step=step)
         self.analytic_jacobian = analytic_jacobian
         self.params = dict(params or {})
         base = {"gizmo": GizmoHostClosures, "menon": MenonClosures, "plain": Closures}[host].DEFAULT
@@ -439,6 +449,204 @@ class OneZone:
         out = self._collect(None, n, sol.y, sol, law)
         tff = t_freefall(out["rho"])
         out["t"] = np.concatenate([[0], np.cumsum(0.5 * (tff[1:] + tff[:-1]) * np.diff(sol.t))])
+        return out
+
+    # ------------------------------------------------------------------ implicit stepping (step mode)
+
+    SUBSTEP_MAX = 2000  # adaptive substeps of a failed step, and their smallest fraction of it (GIZMO's JACO solver's
+    SUBSTEP_MIN_FRAC = 1e-6  # tier 3: JACO_SUBCYCLE_MAXSTEPS, JACO_SUBCYCLE_MIN_FRAC)
+
+    def _bands(self):
+        kinds = self.model.network.species_kinds
+        return [s for s in self.system.species if kinds.get(s) == "radiation"]
+
+    def _band_absorption(self):
+        """band -> function of the parameter dict giving the band's absorption coefficient kappa_abs rho [cm^-1], as
+        the model's absorption processes take it (jaco.models.starforge.radiation): the dust's at f_abs = 1/2 for the
+        photoelectric, NUV and optical bands, the dust's and the gas's absorption opacities for the IR band, sigma_HI on
+        the neutral H for the ionizing band"""
+        if getattr(self, "_absorption", None) is not None:
+            return self._absorption
+        import sympy as sp
+        from .interpolation import tables_in
+        from .ode_codegen import emit_source, compile_source
+        from .symbols import sanitize_name, sanitize_symbols
+        from .models.starforge import radiation as rt
+        from .models.starforge.dust_opacity import T_dust, T_rad, rho, ir_dust_opacity, ir_gas_opacity, band_dust_opacity
+        exprs = {b: 0.5 * band_dust_opacity(k, f, T_d=T_dust) * rho for b, (k, f) in rt.DUST_BAND_OPACITY.items()}
+        exprs[rt.IR] = (ir_dust_opacity(T_dust, T_rad) + ir_gas_opacity(T_rad, T_dust)) * rho
+        exprs = {b: sp.sympify(e) for b, e in exprs.items() if b in self._bands()}
+        names = sorted({str(s) for e in exprs.values() for s in e.free_symbols})
+        f = compile_source(emit_source([sanitize_symbols(e) for e in exprs.values()], [],
+                                       [sanitize_name(q) for q in names], [], tables_in(list(exprs.values())),
+                                       func_name="band_absorption"), "numba", "band_absorption")
+        order = list(exprs)
+
+        defaults = self.system.defaults
+
+        def absorption(p):
+            """p: parameters and the state (T, Td, x_<species>); the eliminated abundances the opacities read are
+            filled from the solved ones: x_H = 1 - x_H+ - 2 x_H2, x_He = y - x_He+ - x_He++ and the electrons as the
+            ions give them (x_H+ + x_He+ + 2 x_He++; the metals' electrons left out: they matter to the IR opacity
+            only in ionized gas, where the ions dominate)"""
+            p = {**defaults, **p}
+            g = lambda k: float(p.get(k, 0.0))  # noqa: E731
+            p.setdefault("x_H", max(1.0 - g("x_H+") - 2 * g("x_H_2"), 0.0))
+            p.setdefault("x_He", max(g("y") - g("x_He+") - g("x_He++"), 0.0))
+            p.setdefault("x_e-", g("x_H+") + g("x_He+") + 2 * g("x_He++"))
+            out = f(np.empty(0), np.array([float(p[q]) for q in names]))
+            a = dict(zip(order, (float(v) for v in out)))
+            if rt.EUV in self._bands():
+                a[rt.EUV] = float(p["sigma_HI"]) * float(p["n_Htot"]) * max(1.0 - p["x_H+"], 0.0)
+            return a
+        self._absorption = absorption
+        return absorption
+
+    def _solve_with_substeps(self, T, x, balance, p):
+        """one implicit step over p["Δt"]; if Newton fails, adaptive substeps as GIZMO's JACO solver takes them (tier 3:
+        half the step first, the substep doubled after a success and halved after a failure; between substeps the
+        start-of-step energy and time-dependent abundances move to the substep's answer, everything else stays).
+        Returns (T, x, balance, outputs, iterations, substeps)."""
+        sys_ = self.system
+        res = sys_.solve_step(T, x, balance, p)
+        if res is not None:
+            return (*res, 0)
+        dt = p["Δt"]
+        done, sub, n_sub, its = 0.0, 0.5 * dt, 0, 0
+        cur = (T, dict(x), dict(balance), {})
+        ps = dict(p)
+        while done < dt * (1 - 1e-12):
+            if n_sub >= self.SUBSTEP_MAX or sub < self.SUBSTEP_MIN_FRAC * dt:
+                raise RuntimeError(f"OneZone.free_fall_steps: the step failed at n_Htot = {p['n_Htot']:.4g}, "
+                                   f"T = {T:.4g} K, Delta_t = {dt:.4g} s, even in substeps")
+            ps["Δt"] = min(sub, dt - done)
+            if n_sub > 0:
+                ps["u_initial"] = sys_.thermo(cur[0], cur[1], ps)["u"]
+                for s in sys_.integrated:
+                    ps[f"x_{s}_initial"] = cur[1][s]
+            r = sys_.solve_step(cur[0], cur[1], cur[2], ps)
+            if r is None:
+                sub *= 0.5
+                continue
+            cur = r[:4]
+            its += r[4]
+            done += ps["Δt"]
+            n_sub += 1
+            sub *= 2
+        return (*cur, its, n_sub)
+
+    def free_fall_steps(self, n0=0.1, T0=300.0, n_stop=1e15, x0=None, Td0=None, T_rad0=None, f_ff=0.05, f_cool=0.5,
+                        f_rt=0.4, every=1, verbose=False, max_steps=None):
+        """Collapse at the free-fall rate in implicit steps, the loop of GIZMO's one-zone driver (ONE_ZONE_COLLAPSE,
+        cooling/one_zone.cc, one_zone_run_track), so that the two take the same steps. Needs OneZone(step=True).
+
+        Each step: Delta_t = min(f_ff t_ff, f_cool t_cool, f_rt lambda_J / c_tilde) (the last with radiation bands,
+        c_tilde = rsol c), t_cool = u / |net heating without the PdV work| at the current state over the previous step;
+        the density by exact free fall over Delta_t, rho_new = rho / (1 - Delta_t / (2 t_ff))^2; the closures at the new
+        density, the current temperature and abundances (so lambda_J at the current P/rho, and the compression work
+        pdv_work = rho_new (P/rho) d ln rho / Delta_t, as GIZMO's DtInternalEnergy); with radiation bands, each band's
+        excess over its starting background (an energy, or photon, density held fixed) decays by exp(-Delta_t / t_esc),
+        t_esc = lambda_J (1 + tau) / c_tilde, tau = kappa_abs rho lambda_J, and the IR band's T_rad is re-weighted, as
+        one_zone_relax_radiation does; then one backward-Euler step of the model (OdeSystem.solve_step) from the current
+        state, in adaptive substeps if it fails (_solve_with_substeps). With bands, the host inputs follow GIZMO's host
+        layer (cooling/jaco.cc, jaco_pack_bands and jaco_write_bands): T_rad, the start-of-step dust temperature
+        Td_initial, the adiabatic index gamma_eos = 1 + P/(rho u) of the current state, and T_rad_new carried to the
+        next step. rsol, Z_metals and the band constants are the caller's params.
+
+        x0 holds the starting abundances (bands included, per H nucleus); Td0 and T_rad0 the starting dust and IR band
+        temperatures (by default the dust's balance at the start, and T_CMB). every: keep every so many steps (the
+        last always). max_steps: stop after so many steps, wherever the density is.
+
+        Returns a dict of arrays, one row per kept step: t [s], n_Htot, T, u, rho, P, every abundance and balance
+        variable, T_rad, and t_ff, t_cool, lambda_J and t_esc (inf without bands) at the row, with dt, the Newton
+        iterations and the substeps of the step that led to it; and "steps", the number of steps taken."""
+        sys_ = self.system
+        if not sys_.step_mode:
+            raise RuntimeError("free_fall_steps needs OneZone(..., step=True)")
+        bands = self._bands()
+        x0 = dict(x0 or {})
+        rsol_c = None
+        # the starting state: steady-state species and balance variables solved at T0
+        p = self._params_at(n0, T0, x0, 0.0)
+        sys_.reset()
+        r = sys_.rates(T0, x0, p)
+        T, x = T0, dict(r["x"])
+        balance = {b: r[b] for b in sys_.balances}
+        if Td0 is not None and "Td" in balance:
+            balance["Td"] = Td0
+        T_rad = T_rad0 if T_rad0 is not None else p.get("T_CMB", 2.73)
+        background = {b: x[b] * n0 for b in bands}  # per unit volume, held fixed
+        T_bg = T_rad
+        n, t, dt, step = n0, 0.0, None, 0
+        cols = {k: [] for k in ["t", "n_Htot", "T", "u", "rho", "P", "dt", "t_ff", "t_cool", "lambda_J", "t_esc",
+                                "iterations", "substeps", "T_rad"] + list(sys_.species) + list(sys_.balances)}
+        its = n_sub = 0
+        progress = [None]
+        while True:
+            th = sys_.thermo(T, x, p)
+            rho, P, u = th["rho"], th["P"], th["u"]
+            t_ff, lam = t_freefall(rho), jeans_length(P, rho)
+            # the cooling time: the net heating without the compression, over the previous step (GIZMO's
+            # GetNetCoolingRate with OneZoneTimestep = the last step; f_ff t_ff before the first)
+            pc = dict(p)
+            pc.update({"Δt": dt if dt else f_ff * t_ff, "u_initial": u, "pdv_work": 0.0})
+            pc.update({f"x_{s}_initial": x[s] for s in sys_.integrated})
+            if bands:
+                pc.update({"T_rad": T_rad, "Td_initial": balance.get("Td", T)})
+            heats = sys_.heat_breakdown(T, x, pc, solved=True)
+            net = sum(v for k, v in heats.items() if k != "PdV work")
+            t_cool = rho * u / abs(net) if net != 0 else np.inf
+            t_esc = np.inf
+            if bands:
+                rsol_c = float(pc["rsol"]) * 2.99792458e10
+                a = self._band_absorption()({**pc, "Td": balance.get("Td", T), "T": T,
+                                             **{f"x_{s}": v for s, v in x.items()}})
+                t_esc = min(lam * (1 + a[b] * lam) / rsol_c for b in bands)
+            finished = n >= n_stop or (max_steps is not None and step >= max_steps)
+            if step % every == 0 or finished:
+                for k, v in (("t", t), ("n_Htot", n), ("T", T), ("u", u), ("rho", rho), ("P", P),
+                             ("dt", dt or 0.0), ("t_ff", t_ff), ("t_cool", t_cool), ("lambda_J", lam),
+                             ("t_esc", t_esc), ("iterations", its), ("substeps", n_sub), ("T_rad", T_rad)):
+                    cols[k].append(v)
+                for s in sys_.species:
+                    cols[s].append(x[s])
+                for b in sys_.balances:
+                    cols[b].append(balance[b])
+            self._progress(verbose, progress, n, T, t)
+            if finished:
+                break
+
+            dt = min(f_ff * t_ff, f_cool * t_cool)
+            if bands:
+                dt = min(dt, f_rt * lam / rsol_c)
+            contraction = 1.0 - 0.5 * dt / t_ff
+            rho_new = rho / contraction**2
+            dlnrho = np.log(rho_new / rho)
+            n_new = n * rho_new / rho
+            p = self._params_at(n_new, T, x, dlnrho / dt)
+            p.update({"Δt": dt, "u_initial": u})
+            p.update({f"x_{s}_initial": x[s] for s in sys_.integrated})
+            if bands:
+                # the transport's stand-in: what the zone holds above the background escapes over t_esc
+                th_new = sys_.thermo(T, x, p)
+                lam_new = jeans_length(th_new["P"], th_new["rho"])
+                a = self._band_absorption()({**p, "T_rad": T_rad, "Td": balance.get("Td", T), "T": T,
+                                             **{f"x_{s}": v for s, v in x.items()}})
+                for b in bands:
+                    x_bg = background[b] / n_new
+                    excess = (x[b] - x_bg) * np.exp(-dt / (lam_new * (1 + a[b] * lam_new) / rsol_c))
+                    if b == "photon_IR":
+                        T_rad = (x_bg + excess) / (x_bg / T_bg + excess / max(T_rad, 1e-300)) if excess > 0 else T_bg
+                    x[b] = x_bg + excess
+                    p[f"x_{b}_initial"] = x[b]
+                p.update({"T_rad": T_rad, "Td_initial": balance.get("Td", T), "gamma_eos": 1.0 + P / (rho * u)})
+            T, x, balance, outputs, its, n_sub = self._solve_with_substeps(T, x, balance, p)
+            if bands and "T_rad_new" in outputs:
+                T_rad = max(float(outputs["T_rad_new"]), p.get("T_CMB", 2.73))
+            n, t = n_new, t + dt
+            step += 1
+        out = {k: np.array(v, dtype=float) for k, v in cols.items()}
+        out["steps"] = step
         return out
 
     def evolve(self, n, T0, t_end, x0=None, n_points=400, verbose=False):
