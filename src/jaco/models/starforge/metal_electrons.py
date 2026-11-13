@@ -47,13 +47,16 @@ def f_Cplus(x_e, n_H=n_Htot, clumping=1, x_C=x_C_tot):
 
 # gas-phase carbon assumed by return_electron_fraction_from_Cplus (Sofia 2004)
 x_C_gas = 1.6e-4 * gizmo_abundance_ratio(x_C_tot, "C")
+# added to f_Cplus inside its logarithm: with nothing ionizing carbon (Z = 0, no FUV, no cosmic rays) f_Cplus is exactly
+# 0 and ln 0 would make the C+ electrons NaN; a C+ fraction of 1e-40 is far below anything that matters
+F_CPLUS_FLOOR = 1e-40
 
 
 def Cplus_newton_step(x_e_other, y, n_H=n_Htot):
     """(g, h) of a Newton step in ln x_C+ at x_C+ = y: g = ln f_Cplus(x_e_other + y), h = 1 - y d g/d x_e, so that
     ln x_C+ moves by (g - ln(y / x_C_gas)) / h"""
     xe = sp.Dummy("x_e")
-    g = sp.log(f_Cplus(xe, n_H))
+    g = sp.log(f_Cplus(xe, n_H) + F_CPLUS_FLOOR)
     return g.subs(xe, x_e_other + y), 1 - sp.diff(g, xe).subs(xe, x_e_other + y) * y
 
 

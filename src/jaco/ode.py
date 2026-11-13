@@ -42,6 +42,12 @@ NEWTON_MAX_STEP = {"T": np.log(2.0), "x": np.log(10.0)}  # per iteration, in the
 BALANCE_PASSES = 20  # Newton passes with the balance variables re-solved in between
 PSEUDO_MAXSTEPS = 400  # pseudo-transient fallback: implicit steps, and Newton iterations within each
 PSEUDO_INNER = 12
+STEP_TOL = 1e-6  # solve_step: relative change of every unknown at convergence (GIZMO's JACO_TOL_DEFAULT)
+STEP_STALL = 10.0  # a full step within this many tol that the line search cannot improve on is round-off: converged
+STEP_MAXITER = 100
+STEP_BACKTRACK = 12  # halvings of the Newton step in the line search
+STEP_T_BOUNDS = (1.0, 1e10)  # the gas temperature's bounds in a step [K], as GIZMO's JACO solver's
+STEP_LINEAR_SCALE = 1e-30  # the smallest value a linear unknown's relative change is measured against
 
 
 class OdeSystem:
@@ -54,6 +60,12 @@ class OdeSystem:
         Default parameter values by name (as in the expressions, e.g. "G_0", "∇v"), overriding the declarations'
         defaults; the values passed to rates() override these in turn. Parameters left without a value take the
         declared default, solar abundances for element totals, or 1 (reported in `missing`).
+    step: bool
+        Keep the backward-Euler terms: the rows are those of one implicit step over Δt from the start-of-step values
+        (u_initial, x_<species>_initial), which become parameters with Δt, as the generated code's are; solve_step()
+        solves them. For a model written as a step (starforge_legacy_RT: the kick's absorption factors exp(-a Δt), a
+        rate on x_H+ - x_H+_initial, the IR band's temperature in and out), which has no explicit rate equations. The
+        model's declared outputs are evaluated at the solution (outputs).
 
     Attributes
     ----------
@@ -69,9 +81,10 @@ class OdeSystem:
         Every parameter the right-hand side reads, by its expression name.
     """
 
-    def __init__(self, model, params=None, backend="numba"):
+    def __init__(self, model, params=None, backend="numba", step=False):
         self.model = model
         self.backend = backend
+        self.step_mode = step
         net = model.network
         solve_vars, td = list(model.solve_vars), list(model.time_dependent)
         rhs, _, idx = net.solver_functions(solve_vars, td, return_jac=True)  # return_jac builds the intermediates' derivatives
@@ -99,11 +112,14 @@ class OdeSystem:
         self._budgets = [(b["total"], b["total_param"], [(by_c_name[t], w) for t, w in b["terms"] if t in by_c_name])
                          for b in meta["budgets"]]
 
-        # the rows with the backward-Euler terms removed: start-of-step values equal to the current ones
+        # the rows with the backward-Euler terms removed: start-of-step values equal to the current ones (kept in step
+        # mode, where the start-of-step values are parameters)
         u_sym, u_expr = sp.Symbol("u"), net._reduce_expression(net.eos.internal_energy)
         same = {sp.Symbol("u_initial"): u_sym}
         for s in self.species:
             same[sp.Symbol(f"x_{s}_initial")] = sp.Symbol(f"x_{s}")
+        if step:
+            same = {}
 
         def reduce(e):
             return sp.sympify(e).xreplace(same).xreplace({u_sym: u_expr})
@@ -174,10 +190,16 @@ class OdeSystem:
         deriv_block = [total_derivative(F, sp.Symbol(c)) for F in F_exprs for c in self._deriv_cols]
         self._deriv = (len(F_exprs), len(self._deriv_cols))
         exprs = rows + extras + process_heat + deriv_block
+        # step mode: the model's outputs (e.g. the IR band's radiation temperature after the step), at the solution
+        self.output_names = [o[0] for o in net._outputs] if step else []
+        self._i_outputs = len(exprs)
+        if step:
+            exprs = exprs + [reduce(o[1]) for o in net._outputs]
 
         syms = set().union(*[e.free_symbols for e in exprs + [W for _, W in prelude]])
         local = {w for w, _ in prelude}
-        self.parameters = sorted({str(s) for s in syms} - set(names) - {str(w) for w in local} - {"Δt"})
+        self.parameters = sorted({str(s) for s in syms} - set(names) - {str(w) for w in local}
+                                 - (set() if step else {"Δt"}))
         species_decl = {s: Species(s, k) for s, k in net.species_kinds.items()}
         declared = set(net.parameters) | {p.name for p in implied_parameters(species_decl, td)} | \
             {"n_Htot", "T", "pdv_work", "y", "Y", "Z", "C_2", "C_3"}
@@ -211,7 +233,7 @@ class OdeSystem:
                 X[i] = balance[n]
         P = np.empty(len(self.parameters))
         for p, i in self._i_param.items():
-            P[i] = params[p] if p != "Δt" else 1e300
+            P[i] = params[p] if (p != "Δt" or self.step_mode) else 1e300
         return np.asarray(self._f(X, P), dtype=float)
 
     def _derivatives(self, out):
@@ -610,6 +632,166 @@ class OdeSystem:
         scale = np.max(np.abs(G_z), axis=1)
         dz_dy = -np.linalg.solve(G_z / scale[:, None], G_y / scale[:, None])
         return F_y + F_z @ dz_dy
+
+    # ------------------------------------------------------------------ step mode
+
+    def _step_residual(self, T, x, balance, p, rows, cols, lin):
+        """the step's residuals (the derivative block's rows: du/dt, the time-dependent rows / n, the steady rows, the
+        balance rows) and their Jacobian in the step's unknowns (ln T, ln x or x for the linear ones, ln balances)"""
+        out = self._evaluate(T, x, balance, p)
+        n = float(p["n_Htot"])
+        F = [out[self._i_heat] / out[self._i_extras + 2]]
+        for s in self.species:
+            v = out[self._names.index(f"x_{s}")]
+            F.append(v / n if s in self.integrated else v)
+        F += [out[self._balance_row[b]] for b in self.balances]
+        F = np.array(F)
+        J = self._derivatives(out)[np.ix_(rows, cols)]
+        scale = np.array([T] + [1.0 if s in lin else x[s] for s in self.species] + [balance[b] for b in self.balances])
+        return F, J * scale[None, :], out
+
+    def _step_apply(self, T, x, balance, dz, lam, p, lin):
+        """the unknowns moved by lam dz (the logs damped as in the state solves, the linear ones floored), clipped to
+        their bounds and budgets"""
+        n_s = len(self.species)
+        dT = np.clip(lam * dz[0], -NEWTON_MAX_STEP["T"], NEWTON_MAX_STEP["T"])
+        Tn = min(max(T * np.exp(dT), STEP_T_BOUNDS[0]), STEP_T_BOUNDS[1])
+        xn = {}
+        for c, s in enumerate(self.species):
+            d = lam * dz[1 + c]
+            xn[s] = x[s] + d if s in lin else x[s] * np.exp(np.clip(d, -NEWTON_MAX_STEP["x"], NEWTON_MAX_STEP["x"]))
+        xn = self._clip(xn, p)
+        bn = {}
+        for c, b in enumerate(self.balances):
+            lo, hi = self._balance_bounds[b]
+            d = np.clip(lam * dz[1 + n_s + c], -NEWTON_MAX_STEP["T"], NEWTON_MAX_STEP["T"])
+            bn[b] = min(max(balance[b] * np.exp(d), lo), hi)
+        return Tn, xn, bn
+
+    def _step_at_bounds(self, T, x, balance, lin):
+        """the indices (in the step's unknowns: T, the species, the balance variables) at their lower and upper bounds"""
+        lower, upper = set(), set()
+        if T <= STEP_T_BOUNDS[0] * (1 + 1e-12):
+            lower.add(0)
+        if T >= STEP_T_BOUNDS[1] * (1 - 1e-12):
+            upper.add(0)
+        for c, s in enumerate(self.species):
+            lo, hi = self._floor[s], self._ceiling[s]
+            if (x[s] <= 0.0) if s in lin else (x[s] <= lo * (1 + 1e-9)):
+                lower.add(1 + c)
+            if x[s] >= hi * (1 - 1e-9):
+                upper.add(1 + c)
+        for c, b in enumerate(self.balances):
+            lo, hi = self._balance_bounds[b]
+            k = 1 + len(self.species) + c
+            if balance[b] <= lo * (1 + 1e-12):
+                lower.add(k)
+            if balance[b] >= hi * (1 - 1e-12):
+                upper.add(k)
+        return lower, upper
+
+    def _step_change(self, T, x, balance, Tn, xn, bn, lin):
+        """the largest relative change of an unknown between two iterates"""
+        change = [abs(np.log(Tn / T))]
+        for s in self.species:
+            if s in lin:
+                change.append(abs(xn[s] - x[s]) / max(abs(xn[s]), abs(x[s]), STEP_LINEAR_SCALE))
+            else:
+                change.append(abs(np.log(xn[s] / x[s])))
+        change += [abs(np.log(bn[b] / balance[b])) for b in self.balances]
+        return max(change), int(np.argmax(change))
+
+    def solve_step(self, T, x, balance, params, tol=STEP_TOL, maxiter=STEP_MAXITER, verbose=False):
+        """One backward-Euler step (step mode): the gas temperature, every abundance and the balance variables at the
+        end of a step of params["Δt"] from the start-of-step values in params (u_initial, x_<species>_initial, and the
+        model's own, e.g. Td_initial), every row solved at once by damped Newton with the analytic Jacobian, a
+        backtracking line search on the row-equilibrated residual, from the guess (T, x, balance).
+
+        The unknowns move in their logs (T, the abundances, the balance variables), but for the species with a zero
+        floor (the radiation bands), which can be exactly 0 and whose rows are linear in them, which move linearly.
+        Converged when no unknown changes by more than tol (relative). A balance variable whose row is identically zero
+        (the dust temperature with no dust) keeps its guess.
+
+        Returns (T, x, balance, outputs, iterations) or None if Newton does not converge; outputs are the model's
+        declared outputs at the solution (output_names)."""
+        if not self.step_mode:
+            raise RuntimeError("solve_step needs OdeSystem(..., step=True)")
+        p = dict(self._defaults)
+        p.update(params)
+        lin = {s for s in self.species if self._floor[s] <= 0}
+        x = self._clip({s: max(float(x[s]), 0.0) if s in lin else max(float(x[s]), self._floor[s])
+                        for s in self.species}, p)
+        balance = {b: min(max(float(balance[b]), self._balance_bounds[b][0]), self._balance_bounds[b][1])
+                   for b in self.balances}
+        T = min(max(float(T), STEP_T_BOUNDS[0]), STEP_T_BOUNDS[1])
+        rows = [self._deriv_rows.index(r) for r in ["dudt"] + [f"x_{s}" for s in self.species] + self.balances]
+        cols = [self._deriv_cols.index(c) for c in ["T"] + [f"x_{s}" for s in self.species] + self.balances]
+        names = ["T"] + list(self.species) + list(self.balances)
+        stalled = False
+        F, J, out = self._step_residual(T, x, balance, p, rows, cols, lin)
+        for it in range(1, maxiter + 1):
+            if not np.all(np.isfinite(F)):
+                if verbose:
+                    print(f"  step it {it}: non-finite residual {[n for n, f in zip(names, F) if not np.isfinite(f)]}")
+                return None
+            J = np.where(np.isfinite(J), J, 0.0)
+            row_scale = np.max(np.abs(J), axis=1)
+            row_scale[row_scale == 0] = 1.0
+            # an unknown at a bound whose Newton step points out of it is pinned there: its row and column leave the
+            # linear system and the merit (GIZMO's JACO solver, tier 1), so that a residual nothing can remove (a
+            # species at its floor still being destroyed) neither steers the step nor stalls the line search
+            lower, upper = self._step_at_bounds(T, x, balance, lin)
+            # a balance variable nothing depends on (its column is zero: the dust temperature with no dust) leaves
+            # Newton's system, which it would make singular; it is walked along its own row at the end
+            free = {1 + len(self.species) + c for c in range(len(self.balances))
+                    if not np.any(J[:, 1 + len(self.species) + c])}
+            pinned = set(free)
+            for _ in range(len(names)):
+                active = [k for k in range(len(names)) if k not in pinned]
+                dz = np.zeros(len(names))
+                dz[active] = self._solve_linear(J[np.ix_(active, active)], F[active])
+                # (a species row is its net production: one at its floor that its own row would grow is not pinned)
+                out_of_bounds = {k for k in active
+                                 if (k in lower and dz[k] < 0 and not (0 < k <= len(self.species) and F[k] > 0))
+                                 or (k in upper and dz[k] > 0 and not (0 < k <= len(self.species) and F[k] < 0))}
+                if not out_of_bounds:
+                    break
+                pinned |= out_of_bounds
+            keep = np.array([k not in pinned for k in range(len(names))])
+            merit = np.linalg.norm((F / row_scale)[keep])
+            # converged when the full Newton step (clipped to the bounds) moves no unknown by more than tol, or by
+            # little more where the last line search found nothing better than round-off (stalled)
+            Tn, xn, bn = self._step_apply(T, x, balance, dz, 1.0, p, lin)
+            full_change, worst = self._step_change(T, x, balance, Tn, xn, bn, lin)
+            if full_change < tol or (stalled and full_change < STEP_STALL * tol):
+                for c, b in enumerate(self.balances):  # the walk of OdeSystem's state solves: to the row's root nearest
+                    if 1 + len(self.species) + c in free:  # the guess, or to the bound it keeps its sign to
+                        bn[b] = self._solve_balance(b, Tn, xn, bn, p)
+                Fn, Jn, out = self._step_residual(Tn, xn, bn, p, rows, cols, lin)
+                if np.all(np.isfinite(Fn)):
+                    outputs = dict(zip(self.output_names,
+                                       out[self._i_outputs:self._i_outputs + len(self.output_names)]))
+                    self._remember(Tn, xn, bn)  # the answer is the state later evaluations (rates, heats) start from
+                    return Tn, xn, bn, outputs, it
+            lam = 1.0
+            stalled = False
+            for _ in range(STEP_BACKTRACK):
+                Fn, Jn, outn = self._step_residual(Tn, xn, bn, p, rows, cols, lin)
+                if np.all(np.isfinite(Fn)) and np.linalg.norm((Fn / row_scale)[keep]) <= (1 - 1e-4 * lam) * merit:
+                    break
+                lam *= 0.5
+                Tn, xn, bn = self._step_apply(T, x, balance, dz, lam, p, lin)
+            else:  # no decrease down to the smallest step: take that one
+                Fn, Jn, outn = self._step_residual(Tn, xn, bn, p, rows, cols, lin)
+                stalled = True
+            if verbose:
+                print(f"  step it {it}: merit {merit:.3e} -> {np.linalg.norm((Fn / row_scale)[keep]):.3e}, "
+                      f"lam {lam:.3g}, full-step change {full_change:.2e} (largest: {names[worst]}), "
+                      f"T {T:.6g} -> {Tn:.6g}, pinned {[names[k] for k in sorted(pinned)]}")
+            if not np.all(np.isfinite(Fn)):
+                return None
+            T, x, balance, F, J, out = Tn, xn, bn, Fn, Jn, outn
+        return None
 
     def rhs(self, y, params):
         """dy/dt for y = (u, x_1, ..., x_m) in self.integrated order"""
