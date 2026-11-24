@@ -89,16 +89,12 @@ def test_CIE():
 
 
 def generate_CIE_testdata():
+    """The fixtures: columns T [K] and the ion fractions of the element in ionization equilibrium. Made with
+    ChiantiPy 0.16.1 on the CHIANTI 10.1 database (XUVTOP set to it)."""
     import ChiantiPy.core as ch
 
     Tgrid = np.logspace(3, 6, 10**4)
-
-    he = ch.ioneq(2)
-    he.load()
-    he.calculate(Tgrid)
-    np.save("tests/chianti_He_abundances.npy", np.c_[Tgrid, he.Ioneq])
-
-    h = ch.ioneq(1)
-    h.load()
-    h.calculate(Tgrid)
-    np.save("tests/chianti_H_abundances.npy", np.c_[Tgrid, h.Ioneq.T])
+    for Z, name in ((1, "H"), (2, "He")):
+        ioneq = ch.ioneq(Z)
+        ioneq.calculate(Tgrid)
+        np.save(f"tests/chianti_{name}_abundances.npy", np.c_[Tgrid, ioneq.Ioneq.T])  # Ioneq is (ions, temperatures)
