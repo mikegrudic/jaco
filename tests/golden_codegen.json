@@ -106,5 +106,14 @@
     "microphysics_func_jac.cc": "b893c9893014878ed5848ae395ca7d09197fdd62ea72a0b376b6b9b8ad80bacf",
     "microphysics_func_jac.h": "1f45a6c1d387786c9828ac674ea1e1f73af8b6aa04d6efaa49b0cb2acb561fc0",
     "microphysics_outputs.cc": "889507a802863fd0c6d9696917bffe1688e55441a9b8460544eb38b9cc75ea9d"
+  },
+  "nelson": {
+    "jaco_eos.cc": "4951df03265036ccf93bfbadfc72afee7428ad7871b583cd540425f18f509005",
+    "jaco_interp.h": "36e9230ecfd5ad50be0570ed21e161390170ced61b0bd53cd140b3afe2868408",
+    "jaco_tables.h": "fa122c4ffbb99d80a956eac582eecbf35c1dc832a3d490d4c4917d63507a7de1",
+    "jaco_util.cc": "353c6f9b771dafe4ba8b57a63cd5fa3c14f6ed7c26b800aa1bf7a6de566ca66d",
+    "microphysics_func_jac.cc": "ac86bee2d064327b195e4c31ec6b5589555a3dd111948c3dcf36a0696ba74154",
+    "microphysics_func_jac.h": "d4e300c85380edc9ee17af05b81322d4e46a6fee0cd833e3a4301061e1a41a4d",
+    "microphysics_outputs.cc": "889507a802863fd0c6d9696917bffe1688e55441a9b8460544eb38b9cc75ea9d"
   }
 }

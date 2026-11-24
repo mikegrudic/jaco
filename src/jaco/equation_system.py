@@ -143,8 +143,11 @@ class EquationSystem(dict):
         all = set()
         for e in self.values():
             all.update(e.free_symbols)
-            if e.lhs.atoms(sp.Function):  # yoink the n_ out of the LHS
-                all.update([str(e.lhs.atoms(sp.Function)).replace("(t)", "").replace("{", "").replace("}", "")])
+            # Get time-dependent quantities from the left-hand side, for example n_H from n_H(t).
+            # Skip built-in functions like tanh and log. Their argument symbols are already in e.free_symbols.
+            if e.lhs.atoms(sp.core.function.AppliedUndef):
+                all.update([str(e.lhs.atoms(sp.core.function.AppliedUndef)).replace("(t)", "").replace("{", "")
+                            .replace("}", "")])
         if t in all:  # leave time out
             all.remove(t)
         return all
@@ -524,7 +527,7 @@ class EquationSystem(dict):
             printv(f"Undetermined symbols: {undetermined_symbols}")
             for s in undetermined_symbols:
                 # if we have a prescription for this quantity, plug it in here. This should eventually be specified at the model level.
-                if str(s) in prescriptions:
+                if str(s) in prescriptions and str(s) not in knowns:  # Preserve caller-supplied values.
                     # case 1: we have given a value, which we should add to the list of knowns
                     assumed_values[str(s)] = np.repeat(prescriptions[str(s)], num_params)
                     printv(f"{s} not specified; assuming {s}={prescriptions[str(s)]}.")
