@@ -89,3 +89,24 @@ def test_free_fall_steps_converge_to_free_fall():
         err.append(np.max(np.abs(np.log(T[m]) - lnT_ref)))
     assert err[1] < 1e-4  # in ln T, at Delta_t <= 0.01 t_ff (5e-6 as written)
     assert err[1] < err[0] / 2.5  # first order: a quarter of the step, about a quarter of the error
+
+
+def test_budget_total_is_looked_up_by_its_model_name():
+    """A solved species whose element total is a parameter with a non-identifier name (x_C,tot)"""
+    import warnings
+    import sympy as sp
+    from jaco.declarations import Species
+    from jaco.model import Model
+    from jaco.processes import Reaction, ThermalTerm
+    from jaco.symbols import T
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        model = Model([Reaction("C -> C+ + e-", 1e-10), Reaction("C+ + e- -> C", 1.4e-10 * T**-0.61),
+                       ThermalTerm(sp.Symbol("pdv_work"), name="PdV work")],
+                      solve_vars=["u", "T", "C+"], time_dependent=["T", "C+"],
+                      species=[Species(s) for s in ("H", "C", "C+", "e-")])
+        system = OdeSystem(model, {"x_C,tot": 1e-4})
+    p = {"n_Htot": 1e2, "pdv_work": 0.0, "x_C,tot": 1e-4, "C_2": 1.0}
+    th = system.thermo(50.0, {"C+": 1.0}, p)  # far over the carbon budget: clipped to it
+    assert 0.99e-4 < th["x"]["C+"] <= 1e-4

@@ -200,6 +200,9 @@ class OdeSystem:
         local = {w for w, _ in prelude}
         self.parameters = sorted({str(s) for s in syms} - set(names) - {str(w) for w in local}
                                  - (set() if step else {"Δt"}))
+        # budget totals come back under their generated-code names
+        model_name = {sanitize_name(q): q for q in self.parameters}
+        self._budgets = [(tot, model_name.get(q, q), terms) for tot, q, terms in self._budgets]
         species_decl = {s: Species(s, k) for s, k in net.species_kinds.items()}
         declared = set(net.parameters) | {p.name for p in implied_parameters(species_decl, td)} | \
             {"n_Htot", "T", "pdv_work", "y", "Y", "Z", "C_2", "C_3"}
