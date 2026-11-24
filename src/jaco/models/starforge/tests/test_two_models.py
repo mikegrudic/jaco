@@ -38,10 +38,10 @@ def test_legacy_rates_at_gizmo_nHcgs(models):
     """rule GIZMO_DENSITY: legacy rates see GIZMO's nHcgs = 0.76 rho/m_p = (0.76/X) n_Htot"""
     sf, legacy = models
     lam = 0.76 / X_H
+    thin = {sp.Symbol("C_2"): 1, sp.Symbol("f_thick"): 1}  # both models carry the optically-thick limit
     for name, power in [("Photoelectric Heating", 1), ("Gas-phase recombination of H+", 2), ("Gas-dust collisions", 2)]:
-        h_sf = next(p for p in sf.subprocesses if p.name == name).network["heat"].rhs.subs(
-            {sp.Symbol("C_2"): 1, sp.Symbol("f_thick"): 1})  # thin: legacy carries no optically-thick limit
-        h_lg = next(p for p in legacy.subprocesses if p.name == name).network["heat"].rhs
+        h_sf = next(p for p in sf.subprocesses if p.name == name).network["heat"].rhs.subs(thin)
+        h_lg = next(p for p in legacy.subprocesses if p.name == name).network["heat"].rhs.subs(thin)
         rep = {s: lam * s for s in h_sf.free_symbols if str(s).startswith("n_")}
         vals = {T: 80.0, n_Htot: 30.0, X_H: 0.7155, G_0: 1.0, Z_dust: 1.0, f_dust: 1.0, x_("e-"): 2e-4,
                 sp.Symbol("Td"): 15.0, n_("H+"): 3e-4, n_("e-"): 6e-3}
@@ -56,7 +56,9 @@ def test_declarations(models):
     assert sf.time_dependent == legacy.time_dependent == ("T", "H_2")
     assert sf.steady_state == ("H-",) and not legacy.steady_state
     assert set(sf.fixed) == {"H_2+", "HD", "C+", "CO"} and legacy.fixed == {"C+": 0, "CO": 0}
-    assert [r.name for r in sf.rules] == [LIMIT_ID] and legacy.rules == (GIZMO_CLUMPING, GIZMO_DENSITY)
+    assert [r.name for r in sf.rules] == [LIMIT_ID]
+    assert legacy.rules[:2] == (GIZMO_CLUMPING, GIZMO_DENSITY) and [r.name for r in legacy.rules[2:]] == [LIMIT_ID]
+    assert make_legacy(optically_thick=False).rules == (GIZMO_CLUMPING, GIZMO_DENSITY)
 
 
 def test_legacy_rules_apply_to_added_processes(models):
