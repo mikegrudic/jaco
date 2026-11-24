@@ -58,3 +58,10 @@ def test_gizmo_host_closures_are_finite():
     assert H.kappa_thick(st) >= 0.1 and H.kappa_thick({**st, "params": {"Z_d": 0.0}}) == 0.1
     assert H.A_dust({**st, "params": {"Z_d": 0.0}}) == 0.0
     assert H.G_0(st) < 1.7 * st["params"]["ISRF"]
+
+
+def test_plain_host_closures_are_callable():
+    from jaco.onezone import Closures
+    st = {"rho": 2e-22, "P": 1e-12, "lambda_J": 1e19, "dlnrho_dt": 1e-14, "t_ff": 1e14, "n_Htot": 100.0}
+    vals = {k: f(st) for k, f in Closures.DEFAULT.items()}
+    assert vals["∇v"] == 1e-14 and vals["N_H"] == 100.0 * 1e19 / 2 and np.all(np.isfinite(list(vals.values())))

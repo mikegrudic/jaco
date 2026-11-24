@@ -324,6 +324,13 @@ unknowns and the host closures chained in implicitly). For the production solver
 `network.solver_functions(solve_vars, time_dependent, return_jac=True)` and `network.generate_code(...)` (README,
 "Generating code") give the symbolic RHS and Jacobian for another host.
 
+`jaco.models.popsicle` is a one-zone-only model: Menon et al. 2025's KROME collapse test (POPSICLE network) as its
+driver runs it, for comparisons against their Fig. 2. Its photo- and cosmic-ray inputs are parameters no GIZMO host
+fills, so it is run with `host="plain"` and `popsicle.closures.PopsicleClosures` (the Jeans-length columns, the
+driver's initial abundances and per-Z parameters). The package docstring lists what it takes from starforge, what it
+takes from KROME, how close it gets, and what is still missing (OH/H2O cooling, carbon chemistry, time-dependent
+deuterium).
+
 ## 9. Style
 
 - One physics per file. A process type gets its own module (H2 formation on grains); families with one functional form
