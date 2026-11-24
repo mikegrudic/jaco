@@ -287,18 +287,18 @@ gizmo_integration ae5fbb0 with jax 0.10.1:
 
 - Chemistry at fixed `T`: works, for the README's process list and for a declared model (the toy's `H+` at 1e4 and
   2e4 K: 0.0041 and 0.95).
-- Thermochemical equilibrium: works for a model whose rates are closed-form expressions; a `piecewise_powerlaw` or
-  `piecewise_linear` table, as in the toy's cooling curve, fails inside the JAX lambdify (`NameError:
-  PiecewiseLinearInterp`), as do the 2-D/3-D tables.
+- Thermochemical equilibrium: works, tables included. The `piecewise_linear`/`piecewise_powerlaw` interpolants and
+  the 2-D/3-D tables are evaluated in JAX with the generated code's conventions (`jaco.numerics.interp`: clamped at
+  a table's edge, zero derivative along a clamped axis), and the Newton iteration differentiates through them.
 - A model with `intermediates` is refused (`NotImplementedError: solve() does not support intermediates; use the
   generated code`). The starforge models have them.
-- A backward-Euler step (`time_dependent=["T"]`, `dt=<astropy quantity>`, `u_initial` in `knowns`) fails
-  (`NameError: name 'u' is not defined`): the time-dependent path is broken at this commit.
+- A backward-Euler step (`time_dependent=["T"]`, `dt=<astropy quantity>`, `u_initial` in `knowns`) works (the toy
+  model, cooling table included).
 - Results are float32 unless you set `jax.config.update("jax_enable_x64", True)` before importing jaco (the line is
   commented out at the top of `equation_system.py`).
 
-So the equilibrium solver is for closed-form networks, as in the README. For time-dependent work in Python use the
-explicit right-hand side instead: `jaco.ode.OdeSystem(model)` builds the model's reduced network (tables, intermediates,
+So `solve` covers any network without intermediates. For those, and for routine time-dependent work in Python, use
+the explicit right-hand side instead: `jaco.ode.OdeSystem(model)` builds the model's reduced network (tables, intermediates,
 steady-state closures and balance variables included, evaluated with the C semantics of `jaco.check`). Its state is
 what the C solver integrates, the internal energy and the time-dependent abundances (`model.time_dependent`); the
 steady-state solve species and the balance variables are solved algebraically at every evaluation (Newton with the

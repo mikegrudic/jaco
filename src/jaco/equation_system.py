@@ -13,6 +13,7 @@ from importlib.metadata import version
 # jax.config.update("jax_enable_x64", True)
 import numpy as np
 from .numerics import newton_rootsolve
+from .numerics.interp import has_interpolants, jax_lambdify
 from astropy import units
 from .equation import Equation
 from sympy.codegen.ast import Assignment, Comment
@@ -572,7 +573,7 @@ class EquationSystem(dict):
 
         def lambdify(expr):
             """Turns an expression into a function for numerical evaluation"""
-            return sp.lambdify(sanitize_symbols(lambda_args), sanitize_symbols(expr), modules="jax", cse=True)
+            return jax_lambdify(sanitize_symbols(lambda_args), sanitize_symbols(expr), cse=True)
 
         func = lambdify(subsystem.rhs_scaled)
         #        maxfunc = lambdify(bounds)
@@ -659,7 +660,8 @@ class EquationSystem(dict):
                 continue
             if "n_" in str(expr):
                 continue
-            soldict[expr] = sp.lambdify(list(sub.free_symbols), sub)(
+            lam = jax_lambdify if has_interpolants(sub) else sp.lambdify
+            soldict[expr] = lam(list(sub.free_symbols), sub)(
                 *[values_to_subs[s] for s in list(sub.free_symbols)]
             )  # should probably make a function of this
             values_to_subs |= soldict

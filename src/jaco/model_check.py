@@ -20,6 +20,8 @@ from sympy.printing.numpy import NumPyPrinter
 from .codegen.printers import _InterpPrinterMixin
 from .declarations import CORE_PARAMETERS, implied_parameters, merge_declarations, Species
 from .interpolation import tables_in
+from .numerics.interp import (InterpolantPrinter, interpolant_namespace, interp1d as _interp1d,
+                              interp1d_const as _interp1d_const, table_function as _table_function)
 from .symbols import sanitize_symbols, sanitize_name
 
 __all__ = ["check", "CheckGrid", "CheckReport", "Finding"]
@@ -32,7 +34,7 @@ FD_ATOL = 1e-7  # absolute tolerance of a partial: this fraction of its row's gr
 # C semantics in numpy
 # --------------------------------------------------------------------------- #
 
-class _CSemanticsPrinter(NumPyPrinter):
+class _CSemanticsPrinter(InterpolantPrinter, NumPyPrinter):
     """numpy code with the semantics of JacoCCodePrinter's output"""
 
     _print_Float = _InterpPrinterMixin._print_Float
@@ -55,102 +57,10 @@ class _CSemanticsPrinter(NumPyPrinter):
     def _print_Min(self, expr):
         return self._nested("fmin", expr.args)
 
-    def _print_PiecewiseLinearInterp(self, expr):
-        X, Y = tuple(float(v) for v in expr.args[1]), tuple(float(v) for v in expr.args[2])
-        return f"_jaco_interp1d({self._print(expr.args[0])}, {X}, {Y}, {int(expr.args[3])})"
-
-    def _print_PiecewiseConstantInterp(self, expr):
-        X, V = tuple(float(v) for v in expr.args[1]), tuple(float(v) for v in expr.args[2])
-        return f"_jaco_interp1d_const({self._print(expr.args[0])}, {X}, {V})"
-
-    def _table(self, expr, nd, grad):
-        args = ", ".join(self._print(a) for a in expr.args[:nd])
-        return f"_jaco_table(({args},), '{expr.args[nd]}', {grad})"
-
-    def _print_TableInterp2D(self, expr):
-        return self._table(expr, 2, -1)
-
-    def _print_TableInterp2D_dx(self, expr):
-        return self._table(expr, 2, 0)
-
-    def _print_TableInterp2D_dy(self, expr):
-        return self._table(expr, 2, 1)
-
-    def _print_TableInterp3D(self, expr):
-        return self._table(expr, 3, -1)
-
-    def _print_TableInterp3D_dx(self, expr):
-        return self._table(expr, 3, 0)
-
-    def _print_TableInterp3D_dy(self, expr):
-        return self._table(expr, 3, 1)
-
-    def _print_TableInterp3D_dz(self, expr):
-        return self._table(expr, 3, 2)
-
-
-def _interp1d(x, X, Y, extrap):
-    """jaco_interp1d"""
-    X, Y, x = np.asarray(X), np.asarray(Y), np.asarray(x, dtype=float)
-    out = np.interp(x, X, Y)
-    if extrap:
-        lo, hi = x <= X[0], x >= X[-1]
-        out = np.where(lo, Y[0] + (Y[1] - Y[0]) / (X[1] - X[0]) * (x - X[0]), out)
-        out = np.where(hi, Y[-1] + (Y[-1] - Y[-2]) / (X[-1] - X[-2]) * (x - X[-1]), out)
-    return out
-
-
-def _interp1d_const(x, X, V):
-    """jaco_interp1d_const: the value on the interval holding x, the end values beyond the ends"""
-    X, V, x = np.asarray(X), np.asarray(V), np.asarray(x, dtype=float)
-    i = np.clip(np.searchsorted(X, x, side="right") - 1, 0, len(V) - 1)
-    return V[i]
-
-
-def _table_function(tables):
-    """jaco_table2d_eval / jaco_table3d_eval (jaco_table.h), vectorized; grad = -1 for the value, else the axis of the
-    derivative. A query outside the table is clamped to the edge, with a zero derivative along that axis."""
-    def table(xs, name, grad):
-        t = tables[name]
-        nd = t["ndim"]
-        shape = np.broadcast(*[np.asarray(x, dtype=float) for x in xs]).shape
-        f, cl, d, idx = [], [], [], []
-        for a in range(nd):
-            x = np.broadcast_to(np.asarray(xs[a], dtype=float), shape)
-            log = bool(t["log_axes"][a])
-            v = np.log(x) if log else x
-            lo = np.log(t[f"axis{a}_min"]) if log else t[f"axis{a}_min"]
-            hi = np.log(t[f"axis{a}_max"]) if log else t[f"axis{a}_max"]
-            n = t["shape"][a]
-            da = (hi - lo) / (n - 1)
-            fa = (v - lo) / da
-            clamped = (fa < 0) | (fa > n - 1)
-            fa = np.clip(fa, 0, n - 1)
-            ia = np.minimum(fa.astype(int), n - 2)
-            f.append(fa - ia)
-            idx.append(ia)
-            cl.append(clamped)
-            d.append(da * (x if log else 1.0))
-        data = t["data"]
-        val = np.zeros(shape)
-        for corner in np.ndindex(*(2,) * nd):
-            w = np.ones(shape)
-            for a in range(nd):
-                if a == grad:
-                    w = w * (1.0 if corner[a] else -1.0)
-                else:
-                    w = w * (f[a] if corner[a] else 1 - f[a])
-            val = val + w * data[tuple(idx[a] + corner[a] for a in range(nd))]
-        if grad < 0:
-            return val
-        return np.where(cl[grad], 0.0, val / d[grad])
-    return table
-
 
 def _c_lambdify(args, exprs, tables):
     """Vectorized numpy function of exprs (a list) with C semantics"""
-    modules = [{"_jaco_interp1d": _interp1d, "_jaco_interp1d_const": _interp1d_const,
-                "_jaco_table": _table_function(tables)}, "numpy"]
+    modules = [interpolant_namespace(tables), "numpy"]
     f = sp.lambdify(args, exprs, modules=modules, printer=_CSemanticsPrinter, cse=True)
 
     def wrapped(*vals):
