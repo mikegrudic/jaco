@@ -47,8 +47,9 @@ jobs:
         flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
     - name: Test with pytest
       run: |
-        # the golden hashes of the generated code depend on the sympy version: they are checked locally, not here
-        pytest --cov --cov-branch --cov-report=xml --ignore=tests/test_golden_codegen.py
+        # the slow tests stay local: the golden hashes of the generated code depend on the sympy version, and the
+        # jaco.check sweeps of the shipped models take 20 minutes on a workstation
+        pytest --cov --cov-branch --cov-report=xml -m "not slow"
     - name: Upload coverage reports to Codecov
       uses: codecov/codecov-action@v5
       with:

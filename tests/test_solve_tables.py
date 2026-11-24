@@ -20,7 +20,10 @@ from jaco.symbols import T, n_, n_Htot, piecewise_linear, piecewise_powerlaw, ta
 
 @pytest.fixture(scope="module", autouse=True)
 def x64():
-    with jax.enable_x64(True):
+    enable_x64 = getattr(jax, "enable_x64", None)  # top level since jax 0.8
+    if enable_x64 is None:
+        from jax.experimental import enable_x64
+    with enable_x64(True):
         yield
 
 
