@@ -7,7 +7,7 @@ from pathlib import Path
 
 import jaco
 
-MODELS = ("starforge", "starforge_legacy", "starforge_legacy_RT", "wind_comparison", "popsicle")
+MODELS = ("starforge", "starforge_legacy", "starforge_legacy_RT", "wind_comparison", "popsicle", "nelson")
 
 
 def run_fresh(code):

@@ -60,6 +60,14 @@ The host supplies `n_Htot`, the starting thermodynamic state, and any overrides 
 | `dv_dr` | 3.24e-14 | velocity gradient (s^-1) of the C I escape probabilities, NL99's 1 km/s/pc |
 | `pdv_work` | 0 | compressional heating (erg cm^-3 s^-1) |
 
+`G_0` is the field incident on the cloud; the model attenuates it with `A_V` and `tau_uv`. This differs from the
+starforge models, whose `G_0` is the local, already attenuated field. GIZMO's host fills none of `A_V`, `tau_uv`,
+`N_CO`, `N_H2` and `dv_dr`, and stores none of the evolved species, so this is a reference model for `Model.solve`
+and for `jaco.onezone`. There, run it with `OneZone(make_model(), params=..., host="plain")`: the default GIZMO host
+closures would overwrite `G_0` with an attenuated field, which the model would then attenuate again.
+
+The two-body rates carry no clumping factor (`C_2` is fixed at 1), as in the paper.
+
 ## Chemistry (`chemistry.py`)
 
 Rate coefficients are NL99 Table 2 as printed, in T (K), not T/300: two-body in cm^3 s^-1 and the cosmic-ray and photo

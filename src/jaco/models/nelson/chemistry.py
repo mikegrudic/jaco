@@ -69,7 +69,7 @@ def reactions():
     add("HCO+ + e- -> CO", 3.3e-5  * T**-1.0, "HCO+ + e- -> CO + H")
     add("Mg+ + e- -> Mg",  3.8e-10 * T**-0.65)
 
-    # charge transfer
+    # charge transfer. The e- product is as Table 2 prints it; it has no effect, since e- follows from charge neutrality
     add("H3+ + Mg -> Mg+ + e- + H_2", 2e-9)
 
     # photoreactions

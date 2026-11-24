@@ -471,3 +471,11 @@ def test_coupled_timestep_balances_chemistry_and_energy(model):
     rho = float(eos.density.xreplace(final_state))
     assert rho * (final["u"] - u0) / dt == approx(heat)
     assert final["u"] == approx(float(eos.internal_energy.xreplace(final_state)))
+
+
+def test_two_body_rates_carry_no_clumping(model):
+    """The reactions carry jaco's default clumping factor, which the model fixes at 1: the solved system has no C_2
+    for a host to leave unset"""
+    C_2 = sp.Symbol("C_2")
+    assert C_2 in model.network.symbols
+    assert C_2 not in model.network.reduced({}, list(model.time_dependent)).symbols

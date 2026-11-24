@@ -57,6 +57,7 @@ def make_model():
         solve_vars     = ["u", "T", *SOLVED],
         time_dependent = ["T", *SOLVED],
         fixed          = {"H_2": H2_PER_H},
+        derived        = {"C_2": sp.S.One},  # NL99 has no clumping; a host that leaves C_2 unset would zero the chemistry
         parameters     = PARAMETERS,
         species        = [Species(s, doc=DOCS.get(s, "")) for s in MATERIAL]
     )
