@@ -1,6 +1,6 @@
 """Implementation of free-free emission as a 2-body process"""
 
-from .nbody_process import NBodyProcess
+from .thermal_process import ThermalTerm, collisional_thermal_term
 from ..species_strings import species_charge
 from ..symbols import T
 import sympy as sp
@@ -11,8 +11,8 @@ def gaunt_factor(T):
     return 1.1 + 0.34 * sp.exp(-((5.5 - sp.log(T) / sp.log(10)) ** 2) / 3.0)  # 1996ApJS..105...19K
 
 
-def FreeFreeEmission(ion: str) -> NBodyProcess:
-    """Returns a free-free emisison process (i.e. bremmsstrahlung) for the input ion
+def FreeFreeEmission(ion: str) -> ThermalTerm:
+    """Free-free emission (bremsstrahlung) of electrons on the cation ion
 
     Parameters
     ----------
@@ -21,12 +21,11 @@ def FreeFreeEmission(ion: str) -> NBodyProcess:
 
     Returns
     -------
-    process: NBodyProcess
-        `NBodyProcess` instance describing the cooling process
+    process: ThermalTerm
+        Two-body cooling term of ion and e-
     """
-    process = NBodyProcess({ion, "e-"}, bibliography=["1978ppim.book.....S"], name=f"Free-free emission from {ion}")
     charge = species_charge(ion)
     if charge <= 0:
         raise ValueError(f"{ion} does not appear to be a cation - cannot do bremmstrahlung.")
-    process.heat_rate_coefficient = -1.42e-27 * gaunt_factor(T) * charge**2 * sp.sqrt(T)  # 1996ApJS..105...19K
-    return process
+    return collisional_thermal_term((ion, "e-"), -1.42e-27 * gaunt_factor(T) * charge**2 * sp.sqrt(T),  # 1996ApJS..105...19K
+                                    name=f"Free-free emission from {ion}", bibliography=["1978ppim.book.....S"])

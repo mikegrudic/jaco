@@ -1,7 +1,7 @@
 """Implementation of dissociation by cosmic rays"""
 
 from ..symbols import cosmicray_ionization_rate_H
-from jaco.processes import ChemicalReaction
+from jaco.processes import Reaction
 
 
 def cosmic_ray_dissociation(species):
@@ -9,6 +9,6 @@ def cosmic_ray_dissociation(species):
     match species:
         case "H_2":
             rate = cosmicray_ionization_rate_H
-            return ChemicalReaction(
+            return Reaction(
                 "H_2 -> H + H", rate, name="Dissociation of H_2 by cosmic rays", bibliography=["2016ApJ...831...18C"]
             )

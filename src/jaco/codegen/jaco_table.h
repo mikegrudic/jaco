@@ -1,0 +1,197 @@
+#pragma once
+// Runtime table interpolation for large 2D/3D tables. The data arrays are filled at startup
+// (see jaco_init_tables in the generated jaco_util source); axis metadata is baked in by codegen.
+
+#include <stdlib.h>
+#include <math.h>
+
+#ifdef __CUDACC__
+#define JACO_TABLE_FUNC __host__ __device__ __forceinline__
+#else
+#define JACO_TABLE_FUNC static inline
+#endif
+
+// --- 2D Table ---
+
+typedef struct {
+    double *data;      // row-major [n0 * n1]
+    double min0, max0; // axis 0 range
+    double min1, max1; // axis 1 range
+    int n0, n1;        // axis sizes
+    int log0, log1;    // 1 if axis is log-spaced
+} JacoTable2D;
+
+// Bilinear interpolation with optional gradient computation.
+// Pass NULL for grad_x0/grad_x1 if gradients are not needed.
+JACO_TABLE_FUNC double jaco_table2d_eval(double x0, double x1, const JacoTable2D* t,
+                                          double* grad_x0, double* grad_x1) {
+    double v0 = t->log0 ? log(x0) : x0;
+    double v1 = t->log1 ? log(x1) : x1;
+    double lo0 = t->log0 ? log(t->min0) : t->min0;
+    double hi0 = t->log0 ? log(t->max0) : t->max0;
+    double lo1 = t->log1 ? log(t->min1) : t->min1;
+    double hi1 = t->log1 ? log(t->max1) : t->max1;
+
+    double dx = (hi0 - lo0) / (t->n0 - 1);
+    double dy = (hi1 - lo1) / (t->n1 - 1);
+    double fx = (v0 - lo0) / dx;
+    double fy = (v1 - lo1) / dy;
+
+    // A query outside the table is clamped to the edge, so the interpolant is
+    // constant along that axis there and its gradient must be zero, not the
+    // edge cell's slope: Newton solvers need the derivative of what is returned.
+    int cl0 = 0, cl1 = 0;
+    if (fx < 0) { fx = 0; cl0 = 1; }
+    if (fx > t->n0 - 1) { fx = t->n0 - 1; cl0 = 1; }
+    if (fy < 0) { fy = 0; cl1 = 1; }
+    if (fy > t->n1 - 1) { fy = t->n1 - 1; cl1 = 1; }
+
+    int ix = (int)fx; if (ix >= t->n0 - 1) ix = t->n0 - 2;
+    int iy = (int)fy; if (iy >= t->n1 - 1) iy = t->n1 - 2;
+    double tx = fx - ix;
+    double ty = fy - iy;
+
+    double f00 = t->data[ix * t->n1 + iy];
+    double f10 = t->data[(ix + 1) * t->n1 + iy];
+    double f01 = t->data[ix * t->n1 + (iy + 1)];
+    double f11 = t->data[(ix + 1) * t->n1 + (iy + 1)];
+
+    double val = (1-tx)*(1-ty)*f00 + tx*(1-ty)*f10 + (1-tx)*ty*f01 + tx*ty*f11;
+
+    if (grad_x0) {
+        double df_dtx = -(1-ty)*f00 + (1-ty)*f10 - ty*f01 + ty*f11;
+        *grad_x0 = cl0 ? 0.0 : df_dtx / dx * (t->log0 ? 1.0 / x0 : 1.0);
+    }
+    if (grad_x1) {
+        double df_dty = -(1-tx)*f00 - tx*f10 + (1-tx)*f01 + tx*f11;
+        *grad_x1 = cl1 ? 0.0 : df_dty / dy * (t->log1 ? 1.0 / x1 : 1.0);
+    }
+    return val;
+}
+
+// Convenience wrappers
+JACO_TABLE_FUNC double jaco_table2d_interp(double x0, double x1, const JacoTable2D* t) {
+    return jaco_table2d_eval(x0, x1, t, NULL, NULL);
+}
+JACO_TABLE_FUNC double jaco_table2d_interp_dx(double x0, double x1, const JacoTable2D* t) {
+    double g; jaco_table2d_eval(x0, x1, t, &g, NULL); return g;
+}
+JACO_TABLE_FUNC double jaco_table2d_interp_dy(double x0, double x1, const JacoTable2D* t) {
+    double g; jaco_table2d_eval(x0, x1, t, NULL, &g); return g;
+}
+
+// --- 3D Table ---
+
+typedef struct {
+    double *data;      // row-major [n0 * n1 * n2]
+    double min0, max0;
+    double min1, max1;
+    double min2, max2;
+    int n0, n1, n2;
+    int log0, log1, log2;
+} JacoTable3D;
+
+// Trilinear interpolation with optional gradient computation.
+// Pass NULL for any grad pointer if that gradient is not needed.
+JACO_TABLE_FUNC double jaco_table3d_eval(double x0, double x1, double x2, const JacoTable3D* t,
+                                          double* grad_x0, double* grad_x1, double* grad_x2) {
+    double v0 = t->log0 ? log(x0) : x0;
+    double v1 = t->log1 ? log(x1) : x1;
+    double v2 = t->log2 ? log(x2) : x2;
+    double lo0 = t->log0 ? log(t->min0) : t->min0;
+    double hi0 = t->log0 ? log(t->max0) : t->max0;
+    double lo1 = t->log1 ? log(t->min1) : t->min1;
+    double hi1 = t->log1 ? log(t->max1) : t->max1;
+    double lo2 = t->log2 ? log(t->min2) : t->min2;
+    double hi2 = t->log2 ? log(t->max2) : t->max2;
+
+    double dx = (hi0 - lo0) / (t->n0 - 1);
+    double dy = (hi1 - lo1) / (t->n1 - 1);
+    double dz = (hi2 - lo2) / (t->n2 - 1);
+    double fx = (v0 - lo0) / dx;
+    double fy = (v1 - lo1) / dy;
+    double fz = (v2 - lo2) / dz;
+
+    int cl0 = 0, cl1 = 0, cl2 = 0; // clamped axes get a zero gradient (see the 2D case)
+    if (fx < 0) { fx = 0; cl0 = 1; }
+    if (fx > t->n0 - 1) { fx = t->n0 - 1; cl0 = 1; }
+    if (fy < 0) { fy = 0; cl1 = 1; }
+    if (fy > t->n1 - 1) { fy = t->n1 - 1; cl1 = 1; }
+    if (fz < 0) { fz = 0; cl2 = 1; }
+    if (fz > t->n2 - 1) { fz = t->n2 - 1; cl2 = 1; }
+
+    int ix = (int)fx; if (ix >= t->n0 - 1) ix = t->n0 - 2;
+    int iy = (int)fy; if (iy >= t->n1 - 1) iy = t->n1 - 2;
+    int iz = (int)fz; if (iz >= t->n2 - 1) iz = t->n2 - 2;
+    double tx = fx - ix, ty = fy - iy, tz = fz - iz;
+
+    int s1 = t->n2, s0 = t->n1 * t->n2;
+    #define D(i,j,k) t->data[(ix+(i))*s0 + (iy+(j))*s1 + (iz+(k))]
+
+    double val =
+        (1-tx)*(1-ty)*(1-tz)*D(0,0,0) + tx*(1-ty)*(1-tz)*D(1,0,0)
+      + (1-tx)*ty*(1-tz)*D(0,1,0)     + tx*ty*(1-tz)*D(1,1,0)
+      + (1-tx)*(1-ty)*tz*D(0,0,1)     + tx*(1-ty)*tz*D(1,0,1)
+      + (1-tx)*ty*tz*D(0,1,1)         + tx*ty*tz*D(1,1,1);
+
+    if (grad_x0) {
+        double df_dtx =
+            -(1-ty)*(1-tz)*D(0,0,0) + (1-ty)*(1-tz)*D(1,0,0)
+          - ty*(1-tz)*D(0,1,0)      + ty*(1-tz)*D(1,1,0)
+          - (1-ty)*tz*D(0,0,1)      + (1-ty)*tz*D(1,0,1)
+          - ty*tz*D(0,1,1)          + ty*tz*D(1,1,1);
+        *grad_x0 = cl0 ? 0.0 : df_dtx / dx * (t->log0 ? 1.0 / x0 : 1.0);
+    }
+    if (grad_x1) {
+        double df_dty =
+            -(1-tx)*(1-tz)*D(0,0,0) - tx*(1-tz)*D(1,0,0)
+          + (1-tx)*(1-tz)*D(0,1,0)  + tx*(1-tz)*D(1,1,0)
+          - (1-tx)*tz*D(0,0,1)      - tx*tz*D(1,0,1)
+          + (1-tx)*tz*D(0,1,1)      + tx*tz*D(1,1,1);
+        *grad_x1 = cl1 ? 0.0 : df_dty / dy * (t->log1 ? 1.0 / x1 : 1.0);
+    }
+    if (grad_x2) {
+        double df_dtz =
+            -(1-tx)*(1-ty)*D(0,0,0) - tx*(1-ty)*D(1,0,0)
+          - (1-tx)*ty*D(0,1,0)      - tx*ty*D(1,1,0)
+          + (1-tx)*(1-ty)*D(0,0,1)  + tx*(1-ty)*D(1,0,1)
+          + (1-tx)*ty*D(0,1,1)      + tx*ty*D(1,1,1);
+        *grad_x2 = cl2 ? 0.0 : df_dtz / dz * (t->log2 ? 1.0 / x2 : 1.0);
+    }
+
+    #undef D
+    return val;
+}
+
+// Convenience wrappers
+JACO_TABLE_FUNC double jaco_table3d_interp(double x0, double x1, double x2, const JacoTable3D* t) {
+    return jaco_table3d_eval(x0, x1, x2, t, NULL, NULL, NULL);
+}
+JACO_TABLE_FUNC double jaco_table3d_interp_dx(double x0, double x1, double x2, const JacoTable3D* t) {
+    double g; jaco_table3d_eval(x0, x1, x2, t, &g, NULL, NULL); return g;
+}
+JACO_TABLE_FUNC double jaco_table3d_interp_dy(double x0, double x1, double x2, const JacoTable3D* t) {
+    double g; jaco_table3d_eval(x0, x1, x2, t, NULL, &g, NULL); return g;
+}
+JACO_TABLE_FUNC double jaco_table3d_interp_dz(double x0, double x1, double x2, const JacoTable3D* t) {
+    double g; jaco_table3d_eval(x0, x1, x2, t, NULL, NULL, &g); return g;
+}
+
+#ifdef __CUDACC__
+// Copy a loaded table to device memory
+__host__ static JacoTable2D jaco_table2d_to_device(const JacoTable2D* host) {
+    JacoTable2D dev = *host;
+    size_t bytes = host->n0 * host->n1 * sizeof(double);
+    cudaMalloc(&dev.data, bytes);
+    cudaMemcpy(dev.data, host->data, bytes, cudaMemcpyHostToDevice);
+    return dev;
+}
+
+__host__ static JacoTable3D jaco_table3d_to_device(const JacoTable3D* host) {
+    JacoTable3D dev = *host;
+    size_t bytes = host->n0 * host->n1 * host->n2 * sizeof(double);
+    cudaMalloc(&dev.data, bytes);
+    cudaMemcpy(dev.data, host->data, bytes, cudaMemcpyHostToDevice);
+    return dev;
+}
+#endif

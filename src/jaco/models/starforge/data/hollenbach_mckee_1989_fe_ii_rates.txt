@@ -1,0 +1,6 @@
+# Fe+ a6D 7/2 -> a6D 9/2 collisional de-excitation (cm^3 s^-1), Hollenbach & McKee 1989, ApJ 342, 306
+# (1989ApJ...342..306H), as tabulated by Maio et al. 2007 (Appendix B) and Grassi et al. 2014 (Table B4), which agree.
+# Columns and forms as glover_jappsen_2007_table6.txt.
+# coolant  collider  transition  T-range  refs  form  coefficients
+Fe+  H     1->0  all  HM89  const  9.5e-10
+Fe+  e-    1->0  all  HM89  pow2   1.8e-6 -0.5

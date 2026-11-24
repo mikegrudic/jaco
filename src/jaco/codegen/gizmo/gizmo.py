@@ -1,50 +1,50 @@
-"""Routines for generating a cooling solver function for GIZMO"""
+"""Command-line entry point: generate GIZMO's JACO microphysics sources for a jaco model.
 
-from jaco.models.wind_comparison import cooling, heating
-from sympy.utilities.codegen import C99CodeGen
-from sympy.codegen.ast import Assignment
-import sympy as sp
+    python -m jaco.codegen.gizmo.gizmo starforge --language c --ext .cc --output-dir cooling
+
+The model is ``jaco.models.<model>``; it must provide ``make_model()``, returning a :class:`jaco.model.Model` (which
+declares its solve variables), and may set ``GIZMO_FAMILY``, the name of the host-code family macro
+JACO_FAMILY_<FAMILY> for models that share GIZMO's code paths (default: the model name).
+"""
+
+import argparse
+import sys
+from importlib import import_module
 
 
-def generate_funcjac_code(system, cse=True):
-    """Generates a .h and .c pair of C source files specifying the function funcjac"""
+def _split(s):
+    return [v for v in s.split(",") if v] if s else None
 
-    system = cooling + heating
-    system.heat += sp.Symbol("pdv_work")
-    solve_vars = ["u", "T"]
-    time_dependent = ["T"]
-    func, jac, indices = system.solver_functions(solve_vars, time_dependent, return_jac=True)
-    # TODO: keep track of which func element is the heat equation - need this to generate cooling function
-    funcjac = sp.Matrix(func + sp.flatten(jac))
-    X = sp.MatrixSymbol("X", len(indices), 1)
 
-    index_defs = []
-    for var in indices:
-        funcjac = funcjac.subs(var, X[indices[var]])
-        index_defs.append(f"#define INDEX_{var} {indices[var]}")
-    paramsvars = funcjac.free_symbols.copy()
-    paramsvars.remove(X)
-    P = sp.MatrixSymbol("params", len(paramsvars), 1)
-    assignments = []
-    for i, p in enumerate(paramsvars):
-        funcjac = funcjac.subs(p, P[i])
-        assignments.append(Assignment(P[i], p))
-        index_defs.append(f"#define INDEX_{p} {i}")
-    cg = C99CodeGen(cse=cse)
-    routine = cg.routine("microphysics_func_jac", funcjac)  # cg.routine("func",sp.Matrix(func + sp.flatten(jac)))
-    cg.write([routine], "microphysics_func_jac", to_files=True)
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="Generate jaco microphysics sources for GIZMO")
+    parser.add_argument("model", help="model name, i.e. a module jaco.models.<model> (e.g. starforge)")
+    parser.add_argument("--language", default="c", help="c, c++, cuda, python or julia (default: c)")
+    parser.add_argument("--ext", default=None, help="source file extension, e.g. .cc")
+    parser.add_argument("--output-dir", default=".", help="directory for the generated files")
+    parser.add_argument("--jac-mode", default="symbolic", help="symbolic or autodiff")
+    parser.add_argument("--solve-vars", default=None, help="comma-separated override of the model's solve variables")
+    parser.add_argument("--time-dependent", default=None,
+                        help="comma-separated override of the model's time-dependent variables")
+    args = parser.parse_args(argv)
 
-    with open("indices.h", "w") as F:
-        for i in index_defs:
-            F.write(i + "\n")
-        F.write(f"#define NUM_VARS {len(indices)}")
+    model_mod = import_module(f"jaco.models.{args.model}")
+    if not hasattr(model_mod, "make_model"):
+        sys.exit(f"jaco.models.{args.model} has no make_model()")
+    from . import generate_funcjac_code
 
-    with open("assignments.h", "w") as F:
-        F.write(f"double params[{len(paramsvars)}];\n")
-        F.write(sp.ccode(Assignment(P, sp.Matrix(list(paramsvars)))) + "\n")
-        F.write(f"double X[{len(indices)}];\n")
-        F.write(sp.ccode(Assignment(X, sp.Matrix(list(indices)))))
+    generate_funcjac_code(
+        model_mod.make_model(),
+        solve_vars=_split(args.solve_vars),
+        time_dependent=_split(args.time_dependent),
+        language=args.language,
+        source_ext=args.ext,
+        output_dir=args.output_dir,
+        jac_mode=args.jac_mode,
+        model_name=args.model,
+        model_family=getattr(model_mod, "GIZMO_FAMILY", args.model),
+    )
 
 
 if __name__ == "__main__":
-    generate_funcjac_code(cooling + heating, cse=True)
+    main()

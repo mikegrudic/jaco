@@ -16,12 +16,25 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-  "jax", "sympy", "numpy", "sphinx_rtd_theme", "astropy", "matplotlib", "periodictable"
+  "jax", "sympy", "numpy", "scipy", "h5py", "astropy", "periodictable", "matplotlib", "numba"
 ]
 
 license = "MIT"
 license-files = ["LICEN[CS]E*"]
 
+[project.optional-dependencies]
+test = ["pytest"]
+docs = ["sphinx", "sphinx_rtd_theme"]
+
 [project.urls]
 Homepage = "https://github.com/mikegrudic/jaco"
 Issues = "https://github.com/mikegrudic/jaco/issues"
+
+[tool.setuptools.package-data]
+"jaco.models.starforge" = ["spcool_tables.hdf5", "data/*"]
+"jaco.codegen" = ["*.h"]
+
+[tool.pytest.ini_options]
+markers = [
+  "slow: takes minutes (e.g. runs the code generator for every model); deselect with -m \"not slow\"",
+]

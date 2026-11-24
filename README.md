@@ -185,7 +185,7 @@ Suppose you just want the RHS of the system you're solving, or its Jacobian, bec
 
 
 ```python
-print(system.generate_code(('H+','He+','He++'),language='c'))
+print(system.network.generate_code(('H+','He+','He++'),language='c'))
 ```
 
     /* Computes the RHS function and Jacobian to solve for [x_He+, x_H+, x_He++]

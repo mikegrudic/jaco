@@ -1,6 +1,8 @@
 import numpy as np
 from jaco.symbols import piecewise_powerlaw, T, n_
-from jaco.processes import ThermalProcess
+from jaco.processes import ThermalTerm
+from jaco.model import Model
+from jaco.declarations import Species
 import sympy as sp
 from jaco.math import logistic
 
@@ -43,6 +45,23 @@ exponent_cooling_curve = np.array(
 )
 
 
-lambda_cooling = piecewise_powerlaw(T_cooling_curve, lambda_cooling_curve, T, extrapolate=True)
-cooling = ThermalProcess(-lambda_cooling * n_("H") ** 2, name="Cooling")
-heating = ThermalProcess(2e-26 * n_("H") * logistic(-(T - 15000) / 1000), name="Heating")
+lambda_cooling = piecewise_powerlaw(T_cooling_curve, lambda_cooling_curve, T, extrapolate=True, name="lambda_cooling")
+cooling = ThermalTerm(-lambda_cooling * n_("H") ** 2, name="Cooling")
+heating = ThermalTerm(2e-26 * n_("H") * logistic(-(T - 15000) / 1000), name="Heating")
+
+
+pdv_work = ThermalTerm(sp.Symbol("pdv_work"), name="PdV work")
+
+
+def make_model():
+    """Build the wind_comparison model: simple atomic-H cooling + heating + PdV work.
+
+    A minimal model with a tabulated cooling curve, a low-temperature heating
+    floor, and an external PdV work parameter, solving u and T. Used for wind bubble tests.
+
+    Returns
+    -------
+    Model
+    """
+    return Model([cooling, heating, pdv_work], solve_vars=["u", "T"], time_dependent=["T"],
+                 species=[Species("H", doc="H atoms per H nucleus (all H is atomic)")])

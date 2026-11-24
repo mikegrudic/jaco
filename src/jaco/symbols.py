@@ -2,10 +2,12 @@
 
 import sympy as sp
 from typing import Union
-import sympy as sp
 from astropy.constants import k_B, m_p
 from astropy import units as u
 import numpy as np
+
+from jaco.interpolation import PiecewiseLinearInterp, TableInterp2D, TableInterp3D, Table
+from sympy.core.symbol import Str
 
 T = sp.Symbol("T")  # temperature
 T5 = T / 10**5
@@ -51,29 +53,53 @@ def x_(species: str):
 
 
 def BDF(species):
-    # if species in ("T", "u"):  # this is the heat equation
-    #     return rho * (internal_energy - sp.Symbol("u_0")) / dt
-    # else:
-    return (n_(species) - sp.Symbol(str(n_(species)) + "_0")) / dt
+    """Backward-difference formula for time discretization: (n_s - n_s_initial) / Δt.
+
+    The initial-value symbol uses the ``_initial`` suffix (not ``_0``) to avoid
+    confusion with species names during the n→x conversion in
+    :meth:`EquationSystem.do_conservation_reductions`. A ``_0`` suffix would be
+    misidentified as part of a species name (e.g. ``n_H_2_0`` → ``x_H_2_0``
+    treated as a species containing 2 H atoms).
+    """
+    return (n_(species) - sp.Symbol(str(n_(species)) + "_initial")) / dt
+
+
+#: Character replacements for converting sympy symbol names to valid C identifiers.
+#: Greek letters are spelled out, ∇ becomes ``grad_``, Δ becomes ``Delta_``
+#: (with trailing underscore to separate from the following character).
+_SANITIZE_REPLACEMENTS = {
+    "+": "plus", "-": "minus", ",": "_",
+    "∇": "grad_",
+    "α": "alpha", "β": "beta", "γ": "gamma", "δ": "delta", "ε": "epsilon",
+    "ζ": "zeta", "η": "eta", "θ": "theta", "ι": "iota", "κ": "kappa",
+    "λ": "lambda_", "μ": "mu", "ν": "nu", "ξ": "xi", "π": "pi",
+    "ρ": "rho", "σ": "sigma", "τ": "tau", "υ": "upsilon", "φ": "phi",
+    "χ": "chi", "ψ": "psi", "ω": "omega",
+    "Γ": "Gamma", "Δ": "Delta_", "Θ": "Theta", "Λ": "Lambda", "Ξ": "Xi",
+    "Π": "Pi", "Σ": "Sigma", "Φ": "Phi", "Ψ": "Psi", "Ω": "Omega",
+    "⍴": "rho",
+}
+
+
+def sanitize_name(name):
+    """Sanitize a string to be a valid C/C++/Fortran identifier."""
+    for old, new in _SANITIZE_REPLACEMENTS.items():
+        name = name.replace(old, new)
+    return name
 
 
 def sanitize_symbols(expr):
     """
-    Given a symbolic expression, replace all symbols with + or - in them with plus or minus
-    to avoid ambiguity or syntax errors in code generation.
+    Given a symbolic expression, replace all symbols with characters invalid in
+    C/C++/Fortran identifiers to avoid syntax errors in code generation.
     """
     if hasattr(expr, "__iter__"):  # if iterable call recursively until we get down to actual expressions
-        expr = [sanitize_symbols(e) for e in expr]
-    else:
-        for s in expr.free_symbols:
-            if "+" in str(s):
-                expr = expr.subs(s, sp.Symbol(str(s).replace("+", "plus")))
-            if "-" in str(s):
-                expr = expr.subs(s, sp.Symbol(str(s).replace("-", "minus")))
-    return expr
+        return [sanitize_symbols(e) for e in expr]
+    renames = {s: sp.Symbol(sanitize_name(str(s))) for s in expr.free_symbols if sanitize_name(str(s)) != str(s)}
+    return expr.xreplace(renames) if renames else expr
 
 
-def piecewise_linear(X, Y, x, extrapolate=False):
+def piecewise_linear(X, Y, x, extrapolate=False, name=None):
     """
     Returns a symbolic expression describing a piecewise-linear interpolant of data X and Y
 
@@ -87,28 +113,24 @@ def piecewise_linear(X, Y, x, extrapolate=False):
         Symbol for the independent variable associated with X
     extrapolate: Boolean, optional
         Whether to use a linear extrapolant past the limits, or simply limit to the outermost values
+    name: str, optional
+        Descriptive name for the interpolant, used in generated code identifiers
     """
     if not np.all(np.diff(X) > 0):
         raise ValueError("X values passed to piecewise_linear must be monotonic.")
     if len(X) != len(Y):
         raise ValueError("X and Y must have the same length.")
 
-    slopes = np.diff(Y) / np.diff(X)
-    cases = []
-    if extrapolate:
-        cases.append((Y[0] + slopes[0] * (x - X[0]), x < X[0]))
-        cases.append((Y[-1] + slopes[-1] * (x - X[-1]), x >= X[-1]))
-    else:
-        cases.append((Y[0], x < X[0]))
-        cases.append((Y[-1], x >= X[-1]))
-
-    for i in range(len(X) - 1):
-        cases.append((Y[i] + slopes[i] * (x - X[i]), (x >= X[i]) & (x < X[i + 1])))
-    #    cases.append((sp.nan, True))
-    return sp.Piecewise(*cases)
+    X_tuple = sp.Tuple(*[sp.Float(v) for v in X])
+    Y_tuple = sp.Tuple(*[sp.Float(v) for v in Y])
+    extrap_flag = sp.Integer(1 if extrapolate else 0)
+    args = [x, X_tuple, Y_tuple, extrap_flag]
+    if name is not None:
+        args.append(Str(name))
+    return PiecewiseLinearInterp(*args)
 
 
-def piecewise_powerlaw(X, Y, x, extrapolate=False):
+def piecewise_powerlaw(X, Y, x, extrapolate=False, name=None):
     """
     Returns a symbolic expression describing a piecewise-powerlaw interpolant of data X and Y
 
@@ -122,5 +144,45 @@ def piecewise_powerlaw(X, Y, x, extrapolate=False):
         Symbol for the independent variable associated with X
     extrapolate: Boolean, optional
         Whether to use a powerlaw extrapolant past the limits, or simply limit to the outermost values
+    name: str, optional
+        Descriptive name for the interpolant, used in generated code identifiers
     """
-    return sp.exp(piecewise_linear(np.log(X), np.log(Y), sp.log(x), extrapolate))
+    return sp.exp(piecewise_linear(np.log(X), np.log(Y), sp.log(x), extrapolate, name=name))
+
+
+def table_interp_2d(name, data, axes, x, y, log_axes=None):
+    """Create a symbolic 2D table interpolation expression.
+
+    Parameters
+    ----------
+    name : str
+        Name of the table in the generated code; distinct tables of one model need distinct names.
+    data : np.ndarray
+        2D array of shape (n_axis0, n_axis1).
+    axes : list of np.ndarray
+        [axis0_values, axis1_values], each uniformly spaced (linear or log).
+    x, y : sympy expressions
+        Interpolation variables corresponding to axis0 and axis1.
+    log_axes : list of bool, optional
+        Whether each axis is log-spaced.
+    """
+    return TableInterp2D(x, y, Table(name, data, axes, log_axes))
+
+
+def table_interp_3d(name, data, axes, x, y, z, log_axes=None):
+    """Create a symbolic 3D table interpolation expression.
+
+    Parameters
+    ----------
+    name : str
+        Name of the table in the generated code; distinct tables of one model need distinct names.
+    data : np.ndarray
+        3D array of shape (n_axis0, n_axis1, n_axis2).
+    axes : list of np.ndarray
+        [axis0_values, axis1_values, axis2_values].
+    x, y, z : sympy expressions
+        Interpolation variables corresponding to axis0, axis1, axis2.
+    log_axes : list of bool, optional
+        Whether each axis is log-spaced.
+    """
+    return TableInterp3D(x, y, z, Table(name, data, axes, log_axes))
