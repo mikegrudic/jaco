@@ -98,11 +98,17 @@ def carbon_abundances():
     return {"C+": x_gas("C") * f_Cp, "CO": sp.Max(1e-30, x_gas("C") * (1 - f_Cp) * 2 * x_("H_2"))}
 
 
-def make_model(chemical_heat=True, optically_thick=True, three_body_detailed_balance=False):
+def make_model(chemical_heat=True, optically_thick=True, three_body_detailed_balance=False, ionization="equilibrium"):
     """The STARFORGE model. chemical_heat: the gas takes the heat of H2 formation and pays that of dissociation;
     optically_thick: GIZMO's optically-thick limit on the cooling (optically_thick.py), which a model without a
     transported IR band needs in any gas dense enough to trap its cooling radiation; three_body_detailed_balance:
-    three-body H2 formation by detailed balance with the dissociation (h2_chemistry/detailed_balance.py)"""
+    three-body H2 formation by detailed balance with the dissociation (h2_chemistry/detailed_balance.py);
+    ionization: "equilibrium" solves H+, He+, He++ in steady state at each step (GIZMO's convention without
+    RT_CHEM_PHOTOION), "time-dependent" integrates them like H2 and T, so a recombining gas keeps its electrons over
+    a recombination time (decisive for H2 formation through H- in metal-free gas)"""
+    if ionization not in ("equilibrium", "time-dependent"):
+        raise ValueError(f"ionization must be 'equilibrium' or 'time-dependent', not {ionization!r}")
+    time_dependent = TIME_DEPENDENT if ionization == "equilibrium" else TIME_DEPENDENT + ("H+", "He+", "He++")
     ion_processes, intermediates, fixed_electrons = ionization_processes()
     h2_chemistry = h2_chemistry_processes(chemical_heat=chemical_heat,
                                           three_body_detailed_balance=three_body_detailed_balance)
@@ -113,7 +119,7 @@ def make_model(chemical_heat=True, optically_thick=True, three_body_detailed_bal
         + h2_formation_radiation(h2_chemistry)
         + [pdv_work],
         solve_vars=SOLVE_VARS,
-        time_dependent=TIME_DEPENDENT,
+        time_dependent=time_dependent,
         steady_state=["H-"],
         fixed={
             "H_2+": sp.S.Zero,  # negligible in ISM conditions
