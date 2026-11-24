@@ -218,6 +218,7 @@ def compile_source(src, backend="numba", func_name="evaluate"):
         import hashlib
         import importlib.util
         import os
+        import numba  # noqa: F401  (the generated module imports it: fail here, before anything is written to the cache)
         src = "import numba\n" + src
         src = src.replace("\ndef jaco_", "\n@numba.njit(cache=True, error_model='numpy')\ndef jaco_")
         src = src.replace(f"\ndef {func_name}(", f"\n@numba.njit(cache=True, error_model='numpy')\ndef {func_name}(")

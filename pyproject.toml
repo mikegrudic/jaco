@@ -16,7 +16,7 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-  "jax", "sympy", "numpy", "scipy", "h5py", "astropy", "periodictable", "matplotlib"
+  "jax", "sympy", "numpy", "scipy", "h5py", "astropy", "periodictable", "matplotlib", "numba"
 ]
 
 license = "MIT"
