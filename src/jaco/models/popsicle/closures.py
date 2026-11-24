@@ -1,4 +1,4 @@
-"""One-zone closures, abundances and initial state of Menon et al. 2025's collapse test (KROME driver
+"""One-zone closures, abundances and initial state of Menon et al. 2026's collapse test (KROME driver
 popsicle_semenov_photo_cr_full_collapseTest/test.f90), for jaco.onezone.OneZone with this model.
 
     zone = OneZone(make_model(), params=parameters(Z), closures=PopsicleClosures.DEFAULT, host="plain")

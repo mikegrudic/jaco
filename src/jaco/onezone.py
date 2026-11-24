@@ -22,7 +22,7 @@ heating is pdv_work = P d ln rho/dt per unit volume, the velocity gradient is |d
 with lambda_J = sqrt(pi c_s^2 / (G rho)). Everything else the model reads (radiation field, cosmic rays, metal
 abundances, the dust's ISRF absorption, the optically-thick opacity) is the model's default or the caller's `params`;
 `closures` replaces any of the built-in prescriptions by a function of the state. The free-fall mode (Omukai 2000;
-Glover & Jappsen 2007; Menon et al. 2025, Fig. 2) integrates in s = ln(n/n0), so the exponential density growth adds
+Glover & Jappsen 2007; Menon et al. 2026, Fig. 2) integrates in s = ln(n/n0), so the exponential density growth adds
 no stiffness; the others integrate in time.
 
 free_fall_steps instead takes one backward-Euler step of the model per Delta_t (OdeSystem(step=True).solve_step), in

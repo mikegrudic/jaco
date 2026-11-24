@@ -1,4 +1,4 @@
-"""Rate coefficients and shielding functions of the POPSICLE KROME network of Menon et al. (2025), as its reaction file
+"""Rate coefficients and shielding functions of the POPSICLE KROME network of Menon et al. (2026), as its reaction file
 (react_popsicle_semenov_photo_cr_full) and its collapse-test driver write them. Numbers in the comments are that
 network's reaction indices. T in K."""
 

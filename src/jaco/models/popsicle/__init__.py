@@ -1,8 +1,11 @@
-"""POPSICLE: Menon et al. 2025's (arXiv:2610.17577) thermochemistry as their one-zone collapse test runs it (KROME
+"""POPSICLE: Menon et al. 2026's (arXiv:2610.17577) thermochemistry as their one-zone collapse test runs it (KROME
 network react_popsicle_semenov_photo_cr_full, driver tests/popsicle_semenov_photo_cr_full_collapseTest/test.f90),
 for the free-fall comparison with their Fig. 2. A one-zone model, not a GIZMO model: its photo- and cosmic-ray inputs
 (chi_0, Gamma_ion0, zeta_CR, lambda_J) are parameters GIZMO's host does not fill; closures.PopsicleClosures supplies
 them. Where the paper and the code disagree the code is followed, since the code reproduces Fig. 2.
+
+Paper: Menon, Sharda, Burkhart & Grassi 2026, "Non-equilibrium chemistry and radiation hydrodynamics in metal-poor and
+metal-rich interstellar gas", arXiv:2610.17577 (v1, submitted to AAS Journals).
 
 Taken from starforge: Lyman-alpha and He+ line cooling, collisional ionization, He recombination, free-free, Compton,
 Kim+23 nebular cooling (on), the [CII]/[CI]/[OI] lines (with KROME's DESPOTIC optical-depth factors), CO cooling, the

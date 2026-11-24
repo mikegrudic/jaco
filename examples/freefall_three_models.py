@@ -1,5 +1,5 @@
 """Free-fall collapse of one parcel in three models: nelson (Nelson & Langer 1999), starforge, and popsicle (Menon et
-al. 2025's KROME network), with jaco.onezone.
+al. 2026's KROME network), with jaco.onezone.
 
     python examples/freefall_three_models.py -o freefall_three_models.png --save tracks.npz
 
@@ -24,7 +24,7 @@ from concurrent.futures import ProcessPoolExecutor
 import numpy as np
 
 N0, T0 = 0.1, 300.0
-LABELS = {"nelson": "Nelson & Langer 1999", "starforge": "starforge", "popsicle": "popsicle (Menon+25)"}
+LABELS = {"nelson": "Nelson & Langer 1999", "starforge": "starforge", "popsicle": "popsicle (Menon+26)"}
 COLORS = {"nelson": "#1b6e8a", "starforge": "#c0392b", "popsicle": "#444444"}
 
 

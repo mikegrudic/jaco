@@ -1,4 +1,4 @@
-"""The processes of the popsicle model that differ from starforge's: Menon et al. 2025's KROME network and
+"""The processes of the popsicle model that differ from starforge's: Menon et al. 2026's KROME network and
 thermal terms as their collapse test runs them (see __init__ for the inventory)."""
 
 import numpy as np
@@ -10,7 +10,7 @@ from ..starforge.h2_chemistry.grain_formation import H2_dust_formation_rate
 from . import rates as r
 from .rates import EV, h2heatfac
 
-KROME = "2026arXiv261017577M"  # Menon et al. 2025 (KROME POPSICLE network)
+KROME = "2026arXiv261017577M"  # Menon, Sharda, Burkhart & Grassi 2026 (KROME POPSICLE network)
 SIGMA_SB = 5.670374e-5
 
 chi_0 = sp.Symbol("chi_0")  # field strength in Draine units
