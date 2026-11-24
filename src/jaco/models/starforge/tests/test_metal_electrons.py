@@ -133,3 +133,36 @@ def test_nonsolar_carbon_and_oxygen_electrons():
     expected, _ = G.metal_electrons(**gz)
     total, _ = evaluate_metal_electrons(args)
     assert total == pytest.approx(expected, rel=1e-2)
+
+
+def _chain(inter, total, values):
+    """the intermediates in order, then the total, with C semantics, at a state given as {symbol: value}"""
+    vals = dict(values)
+    for w, W in inter:
+        free = sorted(sp.sympify(W).free_symbols, key=str)
+        vals[w] = float(c_lambdify(free, W)(*[vals[s] for s in free]))
+    free = sorted(sp.sympify(total).free_symbols, key=str)
+    return {str(w): vals[w] for w, _ in inter}, float(c_lambdify(free, total)(*[vals[s] for s in free]))
+
+
+@pytest.mark.parametrize("Tv,nH,xHp,xH2", [(300.0, 0.1, 1e-4, 1.1e-6),  # Menon et al. (2026)'s collapse start
+                                           (8000.0, 1e3, 1e-3, 0.0),  # warm atomic
+                                           (1000.0, 1e10, 1e-20, 0.4999)])  # dense molecular, H+ at its floor
+@pytest.mark.parametrize("model", ["starforge", "starforge_legacy"])
+def test_no_metal_electrons_at_zero_metallicity(model, Tv, nH, xHp, xH2):
+    """Z = 0 with nothing ionizing the metals (no FUV, no ISRF, so no cosmic rays either): the metals' electron solve,
+    a Newton iteration in the logarithm of the metal ions, has an ion sum (starforge) or a C+ fraction (starforge_legacy)
+    of exactly 0. The floor inside the logarithm keeps every intermediate finite (they were -inf and nan, which reached
+    the EOS density), and the metals then give no electrons"""
+    from ..ionization_balance import solved_electrons
+    from ..symbols import cosmicray_ionization_rate_H
+    inter, total = solved_electrons()[:2] if model == "starforge" else metal_electrons()
+    zero = {T: Tv, n_Htot: nH, G_0: 0.0, NH: nH * 3e19, Z_dust: 0.0, f_dust: 1.0, ISRF: 0.0, X_H: 0.76,
+            x_C_tot: 0.0, x_O_tot: 0.0, x_("Fe"): 0.0, sp.Symbol("x_Mg"): 0.0, sp.Symbol("C_2"): 1.0,
+            x_("H+"): xHp, x_("He+"): 1e-3 * xHp, x_("He++"): 1e-6 * xHp, x_("H_2"): xH2}
+    zeta = float(c_lambdify(sorted(cosmicray_ionization_rate_H.free_symbols, key=str), cosmicray_ionization_rate_H)(
+        *[zero[s] for s in sorted(cosmicray_ionization_rate_H.free_symbols, key=str)]))
+    assert zeta == 0  # the premise: nothing ionizes the metals
+    values, e_metals = _chain(inter, total, zero)
+    assert all(np.isfinite(v) for v in values.values()), {k: v for k, v in values.items() if not np.isfinite(v)}
+    assert np.isfinite(e_metals) and 0 <= e_metals < 1e-30
