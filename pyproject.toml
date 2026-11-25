@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "jaco"
-version = "0.2.0"
+version = "0.2.1"
 authors = [
   { name="Mike Grudić", email="mike.grudic@gmail.com" },
 ]
@@ -32,6 +32,7 @@ Issues = "https://github.com/mikegrudic/jaco/issues"
 
 [tool.setuptools.package-data]
 "jaco.models.starforge" = ["spcool_tables.hdf5", "data/*"]
+"jaco.models.popsicle" = ["data/*"]
 "jaco.codegen" = ["*.h"]
 
 [tool.pytest.ini_options]
